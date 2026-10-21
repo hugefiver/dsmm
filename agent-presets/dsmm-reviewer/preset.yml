@@ -1,0 +1,3 @@
+id: dsmm-reviewer
+name: 'DW Reviewer'
+description: 'Read-only primary-lane self-reviewer for implementation acceptance and focused code-quality verification.'

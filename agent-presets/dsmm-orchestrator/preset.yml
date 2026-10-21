@@ -1,0 +1,3 @@
+id: dsmm-orchestrator
+name: 'DW Orchestrator'
+description: 'Main coordinator. Decomposes work, delegates to specialists, verifies results, and uses a model configured for broad coordination.'

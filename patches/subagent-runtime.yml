@@ -1,0 +1,15 @@
+# Explicit cold-start overlay; never applied by the default bundle patch.
+# The stock name is an identity assertion, not a replacement/rename operation.
+# Keep spawn, fork, model controls and Gateway entries in their existing scope.
+# Copy any explicit stock capacity/depth Config into the new row before restart.
+- id: subagent
+  name: '@deepseek-ai/dsh-subagent'
+  disabled: true
+- insert:
+    - id: dsmm-subagent-runtime
+      name: '@dsmm/dsmm/subagent-runtime'
+      inject: [agents]
+      config: {}
+- id: dsmm
+  name: '@dsmm/dsmm'
+  inject: [subagents]

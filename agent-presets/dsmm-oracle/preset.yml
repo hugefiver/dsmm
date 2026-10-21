@@ -1,0 +1,3 @@
+id: dsmm-oracle
+name: 'DW Oracle'
+description: 'Read-only external-model cross-check for implementation acceptance and focused code-quality verification. Uses a configured heterogeneous review lane by default.'

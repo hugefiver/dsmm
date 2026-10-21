@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - "**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build
+        run: pnpm run build
+      - name: Typecheck
+        run: pnpm run typecheck
+      - name: Test
+        run: pnpm run test:run
+      - name: Check frontend resources
+        run: pnpm run check:frontend
+      - name: Check generated roles
+        run: pnpm run check:roles
+      - name: Pack
+        run: |
+          mkdir -p "$RUNNER_TEMP/dsmm-pack"
+          pnpm pack --pack-destination "$RUNNER_TEMP/dsmm-pack"

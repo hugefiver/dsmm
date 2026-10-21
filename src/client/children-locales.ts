@@ -1,0 +1,67 @@
+import type { RoleControlDisabledReason } from "../role-control-types.js";
+export const CHILDREN_NS = "conversation.dsmm-children";
+export const childrenEn = {
+  title: "Deepwork children", description: "Observed native runs and child conversations. Refresh for current state; receipts are not completion.",
+  refresh: "Refresh", reading: "Reading…", pending: "Request pending…", noSession: "No native session scope. Child controls are unavailable.",
+  unavailable: "Observation unavailable. Reconnect and refresh; no action was inferred.", stale: "Previous observation only. Refresh before controlling this session.", foreign: "This view does not own the current native session scope.",
+  session: "Session", epoch: "Parent admission epoch", runs: "One-shot runs", children: "Direct children", descendants: "Descendant inspection",
+  emptyRuns: "No observed runs.", emptyChildren: "No observed direct children.", emptyDescendants: "No observed descendants.", treeUnavailable: "Descendants unavailable; this is not an empty successful listing.",
+  runState: "Last observed run state", activity: "Observed residency/activity (not completion)", starting: "Starting: native invocation identity has not been published.",
+  backgroundHint: "Choose background delivery when starting a task. Running tasks cannot change delivery ownership. Cold children are inspection-only.",
+  role: "Role", level: "Invocation level", mode: "Mode", reportedRoute: "Reported invocation route · compatibility projection, not comparison", routeSource: "Invocation route source · compatibility projection", routeUnreported: "Not reported; no root-route inference.",
+  initialRoute: "Initial route", liveRoute: "Latest own native request route", routeUnknown: "Unknown", initialRouteSource: "Initial route source", liveRouteSource: "Latest request route source", initialRouteReason: "Initial route unknown reason", liveRouteReason: "Latest request route unknown reason",
+  comparisonUnobserved: "Route comparison has not been observed. No initial or latest request route is inferred.", routeCaptureSource: "Original invocation capture", routeOwnHeaderSource: "This child's own native request header",
+  routeMissingCapture: "Original invocation capture is missing.", routeNoOwnHeader: "No own native request header has been observed yet.", routeInvalidOwnHeader: "The observed own native request header is invalid.", routeNotObserved: "The child's own native request route was not observed.",
+  invocationUnavailable: "Invocation capture unavailable; role and level are not inferred. Native request observation is separate.",
+  runId: "Run ID", childId: "Child ID", jobId: "Job ID", toolCallId: "Tool call ID", parentId: "Direct parent ID", depth: "Depth", subtree: "Child catalog contains descendants", yes: "Yes", no: "No",
+  readonly: "Inspection only", oneShot: "One-shot children cannot be resumed or messaged.",
+  prompt: "Message this child", text: "Message", delivery: "Delivery", queue: "Queue · later turn", steer: "Steer · nearest step", send: "Send message", interrupt: "Request interrupt",
+  deliveryHint: "Queue accepts a distinct later turn; Steer targets the nearest step of this live child. A receipt confirms acceptance, not execution.",
+  emptyMessage: "Enter message text or choose an available image before sending.", deniedImages: "Images are currently unavailable. Remove picked images to send a text-only message; their bytes are not automatically retried.",
+  images: "Add images", imagesHint: "PNG, JPEG, WebP or GIF body bytes. Native image/model admission still applies; no durable attachment IDs are supplied.", removeImage: "Remove image", imageReading: "Reading image bytes…",
+  unknown: "Send outcome unknown. Draft retained; do not resend automatically. Check the native child conversation before allowing a new message, which may duplicate an accepted one.",
+  acknowledge: "I checked; allow a new message", promptAccepted: "Inbox accepted message {id}. Execution is not confirmed.", interruptAccepted: "Interrupt request acknowledged. Running/queued work is not reported as completed; queued work remains native-owned.",
+  backgroundReceipt: "Transition receipt: {status}; same run {id}.", unknownAction: "Outcome unknown; refresh and verify the native run/child before another action.", error: "Request unavailable/refused: {code}.", field: "Field", diagnostic: "Branch diagnostic: {reason}; no successful child result is inferred.",
+  backgroundAvailability: "Background handoff", promptAvailability: "Human messages", interruptAvailability: "Interrupts", imageAvailability: "Images", enabled: "Available", disabled: "Unavailable",
+  runtime: "Observed native runtime", fence: "Execution admission ready", restart: "Explicit Host restart required", authority: "Host admission authority is not ready.",
+  evidence: "Admission evidence", captured: "Captured original admission", legacy: "Legacy conservative evidence · not full configuration recovery", evidenceMissing: "Original admission evidence is unavailable; do not infer it from current root settings.", originalEpoch: "Original child epoch", proven: "Proven fields", limitations: "Evidence limitations", noneProven: "No proven fields reported", noLimitations: "No additional limitations reported (not a claim of restored configuration).",
+  capabilityDenied: "Capability denied", nativeDefault: "Native default, not restored", displayOnly: "Display-only evidence", missingEvidence: "Missing evidence", notPersisted: "Not persisted", unverified: "Unverified", parentDenied: "Current parent denies this capability",
+} as const;
+export const childrenZh: Record<keyof typeof childrenEn, string> = {
+  title: "Deepwork 子任务", description: "已观察到的原生运行和子会话。刷新以获取现况；回执不代表完成。",
+  refresh: "刷新", reading: "读取中…", pending: "请求处理中…", noSession: "没有原生会话作用域，子任务控制不可用。",
+  unavailable: "无法观察当前状态。重新连接并刷新；不推断动作结果。", stale: "仅显示此前观察。请刷新后再控制当前会话。", foreign: "此视图不拥有当前原生会话作用域。",
+  session: "会话", epoch: "当前父准入 epoch", runs: "一次性运行", children: "直接子会话", descendants: "后代检查",
+  emptyRuns: "没有观察到运行。", emptyChildren: "没有观察到直接子会话。", emptyDescendants: "没有观察到后代。", treeUnavailable: "后代列表不可用；这不代表已成功读取空列表。",
+  runState: "上次观察的运行状态", activity: "已观察驻留/活动状态（非完成）", starting: "正在启动：原生调用身份尚未发布。",
+  backgroundHint: "请在任务启动前选择后台投递；运行中不支持切换结果归属。冷子会话仅可检查。",
+  role: "角色", level: "调用等级", mode: "模式", reportedRoute: "报告的调用路由 · 兼容投影，非路由对比", routeSource: "调用路由来源 · 兼容投影", routeUnreported: "未报告；不推断根会话路由。",
+  initialRoute: "初始路由", liveRoute: "最近一次自身原生请求路由", routeUnknown: "未知", initialRouteSource: "初始路由来源", liveRouteSource: "最近请求路由来源", initialRouteReason: "初始路由未知原因", liveRouteReason: "最近请求路由未知原因",
+  comparisonUnobserved: "尚未观察到路由对比，不推断初始或最近请求路由。", routeCaptureSource: "原始调用捕获", routeOwnHeaderSource: "此子会话自身的原生请求 header",
+  routeMissingCapture: "缺少原始调用捕获。", routeNoOwnHeader: "尚未观察到自身原生请求 header。", routeInvalidOwnHeader: "已观察的自身原生请求 header 无效。", routeNotObserved: "未观察此子会话自身的原生请求路由。",
+  invocationUnavailable: "调用捕获不可用，不推断角色或等级；原生请求观察是独立信息。",
+  runId: "Run ID", childId: "子会话 ID", jobId: "Job ID", toolCallId: "工具调用 ID", parentId: "直接父会话 ID", depth: "深度", subtree: "子会话目录含后代", yes: "是", no: "否",
+  readonly: "仅可检查", oneShot: "一次性子会话不能恢复或接收续话。",
+  prompt: "向此子会话发送消息", text: "消息内容", delivery: "投递方式", queue: "Queue · 后续独立轮次", steer: "Steer · 最近步骤边界", send: "发送消息", interrupt: "请求中断",
+  deliveryHint: "Queue 接受新的后续轮次；Steer 在当前 live 子会话最近步骤边界接收。回执只确认接受，不确认执行。",
+  emptyMessage: "发送前请输入消息或选择可用图片。", deniedImages: "图片目前不可用。移除已选图片后可发送纯文本消息；不自动重试其数据。",
+  images: "添加图片", imagesHint: "PNG、JPEG、WebP 或 GIF 的真实图片数据。仍由原生图片/模型准入校验；不提供虚构持久 attachment ID。", removeImage: "移除图片", imageReading: "正在读取图片数据…",
+  unknown: "发送结果未知。保留草稿，不自动重发。允许新消息前请检查原生子会话；新发送可能重复已接受的消息。",
+  acknowledge: "我已检查，允许新消息", promptAccepted: "收件箱已接受消息 {id}；尚未确认执行。", interruptAccepted: "中断请求已确认，不表示运行或队列已完成；队列仍由原生系统管理。",
+  backgroundReceipt: "移交回执：{status}；同一运行 {id}。", unknownAction: "结果未知，请刷新并核实原生运行/子会话后再操作。", error: "请求不可用或被拒绝：{code}。", field: "字段", diagnostic: "分支诊断：{reason}；不推断成功的子会话结果。",
+  backgroundAvailability: "后台移交", promptAvailability: "用户消息", interruptAvailability: "中断", imageAvailability: "图片", enabled: "可用", disabled: "不可用",
+  runtime: "已观察原生运行时", fence: "执行准入已就绪", restart: "需要显式重启 Host", authority: "Host 准入权威尚未就绪。",
+  evidence: "准入证据", captured: "已捕获原始准入", legacy: "旧会话保守证据 · 非完整配置恢复", evidenceMissing: "原始准入证据不可用，不从当前根会话设置推断。", originalEpoch: "子会话原始 epoch", proven: "已证明字段", limitations: "证据限制", noneProven: "未报告已证明字段", noLimitations: "未报告额外限制（不代表配置已恢复）。",
+  capabilityDenied: "此能力被拒绝", nativeDefault: "使用原生默认值，非已恢复", displayOnly: "仅供显示的证据", missingEvidence: "缺少证据", notPersisted: "未持久化", unverified: "尚未验证", parentDenied: "当前父会话拒绝此能力",
+};
+export const childDisabledCopy: Record<RoleControlDisabledReason, readonly [string, string]> = {
+  "module-off": ["Deepwork module is off.", "Deepwork 模块已关闭。"], "role-disabled": ["Role is denied by captured/current admission.", "角色被捕获/当前准入拒绝。"],
+  "read-only": ["This child is read-only.", "此子会话为只读。"], "one-shot": ["One-shot children cannot receive follow-up messages.", "一次性子会话不能接收续话。"],
+  "unknown-mode": ["Child mode is unverified.", "子会话模式未验证。"], "not-direct-child": ["Only the exact direct parent can control this child.", "只有精确的直接父会话可控制此子会话。"],
+  "evidence-unavailable": ["This child has no trusted live admission. History remains inspection-only.", "此子会话没有可信 live 准入；历史仅供检查。"],
+  unavailable: ["Capability unavailable. Refresh after reconnecting.", "此能力不可用。重新连接后刷新。"],
+};
+export type ChildrenLocaleKey = keyof typeof childrenEn | `reason:${RoleControlDisabledReason}`;
+export const childrenLocaleEn = { ...childrenEn, ...Object.fromEntries(Object.entries(childDisabledCopy).map(([reason, copy]) => [`reason:${reason}`, copy[0]])) as Record<`reason:${RoleControlDisabledReason}`, string> };
+export const childrenLocaleZh = { ...childrenZh, ...Object.fromEntries(Object.entries(childDisabledCopy).map(([reason, copy]) => [`reason:${reason}`, copy[1]])) as Record<`reason:${RoleControlDisabledReason}`, string> };
+declare module "@deepseek-ai/dsh-client-ui-slots" { interface LocaleNamespaceMap { "conversation.dsmm-children": ChildrenLocaleKey } }

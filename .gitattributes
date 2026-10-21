@@ -1,0 +1,3 @@
+prompts/source/** -text
+skills/** -text
+src/skills.ts -text

@@ -1,0 +1,3 @@
+id: dsmm-builder
+name: 'DW Builder'
+description: 'Primary implementer. Handles execution-heavy work and complex multi-step implementation. Uses the configured implementation-capable model when available.'

@@ -1,0 +1,6 @@
+# Keep transient files out; every fixed-pin body/data/script/inventory must pack.
+__pycache__/
+**/__pycache__/
+*.pyc
+node_modules/
+.DS_Store

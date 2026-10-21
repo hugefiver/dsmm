@@ -1,0 +1,3 @@
+id: dsmm-complex
+name: 'DW Complex'
+description: 'Multi-step ordinary tasks that need coordination and judgment but not an autonomous development loop: mixed config/docs/code edits, release-prep checks, or cross-file cleanup with a known goal.'

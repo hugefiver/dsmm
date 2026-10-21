@@ -1,0 +1,3 @@
+id: dsmm-planner
+name: 'DW Planner'
+description: 'Produces structured work plans. Coordinator only - never edits code beyond markdown notes.'

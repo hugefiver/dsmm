@@ -1,0 +1,856 @@
+{
+  "pins": {
+    "open-design": {
+      "repository": "nexu-io/open-design",
+      "commit": "6afe7eae156bfa29251a51fd0636649c257f7444",
+      "license": "Apache-2.0",
+      "licenseBlob": "eb79c35bd865477e525b18e56f35d56fbe0f7110",
+      "licenseTarget": "LICENSE-Apache-2.0.txt",
+      "notice": null
+    },
+    "taste-skill": {
+      "repository": "Leonxlnx/taste-skill",
+      "commit": "06d6028b5c623016c59ce8536f578e5a1127b499",
+      "license": "MIT",
+      "licenseBlob": "48a2f6640b81ff8eca9ce7f6a96337692713ef5b",
+      "licenseTarget": "LICENSE-taste-skill.txt",
+      "notice": null
+    },
+    "ui-ux-pro-max": {
+      "repository": "nextlevelbuilder/ui-ux-pro-max-skill",
+      "commit": "f32d6a61cdf0bfd57404c45854583fd19ff95088",
+      "license": "MIT",
+      "licenseBlob": "1e71cbf26660f31903807d099fe902c098fc7e4c",
+      "licenseTarget": "LICENSE-ui-ux-pro-max.txt",
+      "notice": null
+    }
+  },
+  "files": [
+    {
+      "upstream": "open-design",
+      "source": "design-systems/claude/DESIGN.md",
+      "target": "references/design/claude.md",
+      "reason": "declared source resource",
+      "blob": "795605ed1f181b3c9ff77c35430321851fd50619"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/cohere/DESIGN.md",
+      "target": "references/design/cohere.md",
+      "reason": "declared source resource",
+      "blob": "3463593bcf40f40afb6704d355840ad84e28c367"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/elevenlabs/DESIGN.md",
+      "target": "references/design/elevenlabs.md",
+      "reason": "declared source resource",
+      "blob": "45841f4e245337eb31e963c1da8736677e53d436"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/minimax/DESIGN.md",
+      "target": "references/design/minimax.md",
+      "reason": "declared source resource",
+      "blob": "f775524bd573c25470da0b43737e8f9461f2d8d0"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/mistral-ai/DESIGN.md",
+      "target": "references/design/mistral.ai.md",
+      "reason": "declared source resource",
+      "blob": "f68dc970dc8ce50ff18856ca36406222279b6db7"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/ollama/DESIGN.md",
+      "target": "references/design/ollama.md",
+      "reason": "declared source resource",
+      "blob": "2adcf2acf9ed4abf2e07c148c9b7bafe7d4278cf"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/opencode-ai/DESIGN.md",
+      "target": "references/design/opencode.ai.md",
+      "reason": "declared source resource",
+      "blob": "f69563985580133b0f46af859615c487fbe330ba"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/replicate/DESIGN.md",
+      "target": "references/design/replicate.md",
+      "reason": "declared source resource",
+      "blob": "7d4ef2df3c31d8c3eeccc0e41658be216925b3c5"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/runwayml/DESIGN.md",
+      "target": "references/design/runwayml.md",
+      "reason": "declared source resource",
+      "blob": "c78d9c2d644c19d278928cfb465f26986ec3f01d"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/together-ai/DESIGN.md",
+      "target": "references/design/together.ai.md",
+      "reason": "declared source resource",
+      "blob": "927bd76a8e61bc713c2d4e6693572705275ecb22"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/voltagent/DESIGN.md",
+      "target": "references/design/voltagent.md",
+      "reason": "declared source resource",
+      "blob": "0dec46b30eb10cd27ee521a49aaa1f8b42453456"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/x-ai/DESIGN.md",
+      "target": "references/design/x.ai.md",
+      "reason": "declared source resource",
+      "blob": "cbdf4819330e51357e3cfdb7b7e1cabd9b93717e"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/cursor/DESIGN.md",
+      "target": "references/design/cursor.md",
+      "reason": "declared source resource",
+      "blob": "c9ea295d07bbd4da4f00d36652ffe16bbe7ddfe1"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/expo/DESIGN.md",
+      "target": "references/design/expo.md",
+      "reason": "declared source resource",
+      "blob": "a625cd9e6ec6e0ff37bb7269a5137e2a97e56e38"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/lovable/DESIGN.md",
+      "target": "references/design/lovable.md",
+      "reason": "declared source resource",
+      "blob": "9a6648dcf8caaa67a9afbe288a6b094eb78387ad"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/raycast/DESIGN.md",
+      "target": "references/design/raycast.md",
+      "reason": "declared source resource",
+      "blob": "88e665905c215694fe99126767e6ce63be865de1"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/superhuman/DESIGN.md",
+      "target": "references/design/superhuman.md",
+      "reason": "declared source resource",
+      "blob": "5d6516500eaa834450e6f039f29c5351533cd806"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/vercel/DESIGN.md",
+      "target": "references/design/vercel.md",
+      "reason": "declared source resource",
+      "blob": "156d11cd61c623de14119d1bf70b3989a9e219d2"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/warp/DESIGN.md",
+      "target": "references/design/warp.md",
+      "reason": "declared source resource",
+      "blob": "9f4f95e4aef4d176e2120acd1d9557c0c372052e"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/clickhouse/DESIGN.md",
+      "target": "references/design/clickhouse.md",
+      "reason": "declared source resource",
+      "blob": "ccf1713ce44325b3b7873f1c9d6df0d22d2a997e"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/composio/DESIGN.md",
+      "target": "references/design/composio.md",
+      "reason": "declared source resource",
+      "blob": "c5cf5d76a7638b68d91c3d178d9441546c07a74e"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/hashicorp/DESIGN.md",
+      "target": "references/design/hashicorp.md",
+      "reason": "declared source resource",
+      "blob": "2cda74521624d40553b7a65f88be740eee7334e0"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/mongodb/DESIGN.md",
+      "target": "references/design/mongodb.md",
+      "reason": "declared source resource",
+      "blob": "91841e008e451ae7054fe9a0c13fc3d78c2b844b"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/posthog/DESIGN.md",
+      "target": "references/design/posthog.md",
+      "reason": "declared source resource",
+      "blob": "f10edede26e64d08090f72eae04a0a628621ace6"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/sanity/DESIGN.md",
+      "target": "references/design/sanity.md",
+      "reason": "declared source resource",
+      "blob": "3f4d60b08061882b82b1429e37c74cde23fcbf17"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/sentry/DESIGN.md",
+      "target": "references/design/sentry.md",
+      "reason": "declared source resource",
+      "blob": "5e862058b268cb7e536047079227d94fe00fb462"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/supabase/DESIGN.md",
+      "target": "references/design/supabase.md",
+      "reason": "declared source resource",
+      "blob": "21c80f2515da76f5a815199ee303d0c324320c82"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/cal/DESIGN.md",
+      "target": "references/design/cal.md",
+      "reason": "declared source resource",
+      "blob": "41c0d7490c707cb95d2a3defc641b9c48c9af7bd"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/intercom/DESIGN.md",
+      "target": "references/design/intercom.md",
+      "reason": "declared source resource",
+      "blob": "ea2901a1dd9cb5a0e689ee234d315a0bb709934f"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/linear-app/DESIGN.md",
+      "target": "references/design/linear.app.md",
+      "reason": "declared source resource",
+      "blob": "f2f13150569761a93e1da955659c8c266d62de23"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/mintlify/DESIGN.md",
+      "target": "references/design/mintlify.md",
+      "reason": "declared source resource",
+      "blob": "bd01a2390788c0d7ef2aa431812ca0291a139eff"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/notion/DESIGN.md",
+      "target": "references/design/notion.md",
+      "reason": "declared source resource",
+      "blob": "df843d3f5afcf0bda8b7def103bfaa4a1e1c03db"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/resend/DESIGN.md",
+      "target": "references/design/resend.md",
+      "reason": "declared source resource",
+      "blob": "516d5b60123d4e3bd3e473b071e531ba2d9a35db"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/zapier/DESIGN.md",
+      "target": "references/design/zapier.md",
+      "reason": "declared source resource",
+      "blob": "b265af4eba9aaf7147de0be2d018d254ce060087"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/airtable/DESIGN.md",
+      "target": "references/design/airtable.md",
+      "reason": "declared source resource",
+      "blob": "18a9c2aeb607e5df30dd9dc85b1a5236af765b1b"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/clay/DESIGN.md",
+      "target": "references/design/clay.md",
+      "reason": "declared source resource",
+      "blob": "d553ce9f397fc584a40909fe3ab5eef4d1371aea"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/figma/DESIGN.md",
+      "target": "references/design/figma.md",
+      "reason": "declared source resource",
+      "blob": "481681cf30679fd20dad131458bdf19779e543f0"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/framer/DESIGN.md",
+      "target": "references/design/framer.md",
+      "reason": "declared source resource",
+      "blob": "44ae213e0082273733a904e27c328ae15102b79a"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/miro/DESIGN.md",
+      "target": "references/design/miro.md",
+      "reason": "declared source resource",
+      "blob": "3512480e20667000c2a4ebb842ad0a5217a936d8"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/webflow/DESIGN.md",
+      "target": "references/design/webflow.md",
+      "reason": "declared source resource",
+      "blob": "ac5d94ac5c148590ecfc800364cc1918b5eae7c3"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/binance/DESIGN.md",
+      "target": "references/design/binance.md",
+      "reason": "declared source resource",
+      "blob": "80ba5d1bdc6cb630b976356a1de52b93ec784ea3"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/coinbase/DESIGN.md",
+      "target": "references/design/coinbase.md",
+      "reason": "declared source resource",
+      "blob": "5a459fbd15f07e7cd88533e26089e908d2874de3"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/kraken/DESIGN.md",
+      "target": "references/design/kraken.md",
+      "reason": "declared source resource",
+      "blob": "422d26c9d1264c068f73d58fbf17307f4dee8ab9"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/mastercard/DESIGN.md",
+      "target": "references/design/mastercard.md",
+      "reason": "declared source resource",
+      "blob": "a6c80588b7732d0996ef46c6a8db5d8cc7eeff8e"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/revolut/DESIGN.md",
+      "target": "references/design/revolut.md",
+      "reason": "declared source resource",
+      "blob": "8500e3befd1d659b514bdbddde10fb98c3c41232"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/stripe/DESIGN.md",
+      "target": "references/design/stripe.md",
+      "reason": "declared source resource",
+      "blob": "8ab94dc6a93367833283bb9c7c930c6bacd6b70d"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/wise/DESIGN.md",
+      "target": "references/design/wise.md",
+      "reason": "declared source resource",
+      "blob": "57476c89c4e20995188fe3d439557e2c4d493644"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/airbnb/DESIGN.md",
+      "target": "references/design/airbnb.md",
+      "reason": "declared source resource",
+      "blob": "f4310620dc4e14aaa363543a1ce0bc2088c59323"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/meta/DESIGN.md",
+      "target": "references/design/meta.md",
+      "reason": "declared source resource",
+      "blob": "56c888178c241272bde43c15913af5f26caa6066"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/nike/DESIGN.md",
+      "target": "references/design/nike.md",
+      "reason": "declared source resource",
+      "blob": "ec2ce7e2a590f758e0c23e5f5d70bf2c439b1664"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/shopify/DESIGN.md",
+      "target": "references/design/shopify.md",
+      "reason": "declared source resource",
+      "blob": "023511c728f6b1ae20518ecf39f183e3790138b8"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/starbucks/DESIGN.md",
+      "target": "references/design/starbucks.md",
+      "reason": "declared source resource",
+      "blob": "6fe30874c8ba78f638610f7d2a162561a8e5ec95"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/apple/DESIGN.md",
+      "target": "references/design/apple.md",
+      "reason": "declared source resource",
+      "blob": "9976e12b42d3c396c96c063b61bedb4dac83c10e"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/ibm/DESIGN.md",
+      "target": "references/design/ibm.md",
+      "reason": "declared source resource",
+      "blob": "9799fbb81a5fdf329c230412c1480c2b2679214d"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/nvidia/DESIGN.md",
+      "target": "references/design/nvidia.md",
+      "reason": "declared source resource",
+      "blob": "15f828986ed25701b93971539cc6d66b58ae509f"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/pinterest/DESIGN.md",
+      "target": "references/design/pinterest.md",
+      "reason": "declared source resource",
+      "blob": "3c3fae8bd73a4c93edfd9636a466a7365614801b"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/playstation/DESIGN.md",
+      "target": "references/design/playstation.md",
+      "reason": "declared source resource",
+      "blob": "d0baed048500c359bbc7d4eba761a790ae388cb9"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/spacex/DESIGN.md",
+      "target": "references/design/spacex.md",
+      "reason": "declared source resource",
+      "blob": "53babd727268f66c5166165b8081b6a01fbfbf6a"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/spotify/DESIGN.md",
+      "target": "references/design/spotify.md",
+      "reason": "declared source resource",
+      "blob": "50fb2396b806b6ef79295aa89e7ae57dbe8d3883"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/theverge/DESIGN.md",
+      "target": "references/design/theverge.md",
+      "reason": "declared source resource",
+      "blob": "caea31e6b71f8488ee374327905b4d0c2c4d0265"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/uber/DESIGN.md",
+      "target": "references/design/uber.md",
+      "reason": "declared source resource",
+      "blob": "49cc7258874b9a3369f51683ba70793c4b02b02c"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/vodafone/DESIGN.md",
+      "target": "references/design/vodafone.md",
+      "reason": "declared source resource",
+      "blob": "2266e0d0d7b36df903245b1da965e340d44d85ef"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/wired/DESIGN.md",
+      "target": "references/design/wired.md",
+      "reason": "declared source resource",
+      "blob": "282ee46cc8244dc44512db1981350911907c1e3f"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/bmw/DESIGN.md",
+      "target": "references/design/bmw.md",
+      "reason": "declared source resource",
+      "blob": "3254627a5f1327201bc1a05c5ffa8cf4aac4a7fa"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/bugatti/DESIGN.md",
+      "target": "references/design/bugatti.md",
+      "reason": "declared source resource",
+      "blob": "98b5e86652da09a2e5f4abe2f54de6cda529f628"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/ferrari/DESIGN.md",
+      "target": "references/design/ferrari.md",
+      "reason": "declared source resource",
+      "blob": "cb3349513b04e9a352e7bca4498cb96e54f6e523"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/lamborghini/DESIGN.md",
+      "target": "references/design/lamborghini.md",
+      "reason": "declared source resource",
+      "blob": "54ca59f88b1155521811b85f41aa5a33ba97d716"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/renault/DESIGN.md",
+      "target": "references/design/renault.md",
+      "reason": "declared source resource",
+      "blob": "5ccfd75833ddd388540bd78aa8c77434257c26d7"
+    },
+    {
+      "upstream": "open-design",
+      "source": "design-systems/tesla/DESIGN.md",
+      "target": "references/design/tesla.md",
+      "reason": "declared source resource",
+      "blob": "7f32287cb9229b4bf5b29cec1c428dc5ff83317f"
+    },
+    {
+      "upstream": "taste-skill",
+      "source": "skills/taste-skill/SKILL.md",
+      "target": "references/design/taste-skill.md",
+      "reason": "declared source resource",
+      "blob": "b72132fcd466da605623ffe96e370b3991fc5285"
+    },
+    {
+      "upstream": "taste-skill",
+      "source": "skills/gpt-tasteskill/SKILL.md",
+      "target": "references/design/gpt-tasteskill.md",
+      "reason": "declared source resource",
+      "blob": "03ed209b8fdc0a3cd6bccf8a5b3bfffe56aa4558"
+    },
+    {
+      "upstream": "taste-skill",
+      "source": "skills/minimalist-skill/SKILL.md",
+      "target": "references/design/minimalist-skill.md",
+      "reason": "declared source resource",
+      "blob": "44ead27ef04ffe79ade0c6df7fd696dbcf7b246b"
+    },
+    {
+      "upstream": "taste-skill",
+      "source": "skills/brutalist-skill/SKILL.md",
+      "target": "references/design/brutalist-skill.md",
+      "reason": "declared source resource",
+      "blob": "f5375b908340e1376ed391232a31c5d82d5babfb"
+    },
+    {
+      "upstream": "taste-skill",
+      "source": "skills/soft-skill/SKILL.md",
+      "target": "references/design/soft-skill.md",
+      "reason": "declared source resource",
+      "blob": "4038f41ec0137ec92e98ed0151fe3b7038b9329e"
+    },
+    {
+      "upstream": "taste-skill",
+      "source": "skills/redesign-skill/SKILL.md",
+      "target": "references/design/redesign-skill.md",
+      "reason": "declared source resource",
+      "blob": "c8304f0c9301385e3641b052d6b25b8af11cb6c1"
+    },
+    {
+      "upstream": "taste-skill",
+      "source": "skills/image-to-code-skill/SKILL.md",
+      "target": "references/design/image-to-code-skill.md",
+      "reason": "declared source resource",
+      "blob": "d19f8de112252ea88724c540647cad85b7653d46"
+    },
+    {
+      "upstream": "taste-skill",
+      "source": "skills/output-skill/SKILL.md",
+      "target": "references/design/output-skill.md",
+      "reason": "declared source resource",
+      "blob": "d983bbcf040b6f433c624ce2212a2c044ad2da3c"
+    },
+    {
+      "upstream": "taste-skill",
+      "source": "skills/stitch-skill/SKILL.md",
+      "target": "references/design/stitch-skill.md",
+      "reason": "declared source resource",
+      "blob": "19d958cdb5f83d14e4021fac942c1bcf8395c042"
+    },
+    {
+      "upstream": "taste-skill",
+      "source": "skills/imagegen-frontend-web/SKILL.md",
+      "target": "references/design/imagegen-frontend-web.md",
+      "reason": "declared source resource",
+      "blob": "26b293b8d0088631c41ebefde4a650768d01cf22"
+    },
+    {
+      "upstream": "taste-skill",
+      "source": "skills/imagegen-frontend-mobile/SKILL.md",
+      "target": "references/design/imagegen-frontend-mobile.md",
+      "reason": "declared source resource",
+      "blob": "9d8d55f3ca7a77e18329922ea8a67694dee52ebb"
+    },
+    {
+      "upstream": "taste-skill",
+      "source": "skills/brandkit/SKILL.md",
+      "target": "references/design/imagegen-brandkit.md",
+      "reason": "declared source resource",
+      "blob": "d76399f666af97ac8c142928e02602d9732e78aa"
+    },
+    {
+      "upstream": "taste-skill",
+      "source": "skills/stitch-skill/DESIGN.md",
+      "target": "references/design/stitch-design-example.md",
+      "reason": "declared source resource",
+      "blob": "ef78a972599e7b1791580a5bcd6cf0242abac65b"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": ".claude/skills/ui-ux-pro-max/SKILL.md",
+      "target": "references/ui-ux-db/README.md",
+      "reason": "declared source resource",
+      "blob": "a64d6c233a6293c05ab70f67156cc7e30284232a"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/scripts/core.py",
+      "target": "references/ui-ux-db/scripts/core.py",
+      "reason": "declared source resource",
+      "blob": "8d02065480ecab6978935133371658789782e093"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/scripts/design_system.py",
+      "target": "references/ui-ux-db/scripts/design_system.py",
+      "reason": "declared source resource",
+      "blob": "d3152e5fb6cd284d03f4169ce63b91f3df40b32d"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/scripts/search.py",
+      "target": "references/ui-ux-db/scripts/search.py",
+      "reason": "declared source resource",
+      "blob": "d782d315f5cf3bb9dc9cbd16d43186e7c6adaf43"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/data/charts.csv",
+      "target": "references/ui-ux-db/data/charts.csv",
+      "reason": "declared source data",
+      "blob": "c27b726c1162aa79d93f46ef039523666be44187"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/data/colors.csv",
+      "target": "references/ui-ux-db/data/colors.csv",
+      "reason": "declared source data",
+      "blob": "7b2b0672037001ef08f1686f3d1f1c87e14a71c1"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/data/icons.csv",
+      "target": "references/ui-ux-db/data/icons.csv",
+      "reason": "declared source data",
+      "blob": "210a8d0863177abe5e559750d076a27216c87e49"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/data/landing.csv",
+      "target": "references/ui-ux-db/data/landing.csv",
+      "reason": "declared source data",
+      "blob": "f64101ec49882e68b0555da56e328187fd2f9a8c"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/data/products.csv",
+      "target": "references/ui-ux-db/data/products.csv",
+      "reason": "declared source data",
+      "blob": "0bb9fcb3e03d7f70ca3e53a79de9bea49e585ef0"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/data/react-performance.csv",
+      "target": "references/ui-ux-db/data/react-performance.csv",
+      "reason": "declared source data",
+      "blob": "671465f29ce8d1b12e1576ab81c7b610161f2f6d"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/data/styles.csv",
+      "target": "references/ui-ux-db/data/styles.csv",
+      "reason": "declared source data",
+      "blob": "8bacc703fadb0165b0a2b746ca78c80513e0d5b0"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/data/typography.csv",
+      "target": "references/ui-ux-db/data/typography.csv",
+      "reason": "declared source data",
+      "blob": "51a63f01ac248e51240652131bb342b6606b6856"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/data/ui-reasoning.csv",
+      "target": "references/ui-ux-db/data/ui-reasoning.csv",
+      "reason": "declared source data",
+      "blob": "8b6ca2fb256e13ff2a0a9dd150f34e1bc2ec8e25"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/data/ux-guidelines.csv",
+      "target": "references/ui-ux-db/data/ux-guidelines.csv",
+      "reason": "declared source data",
+      "blob": "e347aeda7401aac08879a7b11c3907782c7bcadb"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/data/app-interface.csv",
+      "target": "references/ui-ux-db/data/web-interface.csv",
+      "reason": "declared source data",
+      "blob": "f34c3cd0de0eee83553b996756e1b999749d56a1"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/data/google-fonts.csv",
+      "target": "references/ui-ux-db/data/google-fonts.csv",
+      "reason": "actual core.py CSV_CONFIG dependency at this fixed pin",
+      "blob": "45ece9ea26e9df5405b987270067cb88dab79f67"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/data/app-interface.csv",
+      "target": "references/ui-ux-db/data/app-interface.csv",
+      "reason": "verbatim core.py runtime name; web-interface mapping is retained too",
+      "blob": "f34c3cd0de0eee83553b996756e1b999749d56a1"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/data/stacks/astro.csv",
+      "target": "references/ui-ux-db/data/stacks/astro.csv",
+      "reason": "declared source stack",
+      "blob": "cacba81c96005b527b55bdb56e37d69bd616ca54"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/data/stacks/flutter.csv",
+      "target": "references/ui-ux-db/data/stacks/flutter.csv",
+      "reason": "declared source stack",
+      "blob": "b8dfd0d696bdb885184c271feb0d8722f7d7c655"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/data/stacks/html-tailwind.csv",
+      "target": "references/ui-ux-db/data/stacks/html-tailwind.csv",
+      "reason": "declared source stack",
+      "blob": "51ff57a6808b199e664eda22fbd7736d827d9a9a"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/data/stacks/jetpack-compose.csv",
+      "target": "references/ui-ux-db/data/stacks/jetpack-compose.csv",
+      "reason": "declared source stack",
+      "blob": "971ff9e3074c9a1a414b1a7e69745f286291d3f6"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/data/stacks/nextjs.csv",
+      "target": "references/ui-ux-db/data/stacks/nextjs.csv",
+      "reason": "declared source stack",
+      "blob": "8762161a982279b2bdaad86860d10f0afbfeb13f"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/data/stacks/nuxt-ui.csv",
+      "target": "references/ui-ux-db/data/stacks/nuxt-ui.csv",
+      "reason": "declared source stack",
+      "blob": "7146e84836c504d4374a9b1cace3262b771a2956"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/data/stacks/nuxtjs.csv",
+      "target": "references/ui-ux-db/data/stacks/nuxtjs.csv",
+      "reason": "declared source stack",
+      "blob": "c275d0de8c6a06a06f8439be017af660fefe91bb"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/data/stacks/react-native.csv",
+      "target": "references/ui-ux-db/data/stacks/react-native.csv",
+      "reason": "declared source stack",
+      "blob": "209e893c3b2441813add061270009d9b6fe3e512"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/data/stacks/react.csv",
+      "target": "references/ui-ux-db/data/stacks/react.csv",
+      "reason": "declared source stack",
+      "blob": "9f891f4ab9cc8362b22f919f1dcae5b9853fc9bf"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/data/stacks/shadcn.csv",
+      "target": "references/ui-ux-db/data/stacks/shadcn.csv",
+      "reason": "declared source stack",
+      "blob": "fb86e8d1c135aa384df284f216c3db9c5187ae57"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/data/stacks/svelte.csv",
+      "target": "references/ui-ux-db/data/stacks/svelte.csv",
+      "reason": "declared source stack",
+      "blob": "39b6d2e4404cca19d2afe86529597638e6752d2e"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/data/stacks/swiftui.csv",
+      "target": "references/ui-ux-db/data/stacks/swiftui.csv",
+      "reason": "declared source stack",
+      "blob": "1009d75ccdac6eb667ee141285908a249e82fb50"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/data/stacks/vue.csv",
+      "target": "references/ui-ux-db/data/stacks/vue.csv",
+      "reason": "declared source stack",
+      "blob": "86b05cffdcd30abedf357e21ddf0fe51baed541f"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/data/stacks/threejs.csv",
+      "target": "references/ui-ux-db/data/stacks/threejs.csv",
+      "reason": "actual core.py STACK_CONFIG dependency at this fixed pin",
+      "blob": "7035a99742baa094c42e551c03048c02715164a3"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/data/stacks/angular.csv",
+      "target": "references/ui-ux-db/data/stacks/angular.csv",
+      "reason": "actual core.py STACK_CONFIG dependency at this fixed pin",
+      "blob": "75cb670f247923ba78946501c004e36dd37d3407"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "src/ui-ux-pro-max/data/stacks/laravel.csv",
+      "target": "references/ui-ux-db/data/stacks/laravel.csv",
+      "reason": "actual core.py STACK_CONFIG dependency at this fixed pin",
+      "blob": "c32f2084373cc2f917c414949bb8e691825a529e"
+    },
+    {
+      "upstream": "open-design",
+      "source": "LICENSE",
+      "target": "LICENSE-Apache-2.0.txt",
+      "reason": "verbatim fixed-pin license and copyright notice; committed, not ignored",
+      "blob": "eb79c35bd865477e525b18e56f35d56fbe0f7110"
+    },
+    {
+      "upstream": "taste-skill",
+      "source": "LICENSE",
+      "target": "LICENSE-taste-skill.txt",
+      "reason": "verbatim fixed-pin license and copyright notice; committed, not ignored",
+      "blob": "48a2f6640b81ff8eca9ce7f6a96337692713ef5b"
+    },
+    {
+      "upstream": "ui-ux-pro-max",
+      "source": "LICENSE",
+      "target": "LICENSE-ui-ux-pro-max.txt",
+      "reason": "verbatim fixed-pin license and copyright notice; committed, not ignored",
+      "blob": "1e71cbf26660f31903807d099fe902c098fc7e4c"
+    }
+  ]
+}

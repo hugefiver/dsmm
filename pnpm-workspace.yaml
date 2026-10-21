@@ -1,0 +1,12 @@
+packages:
+  - .
+
+minimumReleaseAge: 0
+strictDepBuilds: true
+allowBuilds:
+  esbuild@0.25.12: true
+  koffi@3.1.1: true
+  '@google/genai@2.21.0': false
+  protobufjs@7.6.6: false
+  '@deepseek-ai/dsh-subprocess-local@0.2.1-rc.2': true
+  node-pty@1.2.0-beta.15: true

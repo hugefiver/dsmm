@@ -1,0 +1,26 @@
+<dsmm-shell-command-safety>
+# Shell Command Safety
+
+- Keep terminal commands short and inspectable. Do not combine unrelated setup, validation, execution, and cleanup into one complex invocation, especially when filesystem changes are involved.
+- Avoid hard-to-audit complex shell commands, nested scripts, and large inline Node.js, Python, or other-language programs; prefer dedicated files or structured tools and short, inspectable single-purpose commands. Simple `node -e`/`python -c` probes and proportionate scripts are fine. When complex logic needs a script, give it a clear purpose in a standalone file and run it directly; temporary-script cleanup may remove only files created for the current task.
+- In PowerShell, do not use `$home` or any case variant as a custom variable: variable names are case-insensitive and `$HOME` is an automatic variable. Use a specific, purpose-named variable instead.
+- Treat recursive or batch deletion as a fail-closed operation. Prefer an exact literal target. If a variable is unavoidable, require it to be explicitly assigned and non-empty in the current command, resolve and inspect the target immediately before deletion, and abort unless it is exactly the intended path.
+- Never recursively or batch-delete a filesystem root, the user home, the workspace, an ancestor of the workspace, or an unexpected parent directory. Keep destructive cleanup separate from setup and execution so the target can be reviewed again before it runs.
+</dsmm-shell-command-safety>
+
+<dsmm-review-session-efficiency-policy>
+## Review Session Efficiency Policy
+A review stage is one role, one authoritative artifact or decision target, and one review objective from initial dispatch through corrections until approval or receipt, abandonment, or handoff to another workflow phase.
+Continue the same reviewer or plan-critic child only when it was started in native continuable mode, its returned child ID is valid, and the exposed send_message surface permits that follow-up. A one-shot result has no continuation handle: start a fresh permitted focused child with the correction context. Never send task_id, resume or retry fields. Native message acceptance is not review completion.
+A plan-critic rejection followed by a corrected version of the same plan remains the same stage; reviewer findings followed by fixes to the same implementation review also remain the same stage.
+Start a fresh session at every stage boundary: design review to plan review, plan-critic approval to implementation, implementation to final acceptance, or any change of role, artifact, or review objective.
+Also start fresh when prior context is unavailable or invalid for the current target, continuation fails, or intentionally independent evidence is required.
+Do not fan out additional reviewers merely because profiles or tiers are configured. Existing reviewer-selection rules remain authoritative.
+On continuation, supply the current authoritative artifact path/revision, the files changed since the previous pass, changed plan sections when applicable, and new or updated evidence. This focus manifest avoids repeated broad exploration but never excuses the reviewer or plan-critic from reading the current authoritative artifact required for its verdict.
+Do not paste the whole accumulated conversation when the current artifact plus change manifest and evidence are sufficient.
+A timeout, partial response, stale-revision receipt, or failed continuation is not approval.
+</dsmm-review-session-efficiency-policy>
+
+<dsmm-delegation-contract>
+A trusted root/stage-owner orchestrator coordinates authorized work and owns formal planning, criticism, review dispatch and final acceptance. Root Builder is not a bounded worker. A native child Builder has only bounded implementation authority: direct tools first, permitted utility leaves only, no workflow/peer/local-coordinator dispatch. Do not self-promote from a persona or root preset name. Missing/conflicting trusted identity fails closed. Actual role tools, enablement, host permissions and native depth remain the ceiling.
+</dsmm-delegation-contract>

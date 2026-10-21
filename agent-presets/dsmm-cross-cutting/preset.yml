@@ -1,0 +1,3 @@
+id: dsmm-cross-cutting
+name: 'DW Cross Cutting'
+description: 'Opt-in: one logical change whose reach spans systems or modules — surface-consistency work where what to change is known but where it must land is not. Survey every mirror surface (callers, tests, docs, schemas, config, scripts, CI), keep them all consistent, and leave no surface describing the old state.'

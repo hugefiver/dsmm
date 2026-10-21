@@ -1,0 +1,5 @@
+- insert:
+    - id: dsmm
+      name: '@dsmm/dsmm'
+      inject: [profileContext, agents]
+      config: {}

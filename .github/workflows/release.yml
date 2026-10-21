@@ -1,0 +1,191 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dsmm-release
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.identity.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Verify immutable release identity
+        id: identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          expected_tag="v${version}"
+          if [[ "$GITHUB_REF_TYPE" != "tag" || "$GITHUB_REF_NAME" != "$expected_tag" ]]; then
+            echo "Tag $GITHUB_REF_NAME must exactly equal $expected_tag" >&2
+            exit 1
+          fi
+
+          npm_status="$(curl --silent --show-error --output "$RUNNER_TEMP/npm-version.json" --write-out "%{http_code}" "https://registry.npmjs.org/%40dsmm%2Fdsmm/${version}")"
+          if [[ "$npm_status" == "200" ]]; then
+            echo "npm version @dsmm/dsmm@$version already exists" >&2
+            exit 1
+          elif [[ "$npm_status" != "404" ]]; then
+            echo "Unable to prove npm version absence (HTTP $npm_status)" >&2
+            exit 1
+          fi
+
+          release_status="$(curl --silent --show-error --output "$RUNNER_TEMP/github-release.json" --write-out "%{http_code}" --header "Authorization: Bearer $GH_TOKEN" --header "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}")"
+          if [[ "$release_status" == "200" ]]; then
+            echo "GitHub Release $GITHUB_REF_NAME already exists" >&2
+            exit 1
+          elif [[ "$release_status" != "404" ]]; then
+            echo "Unable to prove GitHub Release absence (HTTP $release_status)" >&2
+            exit 1
+          fi
+
+          printf 'DSMM_VERSION=%s\n' "$version" >> "$GITHUB_ENV"
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build
+        run: pnpm run build
+      - name: Typecheck
+        run: pnpm run typecheck
+      - name: Test
+        run: pnpm run test:run
+      - name: Check frontend resources
+        run: pnpm run check:frontend
+      - name: Check generated roles
+        run: pnpm run check:roles
+      - name: Pack
+        run: |
+          mkdir -p "$RUNNER_TEMP/dsmm-release"
+          pnpm pack --pack-destination "$RUNNER_TEMP/dsmm-release"
+      - name: Generate and verify release checksum
+        working-directory: ${{ runner.temp }}/dsmm-release
+        run: |
+          set -euo pipefail
+          tarball="dsmm-dsmm-${DSMM_VERSION}.tgz"
+          test -f "$tarball"
+          sha256sum "$tarball" > SHA256SUMS.txt
+          sha256sum --check SHA256SUMS.txt
+          printf 'version=%s\ntag=%s\ncommit=%s\nrun_id=%s\nrun_attempt=%s\n' \
+            "$DSMM_VERSION" "$GITHUB_REF_NAME" "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" \
+            > RELEASE_IDENTITY.txt
+          expected="$(printf '%s\n' RELEASE_IDENTITY.txt SHA256SUMS.txt "$tarball" | sort)"
+          actual="$(find . -maxdepth 1 -type f -printf '%f\n' | sort)"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "Unexpected release staging set:" >&2
+            printf '%s\n' "$actual" >&2
+            exit 1
+          fi
+      - name: Retain release artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: dsmm-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/dsmm-release/
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+      id-token: write
+    env:
+      DSMM_VERSION: ${{ needs.verify.outputs.version }}
+    steps:
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Download verified release artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: dsmm-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/dsmm-release
+      - name: Revalidate immutable artifact and release identity
+        working-directory: ${{ runner.temp }}/dsmm-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tarball="dsmm-dsmm-${DSMM_VERSION}.tgz"
+          expected_tag="v${DSMM_VERSION}"
+          if [[ "$GITHUB_REF_TYPE" != "tag" || "$GITHUB_REF_NAME" != "$expected_tag" ]]; then
+            echo "Tag $GITHUB_REF_NAME must exactly equal $expected_tag" >&2
+            exit 1
+          fi
+
+          expected="$(printf '%s\n' RELEASE_IDENTITY.txt SHA256SUMS.txt "$tarball" | sort)"
+          actual="$(find . -maxdepth 1 -type f -printf '%f\n' | sort)"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "Unexpected downloaded release artifact set:" >&2
+            printf '%s\n' "$actual" >&2
+            exit 1
+          fi
+          sha256sum --check SHA256SUMS.txt
+
+          printf 'version=%s\ntag=%s\ncommit=%s\nrun_id=%s\nrun_attempt=%s\n' \
+            "$DSMM_VERSION" "$GITHUB_REF_NAME" "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" \
+            > "$RUNNER_TEMP/EXPECTED_RELEASE_IDENTITY.txt"
+          cmp --silent RELEASE_IDENTITY.txt "$RUNNER_TEMP/EXPECTED_RELEASE_IDENTITY.txt"
+
+          package_name="$(tar -xOf "$tarball" package/package.json | jq -r '.name')"
+          package_version="$(tar -xOf "$tarball" package/package.json | jq -r '.version')"
+          if [[ "$package_name" != "@dsmm/dsmm" || "$package_version" != "$DSMM_VERSION" ]]; then
+            echo "Packed identity $package_name@$package_version does not match @dsmm/dsmm@$DSMM_VERSION" >&2
+            exit 1
+          fi
+
+          npm_status="$(curl --silent --show-error --output "$RUNNER_TEMP/npm-version.json" --write-out "%{http_code}" "https://registry.npmjs.org/%40dsmm%2Fdsmm/${DSMM_VERSION}")"
+          if [[ "$npm_status" == "200" ]]; then
+            echo "npm version @dsmm/dsmm@$DSMM_VERSION already exists" >&2
+            exit 1
+          elif [[ "$npm_status" != "404" ]]; then
+            echo "Unable to prove npm version absence (HTTP $npm_status)" >&2
+            exit 1
+          fi
+
+          release_status="$(curl --silent --show-error --output "$RUNNER_TEMP/github-release.json" --write-out "%{http_code}" --header "Authorization: Bearer $GH_TOKEN" --header "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}")"
+          if [[ "$release_status" == "200" ]]; then
+            echo "GitHub Release $GITHUB_REF_NAME already exists" >&2
+            exit 1
+          elif [[ "$release_status" != "404" ]]; then
+            echo "Unable to prove GitHub Release absence (HTTP $release_status)" >&2
+            exit 1
+          fi
+      - name: Publish to npm
+        working-directory: ${{ runner.temp }}/dsmm-release
+        run: npm publish "./dsmm-dsmm-${DSMM_VERSION}.tgz" --access public --registry=https://registry.npmjs.org/ --ignore-scripts --provenance --fetch-retries=0
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "$RUNNER_TEMP/dsmm-release/dsmm-dsmm-${DSMM_VERSION}.tgz" \
+            "$RUNNER_TEMP/dsmm-release/SHA256SUMS.txt" \
+            --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "DSMM ${DSMM_VERSION}" \
+            --notes "DSMM ${DSMM_VERSION}. Requires DSH 0.2.1-rc.2."

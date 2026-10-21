@@ -1,0 +1,10 @@
+# Example only: dsmm does not auto-apply this patch.
+#
+# DSH 0.2 registers enabled root-capable DSMM roles through the native registry;
+# exported preset directories are inspection templates, not discovery inputs.
+# Use this optional explicit patch only to choose the default for new sessions.
+# The chosen DSMM role must be enabled. Auxiliary roles are delegation-only.
+# Installing DSMM does not apply this patch or change the deployment default.
+- id: agent-presets
+  config:
+    default: dsmm-orchestrator

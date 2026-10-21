@@ -1,0 +1,3 @@
+id: dsmm-normal-task
+name: 'DW Normal Task'
+description: 'Ordinary bounded tasks with known acceptance criteria: small config updates, tool output checks, straightforward file organization, or contained non-feature changes.'
