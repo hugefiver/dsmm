@@ -112,14 +112,14 @@ export function classifyPermissionShell(identity: PermissionShellIdentity, args:
 }
 
 export interface PermissionShellReadPaths { readonly workingDirectory: string; readonly paths: readonly string[] }
-/** Typed DSMM extraction, not an SDK operand field. Undefined means exact native ask, not inside. */
+/** Typed DSMM extraction, not an SDK operand field. Undefined leaves path facts unknown; deny and independent rules still apply. */
 export function parsePermissionShellReadPaths(identity: PermissionShellIdentity, args: unknown, cwd: string, execution?: Readonly<ToolExecution>): PermissionShellReadPaths | undefined {
   const operation = classifyPermissionShell(identity, args, cwd, execution);
   if (operation.effect !== "read" || operation.workingDirectory === "" || identity.readCapability === undefined) return undefined;
   if (/[|<>]/u.test(operation.command)) return undefined;
   const paths: string[] = [];
   for (const segment of parseShellCommand(operation.command, identity.dialect)) {
-    // Redirects, pipelines, wildcard expansion and Git object/pathspec semantics require an exact question.
+    // Redirects, pipelines and Git object/pathspec semantics do not prove filesystem operands.
     if (segment.tokens.some(token => token.kind === "operator" && ![";", "&&"].includes(token.value))) return undefined;
     const command = identity.readCapability.resolveExecutable(segment.words[0], operation.workingDirectory, execution);
     if (command === undefined || command === "git") return undefined;

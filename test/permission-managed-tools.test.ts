@@ -151,11 +151,11 @@ test("Core native FS read rules compose once, deny without body access, and reta
     const result = await read(); assert.equal(result.isError, false, JSON.stringify(result));
     assert.ok(result.meta !== null && typeof result.meta === "object" && !Array.isArray(result.meta));
     assert.deepEqual(result.meta.lines, [{ number: 1, text: "needle outside" }]);
-    assert.equal(f.counts().reads, 1); assert.equal(f.counts().approvals, 1);
+    assert.equal(f.counts().reads, 1); assert.equal(f.counts().approvals, 0);
     f.ctx.on("tools/pre-execute", async (_exec, next) => { await next(); return { kind: "ask", reason: "Native exact invocation" }; }, { global: true });
-    assert.equal((await read()).isError, false); assert.equal(f.counts().approvals, 2);
+    assert.equal((await read()).isError, false); assert.equal(f.counts().approvals, 1);
     f.setOutcome("rejected"); assert.equal((await read()).isError, true); assert.equal(f.counts().reads, 2);
-    await f.update({ outsideReads: "deny" }); assert.equal((await read()).isError, true); assert.equal(f.counts().approvals, 3); assert.equal(f.counts().reads, 2);
+    await f.update({ outsideReads: "deny" }); assert.equal((await read()).isError, true); assert.equal(f.counts().approvals, 2); assert.equal(f.counts().reads, 2);
     assert.equal((await f.execute(root, "read", { file_path: join(f.workspace, "inside.txt") })).isError, true); // independent native ask remains authoritative
     f.setOutcome("allowed-once"); assert.equal((await f.execute(root, "read", { file_path: join(f.workspace, "inside.txt") })).isError, false);
     setApprovalPolicy(root.session, "never"); await f.update({ outsideReads: "ask" }); assert.equal((await read()).isError, true);
@@ -293,11 +293,14 @@ test("late Core load applies permission rules to unadmitted native roots without
       assert.equal(f.controller().toolCoverage(admitted).length, enabled ? 5 : 0);
       if (enabled) {
         await f.update({ outsideReads: "ask" }); f.setOutcome("rejected");
+        assert.equal((await f.execute(root, "read", { file_path: join(f.outside, "outside.txt") })).isError, false);
+        assert.equal(f.counts().reads, 3); assert.equal(f.counts().approvals, 0);
+        f.ctx.on("tools/pre-execute", async (_exec, next) => { await next(); return { kind: "ask", reason: "Independent downstream approval" }; }, { global: true });
         assert.equal((await f.execute(root, "read", { file_path: join(f.outside, "outside.txt") })).isError, true);
-        assert.equal(f.counts().reads, 2); assert.equal(f.counts().approvals, 1);
+        assert.equal(f.counts().reads, 3); assert.equal(f.counts().approvals, 1);
         f.setOutcome("allowed-once");
         assert.equal((await f.execute(root, "read", { file_path: join(f.outside, "outside.txt") })).isError, false);
-        assert.equal(f.counts().reads, 3); assert.equal(f.counts().approvals, 2);
+        assert.equal(f.counts().reads, 4); assert.equal(f.counts().approvals, 2);
       }
     } finally { await f.dispose(); }
   }
@@ -372,6 +375,7 @@ test("registration disposal and caller cancellation cancel pending native once a
   const gate = deferred<"allowed-once">();
   try {
     const root = await f.create(), ready = deferred<void>();
+    f.ctx.on("tools/pre-execute", async (_exec, next) => { await next(); return { kind: "ask", reason: "Independent downstream approval" }; }, { global: true });
     f.setAnswer(async () => { ready.resolve(); return gate.promise; });
     const waiting = f.execute(root, "read", { file_path: join(f.outside, "outside.txt") }); await ready.promise;
     await f.fsFiber.dispose(); assert.equal((await waiting).isError, true); assert.equal(f.counts().reads, 0);
@@ -388,6 +392,7 @@ test("Core permission policy changes do not veto a later native once approval; s
     const ready = deferred<void>(), late = deferred<"allowed-once">();
     try {
       const root = await f.create();
+      if (name === "read") f.ctx.on("tools/pre-execute", async (_exec, next) => { await next(); return { kind: "ask", reason: "Independent downstream approval" }; }, { global: true });
       const args = name === "read" ? { file_path: join(f.outside, "outside.txt") } : name === "web_search" ? { queries: ["owned query"] } : { url: "https://example.invalid/" };
       f.setAnswer(async () => { ready.resolve(); return late.promise; });
       const pending = f.execute(root, name, args); await ready.promise;

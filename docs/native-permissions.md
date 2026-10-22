@@ -24,6 +24,16 @@ Storage CAS and runtime adoption are separate from native call approval. Saves r
 
 Configuration writes require the real native operator, exact entry/form or Root authority and a live connection/owner through every await and immediately before commit. Serialized provenance, a client loopback claim or an old registration isn't authority. Only relevant effective permission changes coordinate revocation; unrelated model/locale/display edits aren't a second approval gate. A committed write stays committed when notification or observation fails, with refresh-required/unsynchronized status. An unconfirmed native result requires reread, not blind retry.
 
+## Trusted read-only calls
+
+Trusted native `read`, `glob` and `grep` calls do not request outside-read approval, inside or outside the workspace. This includes saved `outsideReads: ask` and `outside-read` entries with `action: ask`. DSMM continues reading these settings without rewriting user configuration. Missing FS/path or co-location facts do not turn `allow`, `ask` or `inherit` into a read approval.
+
+Existing deny policy and path-rule matching remain effective. Outside standing Full access, a relevant deny fails closed when the required containment or path facts cannot be proved; an unknown backend is not proof that a target is inside the workspace. Standing Full access retains its definite-blacklist behavior described above.
+
+The same outside-read behavior applies to the existing shell read branch only when the native adapter supplies a current, trusted `readCapability` for the actual executable and environment. A tool name, command name or workspace cwd is not read-only proof. Independent shell command rules, unknown-command behavior and web/Git policy are unchanged.
+
+This removes only DSMM outside-read asks. Independent downstream asks, denials and cancellation still apply, including third-party tools with familiar names. Native read-only restrictions, role/tool/RPC ceilings and exact registration, body, arguments, Agent and invocation-token bindings remain in force. A native once approval still belongs only to its original call.
+
 ## Configuration drawer and command rules
 
 Use **Plugins → DSMM bundle config → Permissions**. The selected Global/native-profile scope edits its sparse deployment policy; a separate Root-rules transaction writes Global only under the existing live operator, exact open Root, registration and synchronized-policy authority. A child, stale connection, read-only Host or shadowing native policy doesn't acquire a fallback Global write. Named Profiles can't grant these permissions. No duplicate Settings permission page or Conversation permission tab is registered.
@@ -53,3 +63,11 @@ Same-call approval, cancellation, ownership and input isolation remain effective
 See [running-overlay and approval boundaries](deferred-native-approval-risk.md).
 
 Outside-read and web policies apply to their native tool surfaces. They don't provide complete filesystem/network isolation for arbitrary shell commands or replace operating-system checks on the final inode and socket target.
+
+### Workspace and system-temp modifications
+
+Native write/edit and shell execution retain DSH's policy, approval and execution backends. Native FS intents, observation/version checks and atomic modification are not replaced by a DSMM write implementation. The read-only behavior above does not grant writes or a broader sandbox mode, and DSMM does not automatically replay a denied shell command.
+
+Complete workspace-write range handling—workspace and the execution host's actual system temp without range approval, with outside modifications requiring approval—is blocked on host capability and authorization. The stock Windows provider supplies a workspace and a private temp directory, not the entire shared system temp. Its lower-level writable-directory grants change real DACLs and integrity labels; the public revoke API does not establish exact restoration of prior security descriptors. DSMM has no authorization to apply those changes to the shared temp tree or install a replacement provider. Linux/macOS runners likewise require actual backend verification; a shared helper is not proof that every runner permits host system temp.
+
+A private temp, a requested `danger-full-access` mode, a mock backend or a successful constructor probe is not evidence of complete system-temp support. Native once escalation remains explicit and call-scoped; it does not establish precise outside-target confinement or a pause/approve/resume capability. Real FS and shell/temp range enforcement remains unverified until a suitable backend and its required authorization are available.

@@ -35,7 +35,7 @@ const { ApprovalService, setApprovalPolicy } = await import(pathToFileURL(sdk.re
 const { FileSystem } = await import(pathToFileURL(sdk.resolve("@deepseek-ai/dsh-fs")).href);
 const WorkingDirectory = await import(pathToFileURL(sdk.resolve("@deepseek-ai/dsh-working-directory")).href);
 
-async function nativeFixture(policy: PermissionControlSchemaInput = {}, fullAccess = false) {
+async function nativeFixture(policy: PermissionControlSchemaInput = {}, fullAccess = false, proveCoLocation = true) {
   assert.ok(existsSync(tmpdir()));
   const directory = await mkdtemp(join(tmpdir(), "dsmm-native-rules-")), workspace = join(directory, "workspace"), outside = join(directory, "outside");
   await mkdir(workspace); await mkdir(outside);
@@ -84,7 +84,7 @@ async function nativeFixture(policy: PermissionControlSchemaInput = {}, fullAcce
       return { done, collected: { stdout: { readFrom: () => ({ text: stdout, lossy: false }) }, stderr: { readFrom: () => ({ text: stderr, lossy: false }) } } };
     } });
     await ctx.plugin(NativeFs, {}).await(); await ctx.plugin(NativeSearch, { sampleOverCapGlobResults: false }).await();
-    for (const kind of ["read", "glob", "grep"] as const) identities.set(ctx.tools.get(kind)!, { kind, context: ctx, assertCurrent() {}, coLocated() { return colocated; } });
+    for (const kind of ["read", "glob", "grep"] as const) identities.set(ctx.tools.get(kind)!, { kind, context: ctx, assertCurrent() {}, ...proveCoLocation ? { coLocated() { return colocated; } } : {} });
     ctx.on("approval/request", async () => { approvals++; return answer === undefined ? outcome : answer(); }, { global: true });
     const sync = new PermissionRulesRuntimeSync({ revision: "source:initial", policy: resolvePermissionControl(policy) }, () => {});
     registerNativePermissionRules(ctx, { runtime: sync, identify: definition => identities.get(definition), assertCurrent() {} });
@@ -100,7 +100,34 @@ async function nativeFixture(policy: PermissionControlSchemaInput = {}, fullAcce
   } catch (error) { await handle?.dispose(); await ctx.fiber.dispose(); await rm(directory, { recursive: true }); throw error; }
 }
 
-test("stock native read inherits outside reads, and allow/ask/deny use actual file_path without write permission", async () => {
+test("trusted native reads do not request outside-read approval without co-location proof", async t => {
+  const f = await nativeFixture({}, false, false);
+  try {
+    f.setOutcome("rejected");
+    for (const outsideReads of ["allow", "ask", "inherit"] as const) await t.test(outsideReads, async () => {
+      const rules = outsideReads === "inherit" ? importPermissionRules([{ id: "outside-ask", action: "ask", match: { kind: "outside-read", path: f.outside, scope: "tree" } }], "owned configuration", 1) : [];
+      await f.update({ outsideReads, rules });
+      const beforeReads = f.reads(), beforeSpawns = f.spawns();
+      for (const path of [f.workspace, f.outside]) {
+        for (const [name, input] of [["read", { file_path: join(path, path === f.workspace ? "inside.txt" : "outside.txt") }],
+          ["glob", { pattern: "*.txt", ...path === f.workspace ? {} : { path } }], ["grep", { pattern: "needle", ...path === f.workspace ? {} : { path } }]] as const) {
+          const result = await f.execute(name, input);
+          assert.equal(result.isError, false, JSON.stringify(result));
+          assert.ok(result.content.some(block => block.type === "text" && block.text.includes(".txt")), JSON.stringify(result.content));
+        }
+      }
+      assert.equal(f.reads(), beforeReads + 2); assert.equal(f.spawns(), beforeSpawns + 4); assert.equal(f.approvals(), 0);
+    });
+    await f.update({ outsideReads: "deny" });
+    const beforeReads = f.reads(), beforeSpawns = f.spawns();
+    for (const name of ["glob", "grep"]) for (const path of [f.workspace, f.outside])
+      assert.equal((await f.execute(name, { pattern: "needle", path })).isError, true);
+    assert.equal((await f.execute("read", { file_path: join(f.outside, "outside.txt") })).isError, true);
+    assert.equal(f.reads(), beforeReads); assert.equal(f.spawns(), beforeSpawns); assert.equal(f.approvals(), 0);
+  } finally { await f.dispose(); }
+});
+
+test("stock native read ignores outside asks and keeps deny and write restrictions", async () => {
   const f = await nativeFixture();
   try {
     assert.equal((await f.execute("read", { file_path: join(f.outside, "outside.txt") })).isError, false); assert.equal(f.approvals(), 0);
@@ -108,8 +135,8 @@ test("stock native read inherits outside reads, and allow/ask/deny use actual fi
     assert.equal((await f.execute("read", { file_path: "inside.txt" })).isError, false);
     assert.equal((await f.execute("read", { file_path: "../outside/outside.txt" })).isError, true); assert.equal(f.reads(), 2);
     await f.update({ outsideReads: "ask" });
-    assert.equal((await f.execute("read", { file_path: "../outside/outside.txt" })).isError, false); assert.equal(f.approvals(), 1);
-    f.setOutcome("rejected"); assert.equal((await f.execute("read", { file_path: join(f.outside, "outside.txt") })).isError, true); assert.equal(f.reads(), 3);
+    assert.equal((await f.execute("read", { file_path: "../outside/outside.txt" })).isError, false); assert.equal(f.approvals(), 0);
+    f.setOutcome("rejected"); assert.equal((await f.execute("read", { file_path: join(f.outside, "outside.txt") })).isError, false); assert.equal(f.reads(), 4);
     await f.update({ outsideReads: "allow" });
     assert.equal((await f.execute("read", { file_path: join(f.outside, "outside.txt") })).isError, false);
     assert.equal((await f.execute("write", { file_path: join(f.outside, "outside.txt"), content: "overwrite" })).isError, true);
@@ -118,7 +145,7 @@ test("stock native read inherits outside reads, and allow/ask/deny use actual fi
   } finally { await f.dispose(); }
 });
 
-test("native glob/grep enforce real search roots at direct packaged-rg spawn and require backend co-location", async () => {
+test("native glob/grep retain outside deny and require backend co-location only for containment", async () => {
   const f = await nativeFixture({ outsideReads: "deny" });
   try {
     assert.equal((await f.execute("glob", { pattern: "*.txt" })).isError, false);
@@ -129,7 +156,9 @@ test("native glob/grep enforce real search roots at direct packaged-rg spawn and
     await f.update({ outsideReads: "allow" });
     assert.equal((await f.execute("grep", { pattern: "needle", path: join(f.outside, "outside.txt") })).isError, false); assert.equal(f.spawns(), 3);
     f.setColocated(false); f.setOutcome("rejected");
-    assert.equal((await f.execute("glob", { pattern: "*.txt" })).isError, true); assert.equal(f.spawns(), 3); assert.equal(f.approvals(), 1);
+    assert.equal((await f.execute("glob", { pattern: "*.txt" })).isError, false); assert.equal(f.spawns(), 4); assert.equal(f.approvals(), 0);
+    await f.update({ outsideReads: "deny" });
+    assert.equal((await f.execute("glob", { pattern: "*.txt" })).isError, true); assert.equal(f.spawns(), 4); assert.equal(f.approvals(), 0);
   } finally { await f.dispose(); }
 });
 test("standing full access bypasses outside asks and unknown path facts, retaining only definite outside blacklist matches", async () => {
@@ -201,9 +230,10 @@ test("unresolved read facts cannot turn a relevant hard path deny into a once as
       const value = await f.execute(name, input);
       assert.equal(value.isError, true, JSON.stringify({ value, approvals: f.approvals(), reads: f.reads(), spawns: f.spawns(), shellStarts }));
       assert.equal(f.approvals(), 0); assert.equal(f.reads(), 0); assert.equal(f.spawns(), 0); assert.equal(shellStarts, 0);
-      if (missing !== "operands") {
-        await f.update({ outsideReads: "inherit" }); assert.equal((await f.execute(name, input)).isError, false); assert.equal(f.approvals(), 0);
-      }
+      await f.update({ outsideReads: "ask" }); f.setOutcome("rejected");
+      assert.equal((await f.execute(name, input)).isError, false); assert.equal(f.approvals(), 0);
+      await f.update({ outsideReads: "inherit", rules: importPermissionRules([{ id: "outside-ask", action: "ask", match: { kind: "outside-read", path: f.outside, scope: "tree" } }], "owned configuration", 2) });
+      assert.equal((await f.execute(name, input)).isError, false); assert.equal(f.approvals(), 0);
     } finally { await f.dispose(); }
   });
 });
@@ -213,13 +243,14 @@ test("native once approval is final when permission-only co-location facts chang
   let nextCalls = 0;
   try {
     f.ctx.on("tools/pre-execute", async (_exec, next) => { nextCalls++; return next(); }, { global: true });
+    f.ctx.on("tools/pre-execute", async (_exec, next) => { await next(); return { kind: "ask", reason: "Independent downstream approval" }; }, { global: true });
     f.setAnswer(async () => { f.setColocated(false); return "allowed-once"; });
     assert.equal((await f.execute("grep", { pattern: "needle", path: "../outside" })).isError, false);
-    assert.equal(f.spawns(), 1); assert.equal(nextCalls, 1);
+    assert.equal(f.spawns(), 1); assert.equal(nextCalls, 1); assert.equal(f.approvals(), 1);
   } finally { await f.dispose(); }
 });
 
-test("native and DSMM same-call asks compose once and deny never/unavailable/cancelled", async () => {
+test("independent downstream asks remain authoritative for trusted reads and deny never/unavailable/cancelled", async () => {
   const f = await nativeFixture({ outsideReads: "ask" });
   let nextCalls = 0;
   try {
@@ -231,11 +262,27 @@ test("native and DSMM same-call asks compose once and deny never/unavailable/can
   } finally { await f.dispose(); }
 });
 
+test("untrusted same-name read still requires third-party downstream approval", async () => {
+  const f = await nativeFixture({ outsideReads: "allow" }, false, false);
+  let bodies = 0;
+  try {
+    f.root.ctx.tools.register({ name: "read", description: "Third-party read", parameters: { type: "object" },
+      output: { schema: { type: "integer" }, render: (_args, value) => [{ type: "text", text: String(value) }] }, async execute() { return ++bodies; } });
+    f.ctx.on("tools/pre-execute", async (_exec, next) => { await next(); return { kind: "ask", reason: "Third-party approval" }; }, { global: true });
+    f.setOutcome("rejected");
+    assert.equal((await f.execute("read", { file_path: "inside.txt" })).isError, true); assert.equal(bodies, 0); assert.equal(f.approvals(), 1);
+    f.setOutcome("allowed-once");
+    assert.equal((await f.execute("read", { file_path: "inside.txt" })).isError, false); assert.equal(bodies, 1); assert.equal(f.approvals(), 2);
+    assert.equal(f.reads(), 0);
+  } finally { await f.dispose(); }
+});
+
 test("source save while native approval is pending preserves the latest operator decision for that call only", async () => {
   const f = await nativeFixture({ outsideReads: "ask" });
   let release!: (value: "allowed-once") => void, entered!: () => void;
   const ready = new Promise<void>(yes => { entered = yes; }), answer = new Promise<"allowed-once">(yes => { release = yes; });
   try {
+    f.ctx.on("tools/pre-execute", async (_exec, next) => { await next(); return { kind: "ask", reason: "Independent downstream approval" }; }, { global: true });
     f.setAnswer(() => { entered(); return answer; });
     const pending = f.execute("read", { file_path: "../outside/outside.txt" }); await ready;
     await f.update({ outsideReads: "deny" }); release("allowed-once"); assert.equal((await pending).isError, false); assert.equal(f.reads(), 1);
@@ -281,7 +328,7 @@ test("stock native pwsh outside-read rule uses verified Get-Content operand, nev
     });
     await f.ctx.plugin(NativePwsh, { enableRunInBackground: false, promoteOnTimeout: false }).await();
     const definition = f.ctx.tools.get("pwsh")!;
-    f.identities.set(definition, { kind: "shell", context: f.ctx, coLocated() { return true; }, assertCurrent() {}, shell: {
+    f.identities.set(definition, { kind: "shell", context: f.ctx, assertCurrent() {}, shell: {
       executable: "pwsh", dialect: "powershell", commandField: "command", cwdField: "workdir", readCapability: {
         signal: new AbortController().signal,
         resolveExecutable(token) { return token.toLowerCase() === "get-content" ? "get-content" : undefined; }, assertCurrent() {},
@@ -290,10 +337,16 @@ test("stock native pwsh outside-read rule uses verified Get-Content operand, nev
     const call = () => f.execute("pwsh", { command, workdir: f.workspace, description: "owned exact local file read" });
     assert.deepEqual(parsePermissionShellReadPaths(f.identities.get(definition)!.shell!, { command, workdir: f.workspace }, f.workspace)?.paths, [file]);
     assert.equal((await call()).isError, true); assert.equal(starts, 0);
-    await f.update({ outsideReads: "ask" });
-    const result = await call(); assert.equal(result.isError, false); assert.equal(starts, 1); assert.equal(f.approvals(), 1);
-    assert.ok(result.content.some(block => block.type === "text" && block.text.includes("needle outside")), JSON.stringify(result.content));
-    await f.update({ outsideReads: "deny" }); assert.equal((await call()).isError, true); assert.equal(starts, 1);
+    f.setOutcome("rejected");
+    for (const outsideReads of ["allow", "ask", "inherit"] as const) {
+      await f.update({ outsideReads, rules: importPermissionRules([{ id: "outside-ask", action: "ask", match: { kind: "outside-read", path: f.outside, scope: "tree" } }], "owned configuration", 1) });
+      const before: number = starts, result = await call(); assert.equal(result.isError, false); assert.equal(starts, before + 1); assert.equal(f.approvals(), 0);
+      assert.ok(result.content.some(block => block.type === "text" && block.text.includes("needle outside")), JSON.stringify(result.content));
+    }
+    await f.update({ outsideReads: "deny" }); assert.equal((await call()).isError, true); assert.equal(starts, 3);
+    await f.update({ outsideReads: "ask", rules: importPermissionRules([{ id: "command-ask", action: "ask", match: { kind: "shell", executable: "pwsh", command, workingDirectory: f.workspace } }], "owned configuration", 2) });
+    assert.equal((await call()).isError, true); assert.equal(starts, 3); assert.equal(f.approvals(), 1);
+    f.setOutcome("allowed-once"); assert.equal((await call()).isError, false); assert.equal(starts, 4); assert.equal(f.approvals(), 2);
   } finally { await f.dispose(); }
 });
 
@@ -337,16 +390,11 @@ test("Shell read containment and relative path rules use the session workspace r
     });
     assert.equal((await call("inner", "Get-Content -LiteralPath 'inside.txt' -Raw")).isError, false); assert.equal(bodies, 1);
     await f.update({ outsideReads: "ask" });
+    f.setOutcome("rejected");
     for (const workdir of [undefined, f.outside, "../outside"]) {
-      let ready!: (value: boolean) => void, release!: (value: "allowed-once") => void;
-      const pending = new Promise<boolean>(yes => { ready = yes; }), answer = new Promise<"allowed-once">(yes => { release = yes; });
-      f.setAnswer(() => { ready(true); return answer; });
       const before: number = bodies;
-      const run = call(workdir);
-      try { assert.equal(await Promise.race([pending, run.then(() => false)]), true); assert.equal(bodies, before); release("allowed-once"); assert.equal((await run).isError, false); }
-      finally { release("allowed-once"); await run; }
+      assert.equal((await call(workdir)).isError, false); assert.equal(bodies, before + 1); assert.equal(f.approvals(), 0);
     }
-    f.setAnswer(undefined);
     await f.update({ outsideReads: "deny", rules: importPermissionRules([{ id: "owned-anchored-tree", action: "allow", match: { kind: "outside-read", path: "../outside", scope: "tree" } }], "owned import", 2) });
     for (const workdir of [undefined, nestedOutside, "../outside/nested", inner]) assert.equal((await call(workdir)).isError, false);
     const before = bodies;

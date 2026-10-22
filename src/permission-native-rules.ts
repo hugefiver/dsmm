@@ -23,7 +23,7 @@ type FsTarget = NativePermissionFsTarget;
 function unresolvedOutside(policy: PermissionControlSettings): PermissionRuleAction {
   const rules = policy.rules.filter(rule => !rule.revoked && rule.match.kind === "outside-read");
   if (policy.outsideReads === "deny" || rules.some(rule => rule.action === "deny")) return "deny";
-  return policy.outsideReads === "inherit" && rules.length === 0 ? "inherit" : "ask";
+  return "inherit";
 }
 
 /** Supplied only by the owner of the actual registered definition/native execution context. */
@@ -129,6 +129,8 @@ export function registerNativePermissionRules(ctx: Context, options: NativePermi
     if (paths.length === 0) return "inherit";
     const fs = binding.fs;
     const configured = binding.snapshot.policy.outsideReads;
+    // Trusted reads impose only the existing deny boundary, never an outside-read ask.
+    if (unresolvedOutside(binding.snapshot.policy) !== "deny") return "inherit";
     if (fs === undefined || !isAbsolute(binding.workspaceRoot) || !isAbsolute(cwd) || direct && binding.identity.coLocated?.(exec, fs) !== true) {
       // Unknown backends cannot satisfy inside or a path-specific allow.
       return full ? "inherit" : unresolvedOutside(binding.snapshot.policy);
@@ -161,7 +163,7 @@ export function registerNativePermissionRules(ctx: Context, options: NativePermi
       if (full && action === "deny") return "deny";
       decisions.push(action);
     }
-    return intersectPermissionActions(decisions);
+    return intersectPermissionActions(decisions) === "deny" ? "deny" : "inherit";
   };
   const evaluate = async (exec: Readonly<ToolExecution>, binding: RuleBinding): Promise<PermissionRuleAction> => {
     const { kind, shell } = binding.identity, policy = binding.snapshot.policy;
@@ -231,7 +233,7 @@ export function registerNativePermissionRules(ctx: Context, options: NativePermi
     if (exec.signal.aborted) return { kind: "cancel" };
     checkIntegrity(exec, binding);
     if (downstream.kind === "deny" || downstream.kind === "cancel") return downstream;
-    if (nativeOnly) {
+    if (nativeOnly || action !== "ask") {
       if (downstream.kind !== "ask") return downstream;
       const displayReason = downstream.displayReason ?? Object.freeze({ en: downstream.reason ?? "" });
       asks.set(displayReason, { exec, binding });
