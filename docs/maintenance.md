@@ -16,14 +16,20 @@ Common checks:
 ```powershell
 pnpm run typecheck
 pnpm run build
-pnpm run test:run
+pnpm run test:list
+pnpm run test:module -- <module> [module...]
+pnpm run test:integration -- <group> [group...]
 pnpm run check:frontend
 pnpm run check:roles
 pnpm pack --pack-destination <approved-output-directory>
 ```
 
-`pnpm test` remains the convenient build-plus-test command. Dependency installation
-and lockfile maintenance are separate authorized operations.
+`pnpm test` remains the convenient build-plus-fast-smoke command. CI and release
+also use that smoke entry after build and typecheck, alongside frontend, generated
+role and package checks. Development and final acceptance select only affected
+module suites and interface integrations; the explicit full diagnostic is not a
+default gate. See [testing](testing.md). Dependency installation and lockfile
+maintenance are separate authorized operations.
 
 ## Generated role assets
 

@@ -63,4 +63,4 @@ Retired brand-specific routing fields reject rather than migrate. Unsupported co
 
 ## Development and release
 
-The checked-in `src/`, `prompts/`, and `skills/` trees are the standalone maintenance sources. Build, test, role generation, frontend provenance, and package checks do not read a sibling repository. See [maintenance](docs/maintenance.md) and [release policy](docs/releasing.md).
+The checked-in `src/`, `prompts/`, and `skills/` trees are the standalone maintenance sources. Build, test, role generation, frontend provenance, and package checks do not read a sibling repository. Development and final acceptance use the affected module and interface suites rather than a full test run; see [testing](docs/testing.md), [maintenance](docs/maintenance.md), and [release policy](docs/releasing.md).

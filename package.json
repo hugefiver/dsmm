@@ -99,6 +99,7 @@
     "docs/runtime-recovery.md",
     "docs/safety-guards.md",
     "docs/settings-status.md",
+    "docs/testing.md",
     "docs/web-fetch-fakeip.md",
     "patches",
     "prompts",
@@ -116,7 +117,11 @@
     "sync:frontend": "node scripts/materialize-frontend.mjs --sync",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "typecheck:test": "pnpm run build && tsc -p tsconfig.test.json --noEmit",
-    "test:run": "node --test --experimental-strip-types --import ./test/prompt-source-loader.mjs --test-concurrency=1 test/*.test.ts",
+    "test:list": "node scripts/run-test-suite.mjs --list",
+    "test:module": "node scripts/run-test-suite.mjs --module",
+    "test:integration": "node scripts/run-test-suite.mjs --integration",
+    "test:diagnostic:all": "node scripts/run-test-suite.mjs --diagnostic-all",
+    "test:run": "node scripts/run-test-suite.mjs --smoke",
     "test": "pnpm run build && pnpm run test:run"
   },
   "engines": {

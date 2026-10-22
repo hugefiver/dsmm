@@ -18,14 +18,24 @@ authorization.
 ```powershell
 pnpm run typecheck
 pnpm run build
-pnpm run test
+pnpm run test:list
+pnpm run test:module -- <module> [module...]
+pnpm run test:integration -- <group> [group...]
 pnpm run check:roles
 pnpm pack --pack-destination <approved-output-directory>
 ```
 
-Run targeted checks while editing and leave full integration verification to the
-task owner when requested. `generate:roles` is the only writer for
-`agent-presets/` and `prompts/deepwork.md`; follow it with `check:roles`.
+During development and final acceptance, run only the module suites covering the
+change and any affected interfaces. Add the relevant explicit integration group
+when a Host, browser or package-delivery boundary changes. `pnpm test`, CI and the
+release verification job run build plus the fast smoke suite; they do not run all
+modules or integrations. `test:diagnostic:all` is an explicit diagnostic command,
+not a default acceptance gate. Keep test files serial unless new evidence supports
+a narrower concurrency change, and never trade away safety/protocol coverage or
+raise timeouts to make a suite faster. See `docs/testing.md`.
+
+`generate:roles` is the only writer for `agent-presets/` and
+`prompts/deepwork.md`; follow it with `check:roles`.
 
 ## Resources and release
 

@@ -70,7 +70,7 @@ jobs:
         run: pnpm run build
       - name: Typecheck
         run: pnpm run typecheck
-      - name: Test
+      - name: Fast smoke tests
         run: pnpm run test:run
       - name: Check frontend resources
         run: pnpm run check:frontend

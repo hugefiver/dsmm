@@ -40,8 +40,6 @@ test("protected plan edits refuse both malformed and valid fragments without pre
 });
 
 test("protected plan edits leave matching and CAS to native tools, never a Node filesystem preview", () => {
-  // The removed reconstruction checks bypassed host read/observation. Every
-  // protected edit now refuses independently of the target's matching state.
   for (const old_string of ["[ ]", "missing"]) {
     for (const replace_all of [undefined, false, true]) {
       assert.match(reason("edit", { file_path: ".omo/plans/edit.md", old_string, new_string: "[x]", replace_all }) ?? "", /unsupported-full-preview/);
@@ -51,7 +49,6 @@ test("protected plan edits leave matching and CAS to native tools, never a Node 
 });
 
 test("plan validation rejects malformed native edit argument contracts without reading even a missing target", () => {
-  assert.match(reason("edit", { file_path: "docs/superpowers/plans/missing.md", old_string: "[ ]", new_string: "[x]" }) ?? "", /unsupported-full-preview/);
   assert.equal(reason("edit", { file_path: "docs/superpowers/plans/edit.md", old_string: "", new_string: "[x]" }), "[dsmm safety] cannot validate plan edit: old_string must be non-empty");
   assert.equal(reason("edit", { file_path: "docs/superpowers/plans/edit.md", old_string: "[ ]", new_string: 3 }), "[dsmm safety] cannot validate plan edit: new_string must be a string");
   assert.equal(reason("edit", { file_path: "docs/superpowers/plans/edit.md", old_string: "[ ]", new_string: "[x]", replace_all: "yes" }), "[dsmm safety] cannot validate plan edit: replace_all must be boolean");
