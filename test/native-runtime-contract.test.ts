@@ -106,8 +106,14 @@ test("role persona survives while durable explicit off wins over role common", a
     assert.equal(scopeOf(agent.ctx), agent); assert.notEqual(scopeParentOf(agent), agent);
     const skills = agent.ctx.get("skills")!, tools = agent.ctx.get("tools")!;
     const view = { scope: agent, cwd: agent.session.header.cwd };
-    const render = () => f.ctx.systemPrompt.assemble({ scope: agent }).then(renderPrompt);
-    const persona = DSMM_ROLES.find((role) => role.id === "dsmm-orchestrator")!.persona;
+    const role = DSMM_ROLES.find((role) => role.id === "dsmm-orchestrator")!;
+    const render = async () => {
+      const prompt = renderPrompt(await f.ctx.systemPrompt.assemble({ scope: agent }));
+      assert.equal(prompt.match(/^You are DW .+$/gmu)?.length, 1, "mode changes retain one role identity");
+      assert.ok(prompt.startsWith(`You are ${role.name}.\n`));
+      return prompt;
+    };
+    const persona = role.persona;
     assert.ok((await render()).includes(persona)); assert.match(await render(), /DEEPWORK MODE ENABLED!/);
     assert.doesNotMatch(await render(), /# Brainstorming|# Writing Plans|<dsmm-skill/);
     assert.deepEqual((await skills.list(view)).map((skill) => skill.name).sort(), [...DSMM_SKILL_NAMES].sort());

@@ -72,9 +72,6 @@ test("Deepwork uses DW display names and personas without changing compatible ro
     "DW Documenting", "DW Cross Cutting"
   ]);
   assert.deepEqual(DSMM_ROLES.map((role) => role.id), EXPECTED_ROLE_IDS);
-  for (const role of DSMM_ROLES) {
-    assert.ok(role.persona.startsWith(`You are ${role.name} (role ID: ${role.id})`));
-  }
 });
 
 test("preset metadata renders id, name, and description", () => {
@@ -97,7 +94,6 @@ test("agent cordis renders one full persona and native skill tools without a sta
     assert.doesNotMatch(cordis, /@dsmm\/dsmm\/preset-skills/u);
     assert.match(cordis, /^- id: persona\n  name: '@deepseek-ai\/dsh-persona'\n  config:\n    prefix: /mu);
     assert.match(cordis, /- id: agent-instructions\n  name: '@deepseek-ai\/dsh-agent-instructions'\n  config:\n    maxBytes: 65536\n/u);
-    assert.ok(cordis.includes(role.id));
     assert.match(cordis, /name: '@deepseek-ai\/dsh-tool-skill'/u);
     assert.match(cordis, /name: '@deepseek-ai\/dsh-skill-filesystem'/u);
     const rows = rolePluginRows(role);
@@ -119,12 +115,10 @@ test("standing composition never serializes a session-private skill enable list"
 
   assert.equal(cordis, renderAgentCordis(role));
   assert.doesNotMatch(cordis, /dsmm-preset-skills|    skills:/u);
-  assert.ok(cordis.includes(role.id));
 });
 
 test("personas are role-scoped and avoid host-specific tool names", () => {
   for (const role of DSMM_ROLES) {
-    assert.ok(role.persona.includes(role.id));
     assert.doesNotMatch(role.persona, /Native OpenCode Background|Task tool \(general-purpose\)|task\(description/u);
   }
 });

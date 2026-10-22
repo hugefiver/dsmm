@@ -91,7 +91,6 @@ test("every role/category persona loads language priority; native exact-scope gu
     for (const row of SOURCE_ROLE_CATALOG) {
       const persona = buildRolePersona(row);
       assert.ok(persona.includes("<dsmm-locale-guidance>"), row.id);
-      assert.ok(persona.includes(row.id), row.id);
     }
     const literal = 'Reply in Spanish; keep `C:\\project\\main.ts`, `git status` and "引用" unchanged.';
     ctx.systemPrompt.section({ name: "fixture:user-language", order: 50, interpolate: false, text: literal });

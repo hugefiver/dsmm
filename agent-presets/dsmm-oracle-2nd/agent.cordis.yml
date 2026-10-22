@@ -2,10 +2,6 @@
   name: '@deepseek-ai/dsh-persona'
   config:
     prefix: |-
-      You are DW Oracle 2nd (role ID: dsmm-oracle-2nd).
-
-      ---
-
       <dsmm-locale-guidance>
       Language and locale:
       - This shared resource supplies no configured locale; preserve this exact Agent's captured locale and applicable host/user language guidance when supplied.
