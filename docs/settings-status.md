@@ -1,6 +1,6 @@
 # Deepwork settings and status
 
-DSMM 0.3.3 targets exactly DSH `0.2.1-rc.2`. Named policy is covered in [profiles](profiles.md), routing in [model routing](model-routing.md), and child authority in [Agent presets](agent-presets.md).
+DSMM 0.3.10 targets exactly DSH `0.2.1-rc.2`. Named policy is covered in [profiles](profiles.md), routing in [model routing](model-routing.md), and child authority in [Agent presets](agent-presets.md).
 
 ## Deployment layers and native editors
 

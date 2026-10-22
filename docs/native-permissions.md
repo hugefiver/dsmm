@@ -1,6 +1,6 @@
 # Native permissions
 
-DSMM 0.3.3 targets exactly DSH `0.2.1-rc.2`. DSH owns approval; DSMM composes policy into the native tool pipeline without a second approval queue, UI, TTL or session permit memory.
+DSMM 0.3.10 targets exactly DSH `0.2.1-rc.2`. DSH owns approval; DSMM composes policy into the native tool pipeline without a second approval queue, UI, TTL or session permit memory.
 
 ## Full access and approval
 
@@ -66,8 +66,8 @@ Outside-read and web policies apply to their native tool surfaces. They don't pr
 
 ### Workspace and system-temp modifications
 
-Native write/edit and shell execution retain DSH's policy, approval and execution backends. Native FS intents, observation/version checks and atomic modification are not replaced by a DSMM write implementation. The read-only behavior above does not grant writes or a broader sandbox mode, and DSMM does not automatically replay a denied shell command.
+DSMM does not add a path-range approval layer to native write/edit or ordinary shell modifications, including targets in workspace and system-temp subdirectories. Explicit command/Git rules, role/tool restrictions and native or third-party approval decisions remain effective. A temp path does not automatically approve an independent request.
 
-Complete workspace-write range handling—workspace and the execution host's actual system temp without range approval, with outside modifications requiring approval—is blocked on host capability and authorization. The stock Windows provider supplies a workspace and a private temp directory, not the entire shared system temp. Its lower-level writable-directory grants change real DACLs and integrity labels; the public revoke API does not establish exact restoration of prior security descriptors. DSMM has no authorization to apply those changes to the shared temp tree or install a replacement provider. Linux/macOS runners likewise require actual backend verification; a shared helper is not proof that every runner permits host system temp.
+Native write/edit retain their FS intents, observation/version checks, atomic modification and backend-provided sandbox escalation. Shell execution retains the native executor, standing sandbox and explicit call-scoped escalation. DSMM does not infer every command's effects from its cwd, raise the sandbox mode because a temp path appears in its arguments, or automatically replay a denied command.
 
-A private temp, a requested `danger-full-access` mode, a mock backend or a successful constructor probe is not evidence of complete system-temp support. Native once escalation remains explicit and call-scoped; it does not establish precise outside-target confinement or a pause/approve/resume capability. Real FS and shell/temp range enforcement remains unverified until a suitable backend and its required authorization are available.
+Actual write access remains backend-dependent: the stock Windows shell sandbox uses a private temp directory, not the entire shared system temp, and stock LocalFS does not itself enforce sandbox write scopes. DSMM neither changes system-temp ACLs nor supplies a replacement sandbox or FS isolation layer. Absence of an extra DSMM approval does not prove that a backend permits a write or requires approval for every outside write.
