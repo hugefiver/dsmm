@@ -148,7 +148,8 @@ test("two actual Loader entries inherit one global base; volatile pins/unset pre
     assert.equal(manager(a).admission(old as DshAgent).deployment?.globalRevision, oldAdmission.deployment?.globalRevision);
     const overlaid = manager(a).admission(await ordinary(a) as DshAgent);
     assert.equal(overlaid.settings.defaultActive, true, "a fresh root reads the latest global deployment and central selection");
-    assert.equal(overlaid.profile?.revision, selected.appliedRevision);
+    assert.equal(overlaid.profile?.id, selected.selectedId);
+    assert.equal(overlaid.profile?.revision, draft.revision);
     assert.equal(overlaid.settings.workflow.reviewCap, 2);
     assert.equal(Object.hasOwn(overlaid.settings.roleRouting["dsmm-reviewer"]!.primary!, "reasoningEffort"), false);
     assert.equal(Object.hasOwn(overlaid.sources!, "roleRouting.dsmm-reviewer.primary.reasoningEffort"), false, "complete primary replacement removes lower-only provenance");
@@ -221,7 +222,8 @@ test("direct Cordis remount restores central selection for fresh roots after dif
     assert.equal(initial.admission(agent as DshAgent), admission);
     const fresh = await first.create();
     assert.equal(initial.getSettings(fresh as DshAgent).workflow.reviewCap, 3);
-    assert.equal(initial.admission(fresh as DshAgent).profile?.revision, selected.appliedRevision);
+    assert.equal(initial.admission(fresh as DshAgent).profile?.id, selected.selectedId);
+    assert.equal(initial.admission(fresh as DshAgent).profile?.revision, nextDraft.revision);
     const captured = admission.deployment!, originalFiber = first.dsmmFiber.uid;
     await first.dispose(); first = undefined;
     second = await nativeRoutingFixture({}, { home, profileDir, spawn: false, async beforeDsmm(ctx) {
@@ -234,7 +236,7 @@ test("direct Cordis remount restores central selection for fresh roots after dif
     assert.equal((await reopened.describe()).sourceRevision, nextDraft.revision);
     const next = await second.create();
     assert.notEqual(next.id, agent.id);
-    assert.equal(reopened.admission(next as DshAgent).profile?.revision, selected.appliedRevision);
+    assert.equal(reopened.admission(next as DshAgent).profile?.revision, nextDraft.revision);
     assert.equal(reopened.getSettings(next as DshAgent).workflow.reviewCap, 3);
   } finally {
     await second?.dispose(); await first?.dispose();

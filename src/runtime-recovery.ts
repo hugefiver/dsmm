@@ -1,7 +1,7 @@
 import { createUserMessage, expandAssistantStream } from "@deepseek-ai/dsh-llm";
 import type { AssistantStreamRecord } from "@deepseek-ai/dsh-llm";
 import type { AssistantStreamFrame } from "@deepseek-ai/dsh-agent";
-import type { AgentRequestErrorFrame, DshAgent, DshAgentsRegistry, DshContext, DshEpochHeader, DshLlmFailure, DshLlmRuntime } from "./dsh-types.js";
+import type { AgentRequestFrame, DshLlmCallConfig, AgentRequestErrorFrame, DshAgent, DshAgentsRegistry, DshContext, DshEpochHeader, DshLlmFailure, DshLlmRuntime } from "./dsh-types.js";
 import { foldDurableRecoveryWork, isCurrentRecoveryStep } from "./recovery-policy.js";
 import { isDsmmRoleId } from "./roles.js";
 import type { DsmmRoleId } from "./roles.js";
@@ -101,7 +101,7 @@ function positiveNoOutput(frame: AgentRequestErrorFrame, attempt: AttemptEvidenc
   } catch { return false; }
 }
 
-export function registerRuntimeRecovery(ctx: DshContext, controller: DeepworkModeController, getSettings: DsmmSettingsGetter): void {
+export function registerRuntimeRecovery(ctx: DshContext, controller: DeepworkModeController, getSettings: DsmmSettingsGetter, bindRequest?: (prepare: (frame: AgentRequestFrame, proposal: DshLlmCallConfig) => Promise<DshLlmCallConfig>) => void): void {
   if (installedContexts.has(ctx) || ctx.on === undefined) return;
 
   installedContexts.add(ctx);
@@ -179,8 +179,7 @@ export function registerRuntimeRecovery(ctx: DshContext, controller: DeepworkMod
         if (frame.outcome.eventType === "assistant/message") { lock.retries = 0; lock.rateLimits = 0; }
       }
     }, { prepend: true });
-    disposeRequest = ctx.on("agent/request", async (frame, next) => {
-      const downstream = await next();
+    const prepareRequest = async (frame: AgentRequestFrame, downstream: DshLlmCallConfig): Promise<DshLlmCallConfig> => {
       if (!active || !live(frame.agent)) return downstream;
       const pending = pendingByAgent.get(frame.agent);
       if (pending === undefined || !getSettings(frame.agent).modules.deepwork.enabled) return downstream;
@@ -216,7 +215,9 @@ export function registerRuntimeRecovery(ctx: DshContext, controller: DeepworkMod
       lock.route = { ...pending.route };
       recordAdmittedRecoveryRoute(frame, pending.route);
       return applyModelRoute(downstream, pending.route);
-    }, { prepend: true });
+    };
+    if (bindRequest) bindRequest(prepareRequest);
+    else disposeRequest = ctx.on("agent/request", async (frame, next) => prepareRequest(frame, await next()), { prepend: true });
     disposeRequestError = ctx.on("agent/request-error", async (frame, next) => {
       if (!active || !live(frame.agent) || frame.signal.aborted) return undefined;
       let settings;

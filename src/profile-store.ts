@@ -10,8 +10,8 @@ import { DsmmProfileError, MAX_PROFILE_BYTES, MAX_PROFILE_COUNT, MAX_PROFILE_DIR
 import type { DsmmProfileDocument } from "./profiles.js";
 import type { ProfileDiagnostic } from "./profile-diagnostics.js";
 import { inspectJsonDocument } from "./profile-diagnostics.js";
-import { parseChildAdmissionCapture } from "./child-capture.js";
-import type { ChildAdmissionCapture } from "./child-capture.js";
+import { parseChildAdmissionCapture, parseChildAdmissionIdentity } from "./child-capture.js";
+import type { ChildAdmissionCapture, ChildAdmissionIdentity } from "./child-capture.js";
 import { isProfileReference } from "./config-revision.js";
 import { validateAdmissionEpoch } from "./profiles.js";
 
@@ -162,8 +162,9 @@ export class ProfileStore {
         }
       });
       try {
-        const selected = this.selection();
-        return { ...this.metadata(), profiles, selectedId: selected.selectedId, appliedRevision: selected.appliedRevision, selectionRevision: selected.selectionRevision, ...(selected.sourceRevision === undefined ? {} : { sourceRevision: selected.sourceRevision }), ...(selected.warnings === undefined ? {} : { selectedWarnings: selected.warnings }) };
+        const selected = this.selection(true);
+        const current = selected.selectedId === null ? undefined : this.draft(selected.selectedId, entries);
+        return { ...this.metadata(), profiles, selectedId: selected.selectedId, appliedRevision: selected.appliedRevision, selectionRevision: selected.selectionRevision, ...(selected.sourceRevision === undefined ? {} : { sourceRevision: selected.sourceRevision }), ...(current?.warnings === undefined ? {} : { selectedWarnings: current.warnings }) };
       } catch (error) {
         // An error is not a successful fallback to the baseline.
         return { ...this.metadata(), profiles, selectedId: null, appliedRevision: null, selectionRevision: "unavailable", selectionError: profileErrorInfo(error, "corrupt-selection") };
@@ -207,6 +208,15 @@ export class ProfileStore {
     return this.readOperation(() => this.selection());
   }
 
+  async loadSelectionIdentity(): Promise<LoadedProfileSelection> {
+    return this.readOperation(() => this.selection(true));
+  }
+
+  async loadSessionSelectionIdentity(sessionId: string): Promise<LoadedSessionProfileSelection> {
+    validateSessionProfileId(sessionId);
+    return this.readOperation(() => this.sessionSelection(sessionId, undefined, true));
+  }
+
   async loadSessionSelection(sessionId: string): Promise<LoadedSessionProfileSelection> {
     validateSessionProfileId(sessionId);
     return this.readOperation(() => this.sessionSelection(sessionId));
@@ -221,7 +231,7 @@ export class ProfileStore {
     validateAdmissionEpoch(epoch);
     return this.locked(async (assertLock) => {
       commit.assertCurrent();
-      if (this.sessionSelection(request.sessionId).selectionRevision !== request.expectedSelectionRevision) conflict("The session profile changed. Refresh before selecting again.");
+      if (this.sessionSelection(request.sessionId, undefined, true).selectionRevision !== request.expectedSelectionRevision) conflict("The session profile changed. Refresh before selecting again.");
       const draft = request.id === null ? undefined : this.draft(request.id, this.inventory());
       if (draft !== undefined && draft.revision !== request.expectedRevision) conflict("The profile changed before selection. Reload and select its latest revision.");
       let prepared: T;
@@ -234,7 +244,7 @@ export class ProfileStore {
       const target = join(directory, `${sessionChoiceKey(request.sessionId)}.json`);
       const fence = (temporary?: string): void => {
         commit.assertCurrent();
-        if (this.sessionSelection(request.sessionId, temporary).selectionRevision !== request.expectedSelectionRevision) conflict("The session selection was edited externally. Refresh before selecting again.");
+        if (this.sessionSelection(request.sessionId, temporary, true).selectionRevision !== request.expectedSelectionRevision) conflict("The session selection was edited externally. Refresh before selecting again.");
         if (draft !== undefined && this.draft(request.id!, this.inventory()).revision !== draft.revision) conflict("The draft changed during activation. Reload and select again.");
         validateDirectories(directory, false, false, this.identities);
         // The one exclusive atomic staging file is not a session choice.
@@ -272,7 +282,7 @@ export class ProfileStore {
     validateSelectionRequest(request);
     return this.locked(async (assertLock) => {
       assertCurrent?.();
-      const current = this.selection();
+      const current = this.selection(true);
       if (current.selectionRevision !== request.expectedSelectionRevision) conflict("The selected profile changed. Refresh before selecting again.");
       const draft = request.id === null ? undefined : this.draft(request.id, this.inventory());
       if (draft !== undefined && draft.revision !== request.expectedRevision) conflict("The profile changed before selection. Reload and select its latest revision.");
@@ -340,7 +350,7 @@ export class ProfileStore {
     return { ...file, ...validatedProfile(file.content, id) };
   }
 
-  private selection(): LoadedProfileSelection {
+  private selection(identityOnly = false): LoadedProfileSelection {
     this.validateRoot(false);
     this.validateState(false);
     const path = join(this.stateDir, ".selection.json");
@@ -351,6 +361,11 @@ export class ProfileStore {
     try {
       const file = regularFile(path, 1024);
       const pointer = parseSelectionPointer(file.content);
+      if (identityOnly) {
+        assertPointerVersion(path, file);
+        return { selectedId: pointer.id, appliedRevision: pointer.revision, selectionRevision: file.revision,
+          ...(pointer.sourceRevision === undefined ? {} : { sourceRevision: pointer.sourceRevision }), document: null, content: null };
+      }
       if (pointer.id === null) return { selectedId: null, appliedRevision: null, selectionRevision: file.revision, document: null, content: null };
       validateDirectories(join(this.profileDir, ".revisions"), false);
       const immutable = regularFile(join(this.profileDir, ".revisions", `${pointer.revision}.jsonc`), MAX_PROFILE_BYTES);
@@ -363,7 +378,7 @@ export class ProfileStore {
     }
   }
 
-  private sessionSelection(sessionId: string, temporary?: string): LoadedSessionProfileSelection {
+  private sessionSelection(sessionId: string, temporary?: string, identityOnly = false): LoadedSessionProfileSelection {
     this.validateRoot(false);
     this.validateState(false);
     const absent: LoadedSessionProfileSelection = { sessionId, admissionEpoch: null, selectedId: null, appliedRevision: null,
@@ -379,6 +394,11 @@ export class ProfileStore {
     try {
       const file = regularFile(path, 2048);
       const pointer = parseSessionSelectionPointer(file.content, sessionId);
+      if (identityOnly) {
+        assertPointerVersion(path, file);
+        return { ...absent, admissionEpoch: pointer.epoch, selectedId: pointer.id, appliedRevision: pointer.revision,
+          selectionRevision: file.revision, ...(pointer.sourceRevision === undefined ? {} : { sourceRevision: pointer.sourceRevision }) };
+      }
       if (pointer.id === null) return { ...absent, admissionEpoch: pointer.epoch, selectionRevision: file.revision };
       validateDirectories(join(this.profileDir, ".revisions"), false);
       const immutable = regularFile(join(this.profileDir, ".revisions", `${pointer.revision}.jsonc`), MAX_PROFILE_BYTES);
@@ -393,7 +413,7 @@ export class ProfileStore {
   }
 
   private assertSelectionRevision(expected: string): void {
-    if (this.selection().selectionRevision !== expected) conflict("The selection was edited externally. Refresh before selecting again.");
+    if (this.selection(true).selectionRevision !== expected) conflict("The selection was edited externally. Refresh before selecting again.");
   }
 
   private publishRevision(draft: ProfileDraft, assertLock: () => void): string {
@@ -469,7 +489,7 @@ export class ProfileStore {
       this.validateState(true);
       validateDirectories(directory, true, false, this.identities);
       const path = join(directory, `${sessionChoiceKey(capture.childSessionId)}.json`);
-      const existing = this.childAdmission(capture.childSessionId, capture.parentSessionId);
+      const existing = this.childAdmission(capture.childSessionId, capture.parentSessionId, parseChildAdmissionCapture);
       if (existing !== null) {
         if (JSON.stringify(existing) !== JSON.stringify(capture)) conflict("An immutable child admission already exists; it cannot be overwritten.");
         return existing;
@@ -499,14 +519,19 @@ export class ProfileStore {
 
   async readChildAdmission(childId: string, parentId: string): Promise<ChildAdmissionCapture | null> {
     validateSessionProfileId(childId); validateSessionProfileId(parentId);
-    return this.readOperation(() => this.childAdmission(childId, parentId));
+    return this.readOperation(() => this.childAdmission(childId, parentId, parseChildAdmissionCapture));
+  }
+
+  async readChildIdentity(childId: string, parentId: string): Promise<ChildAdmissionIdentity | null> {
+    validateSessionProfileId(childId); validateSessionProfileId(parentId);
+    return this.readOperation(() => this.childAdmission(childId, parentId, parseChildAdmissionIdentity));
   }
 
   /** Only a trusted native session-deleted handler may call this; drain never does. */
   async deleteChildAdmission(childId: string, parentId: string): Promise<void> {
     this.assertWritable(); validateSessionProfileId(childId); validateSessionProfileId(parentId);
     await this.locked(assertLock => {
-      const capture = this.childAdmission(childId, parentId);
+      const capture = this.childAdmission(childId, parentId, parseChildAdmissionCapture);
       if (capture === null) return;
       const path = join(this.stateDir, ".children", "v1", `${sessionChoiceKey(childId)}.json`);
       const file = regularFile(path, MAX_PROFILE_BYTES), owned = lstatSync(path);
@@ -516,7 +541,7 @@ export class ProfileStore {
     });
   }
 
-  private childAdmission(childId: string, parentId: string): ChildAdmissionCapture | null {
+  private childAdmission<T extends { childSessionId: string; parentSessionId: string }>(childId: string, parentId: string, parse: (input: unknown) => T): T | null {
     this.validateRoot(false); this.validateState(false);
     const directory = join(this.stateDir, ".children", "v1");
     // Validate an existing parent sidecar directory even if the version path is absent.
@@ -533,7 +558,7 @@ export class ProfileStore {
       if (envelope === null || typeof envelope !== "object" || Array.isArray(envelope) || Object.keys(envelope).length !== 3 || envelope.version !== 1 || !Object.hasOwn(envelope, "revision") || !Object.hasOwn(envelope, "capture")) throw new Error("Invalid capture envelope");
       validateAdmissionEpoch(envelope.revision, "revision");
       if (digest(Buffer.from(JSON.stringify(envelope.capture), "utf8")) !== envelope.revision) throw new Error("Capture integrity mismatch");
-      const capture = parseChildAdmissionCapture(envelope.capture);
+      const capture = parse(envelope.capture);
       if (capture.childSessionId !== childId || capture.parentSessionId !== parentId) throw new Error("Child capture identity mismatch");
       return capture;
     } catch { throw new DsmmProfileError("corrupt-selection", "The existing child admission is invalid; legacy recovery is not allowed."); }

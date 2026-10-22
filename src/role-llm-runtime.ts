@@ -6,6 +6,8 @@ import type { DsmmPiAiProviderOwner } from "./native-pi-ai-wire.js";
 import type { DshAgent } from "./dsh-types.js";
 import { resolvedModelParameterPolicy } from "./model-parameter-policy.js";
 import { modelRouteFromCall, projectModelRouteParameters } from "./role-llm.js";
+import { prepareDsmmRequest } from "./model-routing.js";
+import type { AgentRequestFrame } from "./dsh-types.js";
 
 export interface DsmmCoreLlmOwner {
   /** Undefined is only the physically owned ordinary-native child path. */
@@ -38,10 +40,15 @@ export function createDsmmRoleLlmOwner(ctx: Context, providers: Pick<DsmmPiAiPro
       const original = ctx.get("dsmmProfileRuntime")!.admission(agent);
       if (original !== admission.admission) throw new Error("LLM policy does not own the exact admission");
       const policy = resolvedModelParameterPolicy(original);
+      admission.assertCurrent(); frame.signal.throwIfAborted();
+      const routed = await prepareDsmmRequest(frame as unknown as AgentRequestFrame, proposal, admission.assertCurrent);
+      admission.assertCurrent(); frame.signal.throwIfAborted();
       const effortSource = captureDsmmEffortSource(frame.agent);
-      const config = snapshotDsmmCall(projectModelRouteParameters(modelRouteFromCall(proposal), effortSource, policy.mode !== "native-defaults"));
+      const config = snapshotDsmmCall(projectModelRouteParameters(modelRouteFromCall(routed), effortSource, policy.mode !== "native-defaults"));
       admission.assertCurrent();
       if (policy.mode !== "passthrough") {
+        await ctx.get("llm")!.resolveCallConfig(config, frame.signal);
+        admission.assertCurrent(); frame.signal.throwIfAborted();
         return { kind: "stock", admission, config, effortSource };
       }
       if (!requiresDsmmCallAdmission(config, providers)) {

@@ -83,10 +83,10 @@ export class DsmmChildrenHost extends TypertRemoteService {
     const child = this.ctx.get("agents")?.get(entry.id), direct = parentId === scope.parent.id;
     const live = child && this.admission.get(child), invocation = child && this.admission.invocation(child);
     const available = this.capabilities(scope);
-    const reason = !direct ? "not-direct-child" : entry.mode !== "continuable" ? entry.mode === "one-shot" ? "one-shot" : "unknown-mode" : !live || !child ? "evidence-unavailable" : undefined;
-    const control: RoleControlAvailability = reason !== undefined ? disabled(reason) : !this.ctx.get("agents")?.isOwnedBy(child!.id, scope.parent) ? disabled("not-direct-child") : available.prompt;
+    const reason = !direct ? "not-direct-child" : entry.mode !== "continuable" ? entry.mode === "one-shot" ? "one-shot" : "unknown-mode" : child && !live ? "evidence-unavailable" : undefined;
+    const control: RoleControlAvailability = reason !== undefined ? disabled(reason) : child && !this.ctx.get("agents")?.isOwnedBy(child.id, scope.parent) ? disabled("not-direct-child") : available.prompt;
     return { id: entry.id, parentSessionId: parentId, mode: entry.mode === "external" ? "unknown" : entry.mode, activity: child?.status === "running" ? "running" : "inactive",
-      readonly: !control.enabled, controls: { prompt: control, interrupt: control }, ...(entry.label === undefined ? {} : { label: boundedLabel(entry.label) }),
+      readonly: !control.enabled, controls: { prompt: control, interrupt: child ? control : disabled("evidence-unavailable") }, ...(entry.label === undefined ? {} : { label: boundedLabel(entry.label) }),
       ...(invocation === undefined ? {} : { invocation: invocationView(invocation, boundedLabel(entry.label ?? invocation.target), "continuable", { childId: entry.id }) }),
       ...(child === undefined ? {} : { routeComparison: roleRouteComparison(child) }) };
   }
@@ -115,8 +115,14 @@ export class DsmmChildrenHost extends TypertRemoteService {
     const capabilities = this.capabilities(scope);
     if (!capabilities.prompt.enabled) throw new ControlRefusal("disabled", undefined, capabilities.prompt.reason);
     if (request.content.some(part => part.type === "image") && !capabilities.images.enabled) throw new ControlRefusal("disabled", "content", capabilities.images.reason);
-    this.direct(scope, request.childSessionId);
-    return this.ctx.get("subagents")!.prompt(request, scope.signal);
+    const rows = await this.ctx.get("subagents")!.listChildren(scope.parent.id, scope.signal); scope.check();
+    const row = rows.find(row => row.id === request.childSessionId);
+    if (!row) throw new ControlRefusal("not-owned", "childSessionId");
+    if (row.mode !== "continuable") throw new ControlRefusal("not-resumable", "childSessionId");
+    if (this.ctx.get("agents")?.get(SessionId(request.childSessionId))) this.direct(scope, request.childSessionId);
+    return this.admission.duringCall(scope.parent, scope.signal, async signal => {
+      scope.check(); const receipt = await this.ctx.get("subagents")!.prompt(request, signal); scope.check(); return receipt;
+    });
   }); }
   @Remote
   interrupt(sessionId: string, input: RoleControlInterruptRequest): Promise<SubagentInterruptReceipt> { return this.scoped(sessionId, async scope => {

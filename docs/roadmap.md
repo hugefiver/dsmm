@@ -2,7 +2,7 @@
 
 ## Version policy
 
-**DSMM 0.3.11 targets exactly DSH `0.2.1-rc.2`.** Each DSMM version targets the published DSH RC or stable release selected for that version. Older SDKs and old configuration schemas aren't runtime compatibility targets. Loading sessions created by DSMM `0.2.x` is a required compatibility target, separate from retaining old runtime implementations or execution behavior. A newer upstream release requires deliberate reassessment, not an automatic dependency or runtime switch.
+**DSMM 0.3.12 targets exactly DSH `0.2.1-rc.2`.** Each DSMM version targets the published DSH RC or stable release selected for that version. Older SDKs and old configuration schemas aren't runtime compatibility targets. Loading sessions created by DSMM `0.2.x` is a required compatibility target, separate from retaining old runtime implementations or execution behavior. A newer upstream release requires deliberate reassessment, not an automatic dependency or runtime switch.
 
 Published `0.3.0` retains its original rc.1 package, tag, assets and version-bound release identity.
 
@@ -40,7 +40,7 @@ Sessions created by DSMM `0.2.x` must remain loadable under the supported curren
 - Retired presets, plugins, metadata or admission formats require interpretation, migration or an explicit degraded mode rather than whole-session rejection solely because the old implementation is unavailable. This does not require restoring the old SDK or execution owner.
 - Continued execution may use current roles, routing, configuration and permission semantics. Explain material differences and request fresh authorization where necessary; never treat historical metadata or approvals as current authority. When continuation is unavailable, retain the loaded history and expose the specific limitation separately.
 - Preserve original records. Any necessary migration must protect user data with a recoverable original and concurrent-write safeguards; never discard history merely to make loading succeed. Corrupt or genuinely unreadable data must produce a specific diagnostic rather than silently removing the session.
-- Acceptance covers opening representative `0.2.x` root and child histories, retaining titles/list entries and readable content, and separating continuation restrictions from loading. These are pending compatibility requirements, not claims that `0.3.11` already fulfills them.
+- Acceptance covers opening representative `0.2.x` root and child histories, retaining titles/list entries and readable content, and separating continuation restrictions from loading. These are pending compatibility requirements, not claims that `0.3.12` already fulfills them.
 
 ## Working-tree implementation: profile selection before the first message
 
@@ -95,4 +95,4 @@ Existing [Fake-IP fetch](web-fetch-fakeip.md) protections remain in force.
 
 ## Publication and Desktop installation
 
-0.3.11 publication uses the version-bound [release controls](releasing.md). Desktop plugin installation follows publication, uses the Desktop-owned carrier and requires exact DSH `0.2.1-rc.2`. Installation doesn't authorize upgrading the Host, changing credentials or real sessions, altering unrelated configuration, or restarting active work. An incompatible Host or required data migration blocks installation rather than expanding its scope.
+0.3.12 publication uses the version-bound [release controls](releasing.md). Desktop plugin installation follows publication, uses the Desktop-owned carrier and requires exact DSH `0.2.1-rc.2`. Installation doesn't authorize upgrading the Host, changing credentials or real sessions, altering unrelated configuration, or restarting active work. An incompatible Host or required data migration blocks installation rather than expanding its scope.

@@ -1,6 +1,6 @@
 # Deepwork settings and status
 
-DSMM 0.3.11 targets exactly DSH `0.2.1-rc.2`. Named policy is covered in [profiles](profiles.md), routing in [model routing](model-routing.md), and child authority in [Agent presets](agent-presets.md).
+DSMM 0.3.12 targets exactly DSH `0.2.1-rc.2`. Named policy is covered in [profiles](profiles.md), routing in [model routing](model-routing.md), and child authority in [Agent presets](agent-presets.md).
 
 ## Deployment layers and native editors
 
@@ -32,7 +32,7 @@ Native ConfigEditor can emit `loader/partial-dispose` during empty-pending recon
 
 `modules.deepwork.enabled` is a global-only ceiling and defaults true; ordinary `defaultActive` defaults false. Native profile overrides and named/session overlays can't enable the module. Cold-off leaves Core storage, captures/CAS, configuration/status and mandatory native permissions available, without mounting DW role/routing/recovery substrate. DSMM-managed LSP stays off independently of this module ceiling. Static preset files aren't proof of callable roles.
 
-On a mounted Host, desired-off affects new roots, not existing parents or their future children. Desired-on after cold-off remains restart-required until an independent Host restart. No hot-mount or restart queue is implied. An idle profile change doesn't absorb newer global deployment. Mode-on can't bypass an admitted off module; mode-off can replace saved on intent without pretending the module was active.
+On a mounted Host, desired-off affects new root admissions and cold role continuations, not existing residencies or freshly delegated children inheriting a parent's admission. Desired-on after cold-off remains restart-required until an independent Host restart. No hot-mount or restart queue is implied. An idle profile change doesn't absorb newer global deployment. Mode-on can't bypass an admitted off module; mode-off can replace saved on intent without pretending the module was active.
 
 The inspector separates merged desired, startup-mounted/captured, next-root preview, and current-session admission. Without an actual session, current admission is unknown. Host bundle enablement also remains unknown when the public interface can't observe it. Sources, capture origins, global file version, native descriptor version and named snapshot reference aren't one acknowledgment.
 
@@ -82,6 +82,6 @@ Enabled background work must choose `run_in_background:true` before `startActiva
 
 Live direct-child Queue/Steer/interrupt require actual capabilities and exact parent/operator/lifetime authority. Read-only descendant inspection grants no control. Readiness loss closes DSMM execution; stale handles don't grant authority. Agent-scoped guards remain fail-closed after owner retirement. Hot replacement isn't a promise of uninterrupted live-session operation.
 
-Native history loading, reading, promotion, explicit/declarative restoration and durable restoration after provider unregistration remain native-owned, without a global DSMM gate. Reconstruction doesn't enroll the new Agent as a DSMM role; historical metadata isn't current role authorization. Fresh root admission and blank configuration selection preserve profile-selection epochs and disk CAS; first role creation retains exact pending, parent/provider, readonly, tool-filter and depth checks. Exact admitted live objects and DSMM entry points remain guarded after owner retirement. Preserving DSMM fine-grained role restrictions across restoration isn't guaranteed on this Host and is deferred, not reported ready; restored native execution isn't verified DSMM restricted-role continuation. This limitation doesn't block configuration/UI saves. Read-only history inspection doesn't itself resume Agents. No cold migration, persistent grant or automatic history rewrite is supplied. See [runtime recovery](runtime-recovery.md#cold-resume-and-lifetime).
+Native history loading and lifecycle remain Host-owned. A restored root or valid continuable role child obtains a fresh admission using current content and role policy; persisted choice revision and actual admission revision/epoch remain separate. First creation retains exact pending-call checks, while continuation validates native own identity, direct parent/catalog, current provider and composition. Readonly, filters, depth and cancellation remain enforced. Old objects and owner closures stay revoked, and old approvals/retry budgets are not restored. Read-only inspection never wakes Agents, and no automatic history rewrite is supplied. See [runtime recovery](runtime-recovery.md#cold-resume-and-lifetime) and the precise [Host limitations](compatibility.md#native-history-composition).
 
 *Author's note: For a DSH deployment operator; distinguish a successful configuration save from captured runtime availability before applying policy.*

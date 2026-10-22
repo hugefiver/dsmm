@@ -61,7 +61,7 @@ test("two Hosts sharing a profile store report external selection conflicts with
     assert.equal(conflict.selectionError?.code, "conflict");
     const whileConflicted = await live.admit(hostA, "new-a-root-during-conflict");
     const conflictSettings = hostA.getSettings(whileConflicted);
-    assert.deepEqual(conflictSettings, admittedA);
+    assert.equal(conflictSettings.defaultActive, false, "new activations resolve the current global selection");
     assert.equal(hostA.getSettings().defaultActive, true);
     const reconciled = await hostA.select({ id: "b", expectedRevision: b.revision, expectedSelectionRevision: conflict.selectionRevision });
     assert.equal(reconciled.selectedId, "b");
@@ -319,8 +319,8 @@ test("profile admission is immutable for existing and blank roots, and trusted c
     assert.equal(runtime.getSettings(child), childAdmitted, "draft edits cannot change the child's original captured admission");
     const cold = new DsmmProfileRuntime({}, resolveConfig({ roles: { "dsmm-builder": false } }), store);
     await cold.initialize();
-    assert.equal(cold.getSettings().defaultActive, false, "initialization follows immutable applied bytes, not the edited draft");
-    assert.equal(cold.admission().sourceRevision, b.revision);
+    assert.equal(cold.getSettings().defaultActive, true, "initialization resolves the selected ID's latest valid content");
+    assert.equal(cold.admission().sourceRevision, edited.revision);
   } finally { try { if (childAgent) await fixture.releaseAuxiliary(childAgent); } finally { await fixture.dispose(); } }
 });
 

@@ -24,6 +24,7 @@ import { resolvedModelParameterPolicy } from "./model-parameter-policy.js";
 import { scopeLifetime } from "./lifetime.js";
 import type { NativeAdmission } from "./native-admission.js";
 import type { Agent } from "@deepseek-ai/dsh-agent";
+import type { ChildAdmissionIdentity } from "./child-capture.js";
 
 export interface DsmmProfileRuntimeStore {
   readonly profileDir?: string;
@@ -31,6 +32,9 @@ export interface DsmmProfileRuntimeStore {
   readonly origin?: "central" | "legacy" | "explicit";
   readonly writeRestriction?: string;
   loadSelection(): Promise<LoadedProfileSelection>;
+  loadSelectionIdentity(): Promise<LoadedProfileSelection>;
+  loadSessionSelectionIdentity(id: string): Promise<LoadedSessionProfileSelection>;
+  readChildIdentity(childId: string, parentId: string): Promise<ChildAdmissionIdentity | null>;
   describe(): Promise<ProfileSnapshot>;
   read(id: string): Promise<ProfileReadResult>;
   save(request: ProfileSaveRequest, assertCurrent?: () => void): Promise<ProfileReadResult>;
@@ -75,6 +79,8 @@ export class DsmmProfileRuntime {
   private readonly bound = new WeakMap<DshAgent, AdmittedProfile>();
   private readonly observations = new WeakMap<AdmittedProfile, ProfileSelectionState>();
   private readonly historyAdmissions = new WeakSet<DsmmProfileAdmission>();
+  private readonly activationChecks = new WeakMap<DsmmProfileAdmission, () => Promise<void>>();
+  private readonly sessionObservations = new WeakMap<DsmmProfileAdmission, string>();
   private disposed = false;
   private queue: Promise<unknown> = Promise.resolve();
   private readonly mode: DeepworkModeController;
@@ -90,7 +96,7 @@ export class DsmmProfileRuntime {
     const retire = () => { this.disposed = true; };
     if (Context.is(this.ctx)) scopeLifetime(this.ctx, "dsmm: retire profile writes", retire);
     else this.ctx.effect?.(() => retire);
-    const selection = await this.store.loadSelection();
+    const selection = await this.currentSelection(await this.store.loadSelectionIdentity());
     this.assertCurrent();
     this.document = selection.document === null ? null : freezeSettings(selection.document);
     this.current = this.prepare(this.document, selection);
@@ -153,26 +159,55 @@ export class DsmmProfileRuntime {
   }
   async prepareRoot(agent: DshAgent, signal: AbortSignal): Promise<AdmittedProfile> {
     this.assertRoot(agent); signal.throwIfAborted();
-    const deployment = await this.options.readDesired?.();
-    const selection = await this.store.loadSessionSelection(agent.id!);
-    this.assertRoot(agent); signal.throwIfAborted();
-    const candidate = selection.admissionEpoch === null
-      ? this.prepare(this.document, this.observedSelection(this.current), newEpoch(), "global-default", deployment)
-      : this.prepare(selection.document, selection, selection.admissionEpoch, selection.selectedId === null ? "deployment-baseline" : "session-override", deployment);
+    const candidate = await this.prepareActivation(agent.id!, signal);
     const role = agent.ctx?.get?.<{ composedPreset(ctx: unknown): string | undefined }>("agentPresets")?.composedPreset(agent.ctx) ?? resolveSelectedAgentPreset(agent.session);
     if (role?.startsWith("dsmm-") && (!isDsmmRoleId(role) || !isRootRoleEnabled(candidate.settings, role))) throw new DsmmProfileError("activation", "Preset is not eligible for a root Agent.");
-    await this.validate(candidate.settings);
     this.assertRoot(agent); signal.throwIfAborted();
     return candidate;
   }
+  readChildIdentity(childId: string, parentId: string): Promise<ChildAdmissionIdentity | null> { return this.store.readChildIdentity(childId, parentId); }
+  prepareChild(agent: DshAgent, parent: DsmmProfileAdmission, signal: AbortSignal, identity: ChildAdmissionIdentity | null = null): Promise<AdmittedProfile> {
+    return this.prepareActivation(agent.id!, signal, identity === null ? parent : { scope: identity.profileId === null ? "deployment-baseline" : "session-override", profile: identity.profileId === null ? null : { id: identity.profileId, revision: "" } }, parent.settings.subagents.maxDepth);
+  }
+  private async currentSelection<T extends LoadedProfileSelection>(pointer: T): Promise<T> {
+    if (pointer.selectedId === null) return pointer;
+    const saved = await this.store.read(pointer.selectedId);
+    return { ...pointer, appliedRevision: saved.revision, sourceRevision: saved.revision, content: saved.content,
+      document: parseProfileDocument(saved.content, saved.id), warnings: saved.warnings };
+  }
+  private async prepareActivation(sessionId: string, signal: AbortSignal, inherited?: Pick<DsmmProfileAdmission, "scope" | "profile">, parentMaxDepth?: number): Promise<AdmittedProfile> {
+    const own = await this.store.loadSessionSelectionIdentity(sessionId);
+    const scope = own.admissionEpoch !== null ? own.selectedId === null ? "deployment-baseline" : "session-override" : inherited?.scope ?? "global-default";
+    const pointer = own.admissionEpoch !== null ? own : scope === "global-default" ? await this.store.loadSelectionIdentity()
+      : { selectedId: inherited?.profile?.id ?? null, appliedRevision: null, selectionRevision: "absent", document: null, content: null };
+    const selected = await this.currentSelection(pointer);
+    const deployment = await this.options.readDesired?.();
+    const prepared = this.prepare(selected.document, selected, newEpoch(), scope, deployment);
+    const candidate = parentMaxDepth === undefined ? prepared : freezeSettings({ ...prepared, settings: { ...prepared.settings,
+      subagents: { ...prepared.settings.subagents, maxDepth: Math.min(parentMaxDepth, prepared.settings.subagents.maxDepth ?? parentMaxDepth) } } });
+    const check = async () => {
+      this.assertCurrent(); signal.throwIfAborted();
+      const latestOwn = await this.store.loadSessionSelectionIdentity(sessionId);
+      const latest = scope === "global-default" && own.admissionEpoch === null ? await this.store.loadSelectionIdentity() : pointer;
+      if (latestOwn.selectionRevision !== own.selectionRevision || latest.selectionRevision !== pointer.selectionRevision
+        || selected.selectedId !== null && (await this.store.read(selected.selectedId)).revision !== selected.appliedRevision
+        || !isDeepStrictEqual(await this.options.readDesired?.(), deployment)) throw new DsmmProfileError("conflict", "Configuration changed during activation.");
+      this.assertCurrent(); signal.throwIfAborted();
+    };
+    await this.validate(candidate.settings); await check();
+    this.activationChecks.set(candidate, check);
+    this.sessionObservations.set(candidate, own.selectionRevision);
+    return candidate;
+  }
+  async revalidateActivation(admission: DsmmProfileAdmission): Promise<void> { await this.activationChecks.get(admission)?.(); }
   async getSession(agent: DshAgent): Promise<DsmmSessionProfileSnapshot> {
     this.assertRoot(agent);
     const admitted = this.admission(agent);
-    const disk = await this.store.loadSessionSelection(agent.id!);
+    const disk = await this.store.loadSessionSelectionIdentity(agent.id!);
     await this.ctx.get?.<{ ensure?(agent: DshAgent): Promise<DsmmProfileAdmission> }>("dsmmNativeAdmission")?.ensure?.(agent);
     this.assertRoot(agent);
-    if (this.admission(agent) !== admitted || !this.historyAdmissions.has(admitted) && ((disk.admissionEpoch === null && admitted.scope !== "global-default")
-      || (disk.admissionEpoch !== null && (disk.admissionEpoch !== admitted.epoch || disk.selectedId !== admitted.selectedId || disk.appliedRevision !== admitted.appliedRevision)))) {
+    if (this.admission(agent) !== admitted || (this.sessionObservations.has(admitted) ? disk.selectionRevision !== this.sessionObservations.get(admitted) : !this.historyAdmissions.has(admitted) && ((disk.admissionEpoch === null && admitted.scope !== "global-default")
+      || (disk.admissionEpoch !== null && (disk.admissionEpoch !== admitted.epoch || disk.selectedId !== admitted.selectedId || disk.appliedRevision !== admitted.appliedRevision))))) {
       throw new DsmmProfileError("conflict", "The session choice changed outside this owner; its admitted configuration was retained.");
     }
     if (disk.admissionEpoch === admitted.epoch) this.observations.set(admitted, selectionState(disk));
@@ -282,7 +317,7 @@ export class DsmmProfileRuntime {
   async describe(): Promise<ProfileSnapshot> {
     this.assertCurrent(); const disk = await this.store.describe(); this.assertCurrent();
     const current = this.current;
-    const changed = disk.selectedId !== current.selectedId || disk.appliedRevision !== current.appliedRevision
+    const changed = disk.selectedId !== current.selectedId
       || (this.observedSelection(current).selectionRevision !== "unavailable" && disk.selectionRevision !== this.observedSelection(current).selectionRevision);
     if (!changed && disk.selectionError === undefined) this.observations.set(current, selectionState(disk));
     const { sourceRevision: _source, ...snapshot } = disk;

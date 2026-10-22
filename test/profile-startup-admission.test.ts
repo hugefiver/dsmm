@@ -41,7 +41,7 @@ async function verifyPendingNativeStartup(plugin: typeof dsmmPlugin, t: TestCont
     const lock = join(profileDir, ".lock");
     const held = "other-owner lock: do not steal\n";
     await writeFile(lock, held, { flag: "wx", mode: 0o600 });
-    t.mock.method(ProfileStore.prototype, "loadSelection", async () => {
+    t.mock.method(ProfileStore.prototype, "loadSelectionIdentity", async () => {
       auditing.release();
       await validation.promise;
       throw new Error("fixture persisted admission read refusal");

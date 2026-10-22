@@ -153,7 +153,7 @@ export async function apply(input: DshContext, config: Config = {}, startupOptio
       if (startup.settings.modules.deepwork.enabled && ctx.get("subagents") !== undefined) await registerHeadlessRoleTools(scope, controller, candidate, policy, nativeAdmission, agent as DshAgent);
       return;
     }
-    registerModelRouting(scope, controller, candidate);
+    registerModelRouting(scope, controller, candidate, agent as DshAgent);
     registerSafetyGuards(scope, controller, candidate, policy, commandApprovals);
     if (startup.settings.modules.deepwork.enabled) {
       if (ctx.get("subagents") !== undefined) await registerHeadlessRoleTools(scope, controller, candidate, policy, nativeAdmission, agent as DshAgent);

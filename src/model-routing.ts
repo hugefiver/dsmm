@@ -1,4 +1,5 @@
-import type { DshAgent, DshContext, DshLlmRuntime } from "./dsh-types.js";
+import type { AgentRequestFrame, DshLlmCallConfig, DshAgent, DshContext, DshLlmRuntime } from "./dsh-types.js";
+import { DsmmAwareLlmRuntime } from "./host-llm.js";
 import { applyModelRoute, clearRoleRouteLock, effectiveRoleFallbackRoutes, establishRolePolicy, latestNativeModelSelection, nativeModelSelectionWasAccepted, orderedModelRoutes, persistedRoleRoute, pinRoleRoute, roleRouteLock, selectInitialModelRoute, sameExactModelRoute, sameModelRoute, takeAdmittedRecoveryRoute } from "./role-routing.js";
 import type { NativeModelSelectionIntent } from "./role-routing.js";
 import { resolveAdmittedDsmmRole } from "./role-policy.js";
@@ -12,7 +13,14 @@ import type { DsmmLlmRouteResolver } from "./role-llm.js";
 import { configuredModelParameterPolicy, resolvedModelParameterPolicy } from "./model-parameter-policy.js";
 import { registerRuntimeRecovery } from "./runtime-recovery.js";
 
-export function registerModelRouting(ctx: DshContext, controller: DeepworkModeController, getSettings: DsmmSettingsGetter): void {
+type RequestPreparation = (frame: AgentRequestFrame, proposal: DshLlmCallConfig, assertCurrent?: () => void) => Promise<DshLlmCallConfig>;
+const preparations = new WeakMap<DshAgent, RequestPreparation>();
+export async function prepareDsmmRequest(frame: AgentRequestFrame, proposal: DshLlmCallConfig, assertCurrent: () => void): Promise<DshLlmCallConfig> {
+  const prepare = preparations.get(frame.agent);
+  if (!prepare) throw new Error("Admitted Agent has no request preparation binding");
+  return prepare(frame, proposal, assertCurrent);
+}
+export function registerModelRouting(ctx: DshContext, controller: DeepworkModeController, getSettings: DsmmSettingsGetter, agent?: DshAgent): void {
   const installedContexts = new WeakSet<DshContext>();
   const install = (readyCtx: DshContext): void => {
     if (installedContexts.has(readyCtx) || readyCtx.on === undefined) return;
@@ -21,14 +29,17 @@ export function registerModelRouting(ctx: DshContext, controller: DeepworkModeCo
     const assembledSelections = new WeakMap<DshAgent, { signal: AbortSignal; intent?: NativeModelSelectionIntent }>();
     let dispose: unknown, disposeAgent: unknown, disposeAssembly: unknown;
     try {
-      registerRuntimeRecovery(readyCtx, controller, getSettings);
+      const owned = agent !== undefined && readyCtx.get?.("llm") instanceof DsmmAwareLlmRuntime;
+      let recovery: RequestPreparation | undefined;
+      registerRuntimeRecovery(readyCtx, controller, getSettings, owned ? prepare => { recovery = prepare; } : undefined);
       disposeAssembly = readyCtx.on("system-prompt/assemble", async (_assembly, context: { agent?: DshAgent; signal?: AbortSignal }, next) => {
         if (context.agent !== undefined && context.signal !== undefined) assembledSelections.set(context.agent, { signal: context.signal, intent: latestNativeModelSelection(context.agent) });
         return next();
       }, { prepend: true });
-      dispose = readyCtx.on("agent/request", async (frame, next) => {
-        const downstream = await next();
+      const prepare: RequestPreparation = async (frame, proposal, assertCurrent = () => frame.signal.throwIfAborted()) => {
+        const downstream = recovery === undefined ? proposal : await recovery(frame, proposal);
         if (frame.signal.aborted) return downstream;
+        assertCurrent();
         const settings = getSettings(frame.agent), admission = getSettings.admission?.(frame.agent);
         const parameterPolicy = admission === undefined ? configuredModelParameterPolicy(settings) : resolvedModelParameterPolicy(admission);
         if (!settings.modules.deepwork.enabled) return downstream;
@@ -39,6 +50,7 @@ export function registerModelRouting(ctx: DshContext, controller: DeepworkModeCo
         const invocation = capturedRoleInvocation(frame.agent);
         const primary = invocation?.initialRoute ?? policy?.primary;
         const identity = await establishRolePolicy(frame, settings, role, readyCtx, admission?.epoch);
+        assertCurrent();
         frame.signal.throwIfAborted();
         const fallbacks = effectiveRoleFallbackRoutes(settings, role);
         const currentStep = isCurrentRecoveryStep(ordinaryRoot ? sessionEvents(frame.agent.session) : childOwnedSessionEvents(frame.agent.session), frame.turn, frame.step);
@@ -59,9 +71,10 @@ export function registerModelRouting(ctx: DshContext, controller: DeepworkModeCo
           return downstream;
         }
         const llm = frame.agent.ctx?.get?.<DshLlmRuntime>("llm") ?? readyCtx.get?.<DshLlmRuntime>("llm") ?? readyCtx.llm;
+        const assembledManual = manual !== undefined && sameModelRoute(downstream, manual.route) && downstream.reasoningEffort === manual.route.reasoningEffort;
         if (manual !== undefined && lock?.manualSelectionSeq !== manual.seq
-          && (sameModelRoute(downstream, manual.route) && downstream.reasoningEffort === manual.route.reasoningEffort || nativeModelSelectionWasAccepted(frame.agent, manual))) {
-          const selected = modelRouteFromCall(downstream);
+          && (assembledManual || nativeModelSelectionWasAccepted(frame.agent, manual))) {
+          const selected = assembledManual ? modelRouteFromCall(downstream) : manual.route;
           const generation = (lock?.generation ?? -1) + 1;
           lock = pinRoleRoute(frame.agent, identity, selected, [selected, ...fallbacks], { preserveCandidates: parameterPolicy.mode === "native-defaults" });
           lock.manualSelectionSeq = manual.seq; lock.generation = generation;
@@ -81,13 +94,18 @@ export function registerModelRouting(ctx: DshContext, controller: DeepworkModeCo
           const candidates = invocation?.candidates ?? orderedModelRoutes([primary ?? inherited, ...fallbacks]);
           const selected = accepted ?? invocation?.initialRoute ?? (exactPolicy ? await selectInitialModelRoute(llm ?? {} as DshLlmRuntime, candidates, frame.signal,
             parameterPolicy.mode === "passthrough" ? readyCtx.get?.<DsmmLlmRouteResolver>("dsmmLlmRoutes") : undefined) : inherited);
+          assertCurrent();
           frame.signal.throwIfAborted();
           lock = pinRoleRoute(frame.agent, identity, selected, candidates, { preserveCandidates: parameterPolicy.mode === "native-defaults", initialCandidate: accepted ?? invocation?.selectedCandidate });
           if (accepted !== undefined) lock.startupSettled = true;
           lockedAgents.add(frame.agent);
         }
         return applyModelRoute(downstream, lock.route);
-      }, { prepend: true });
+      };
+      if (owned) {
+        preparations.set(agent, prepare);
+        dispose = () => { if (preparations.get(agent) === prepare) preparations.delete(agent); };
+      } else dispose = readyCtx.on("agent/request", async (frame, next) => prepare(frame, await next()), { prepend: true });
       disposeAgent = readyCtx.on("agent/disposed", ({ agent }: { agent: DshAgent }) => { lockedAgents.delete(agent); clearRoleRouteLock(agent); }, { global: true });
     } catch (error) {
       installedContexts.delete(readyCtx);

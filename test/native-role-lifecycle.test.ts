@@ -223,9 +223,9 @@ test("official model-facing controls enforce adjacency and continue useful outpu
     assert.ok(resumed); assert.notEqual(resumed, child); assert.equal(resumed.id, id);
     assert.equal(resumed.session.header.parentSession, parent.id);
     assert.equal(f.agents.isOwnedBy(id, parent), true);
-    assert.equal(f.ctx.dsmmNativeAdmission.owns(resumed), false);
-    assert.equal((f.ctx.get("dsmmProfileRuntime") as DsmmProfileRuntime).hasAdmission(resumed as unknown as DshAgent), false);
-    assert.equal(f.ctx.dsmmNativeAdmission.invocation(resumed), undefined);
+    assert.equal(f.ctx.dsmmNativeAdmission.owns(resumed), true);
+    assert.equal((f.ctx.get("dsmmProfileRuntime") as DsmmProfileRuntime).hasAdmission(resumed as unknown as DshAgent), true);
+    assert.ok(f.ctx.dsmmNativeAdmission.invocation(resumed));
     await resumed.whenIdle();
     const own = resumed.session.snapshotEvents().slice(offset);
     assert.ok(own.some(event => event.type === "user/message" && event.data.id === messageId));

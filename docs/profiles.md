@@ -1,6 +1,6 @@
 # Deepwork runtime profiles
 
-DSMM 0.3.11 targets exactly DSH `0.2.1-rc.2`. See [compatibility](compatibility.md) for installation boundaries.
+DSMM 0.3.12 targets exactly DSH `0.2.1-rc.2`. See [compatibility](compatibility.md) for installation boundaries.
 
 A named Deepwork profile is a runtime-policy document, not a native deployment profile or Agent preset. Open **Settings → Deepwork Profiles** to browse and edit it. Native **Plugins → DSMM** edits deployment layers instead, as described in [settings and status](settings-status.md).
 
@@ -10,10 +10,10 @@ A named Deepwork profile is a runtime-policy document, not a native deployment p
 | --- | --- |
 | Draft | Unsaved JSONC in the editor, including invalid input and comments |
 | Saved revision | Validated bytes in the named document; Save changes only these bytes |
-| Future-default pin | An immutable saved revision selected for new unscoped Agents |
+| Future-default selection | A named profile ID or deployment baseline selected for subsequent activations |
 | Current admission | The actual session's captured settings, profile revision and admission epoch |
 
-Browsing doesn't activate anything. **Save profile** doesn't select or apply it, even when its ID is already selected. **Set as future default** pins the saved revision, not the dirty draft, and leaves existing Agents unchanged. **Use baseline for future sessions** clears that default without deleting documents.
+Browsing doesn't activate anything. **Save profile** doesn't select it or change a resident Agent. **Set as future default** records the named ID and an archival saved revision, never a dirty draft. Subsequent activations read that ID's latest valid saved content. **Use baseline for future sessions** clears that default without deleting documents.
 
 **Apply profile to current session** and **Pin baseline for current session** are unavailable in this version (`canApplyOverlay:false`, `new-session-required`). Save and select a future default, then create a new session. Nothing is queued, restarted or silently applied to the current root or its children.
 
@@ -104,11 +104,11 @@ Successful rename is the commit point. Admission preparation finishes before ren
 
 The central store is `<resolvedDshHome>/plugins/dsmm/profiles/`, a DSMM convention. Trusted home resolution uses explicit `profileContext.home`, then `DSH_HOME`, then the official `~/.dsh` default. Shared named drafts and immutable revisions are separate from selection/session state scoped to canonical native profile identity and the actual DSMM entry ID. Reads don't create files or locks. Clients and models can't choose arbitrary roots or entry identities.
 
-Future-default selection pins an exclusive `snapshot-v1-<UUID>` file in `.revisions`; it never overwrites an older snapshot. Selection pointers keep the ID and immutable snapshot reference. Optional `sourceRevision` relates that snapshot to the saved document; missing values mean unknown, not equal. Disk selection revisions are CAS observations, not proof that an externally edited pointer has been admitted. No reference authorizes fallback to the latest draft.
+Selection writes retain an exclusive archival `snapshot-v1-<UUID>` file in `.revisions` and a pointer with the profile ID. Pointer identity/CAS reads do not interpret that archival snapshot. An activation resolves the selected ID's latest saved content; missing old revisions or retired runtime fields in old captures do not prevent this. Missing, unsafe or invalid current content fails explicitly, without baseline or arbitrary-profile fallback. Disk selection revisions and the actual admission's content revision/epoch are separate observations.
 
 An old `<profileContext.dir>/dsmm-profiles` library is unsupported. It remains untouched and is not replaced by a same-name central document. Invalid, missing, linked or unstable references refuse. File/path, size, schema and session identity checks remain mandatory. There is no automatic copy, import, migration, rewrite or source deletion.
 
-Startup freezes mounted capabilities before consumers install. New ordinary roots capture current valid desired deployment plus the selected immutable overlay within that ceiling. Existing roots, including blank ones, and their future children keep their admitted baseline. `getSettings(agent)` is authoritative for an existing Agent. Cold DSMM resume without a trusted live admission is unavailable; a saved sidecar, same-name document or display record can't restore execution authority. History remains preserved. Read-only observation doesn't resume a session.
+Startup freezes mounted capabilities before consumers install. Root reactivation preserves an explicit named ID or baseline choice; without an explicit session choice it uses the current global selection. A native continuable child uses its own trusted selection or inherits its parent's selection source, resolving latest content at activation. Current deployment/module/role restrictions and the live parent's actual authority remain ceilings. `getSettings(agent)` remains immutable for a residency. Native IDs, history and tasks survive; old grants, captures, retry state and approvals do not. Read-only observation never resumes a session.
 
 Saving or selecting a future default never changes the native root model, remounts startup services or upgrades role permissions. Deepwork mode intent is separate: explicit off wins over DW preset defaults and doesn't remove persona/read-only policy. Live children retain their original route, locale and authority, with exact-parent checks for control; see [Agent presets and child control](agent-presets.md).
 

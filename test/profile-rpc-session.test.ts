@@ -171,24 +171,13 @@ test("native mode RPC changes only an owned root and rejects stale intent and ch
     await assert.rejects(invoke("selectMode", { sessionId: a.id, request }), refused("conflict"));
     await assert.rejects(invoke("selectMode", { sessionId: b.id, request: modeRequest(selected, false) }), refused("validation"));
     const modeEvents = [a, b].map(agent => agent.session.snapshotEvents().filter(event => event.type === "deepwork/mode"));
-    const orphan = await native.create({ origin: "subagent" });
-    try {
-      const inherited = a.session.snapshotEvents();
-      const seeded = await native.create({ origin: "subagent", parentSession: a.id, isSeeded: true }, undefined,
-        { seed: inherited, inheritedEventCount: SessionLogOffset(inherited.length) });
-      try {
-        for (const unbound of [orphan, seeded]) {
-          assert.equal(ctx.dsmmNativeAdmission.owns(unbound), false);
-          assert.equal((ctx.get("dsmmProfileRuntime") as DsmmProfileRuntime).hasAdmission(unbound as unknown as DshAgent), false);
-          assert.equal(ctx.dsmmNativeAdmission.invocation(unbound), undefined);
-          await assert.rejects(invoke("describeSession", { sessionId: unbound.id }), refused("not-owned"));
-          await assert.rejects(invoke("selectMode", { sessionId: unbound.id, request: { ...modeRequest(selected, false), sessionId: unbound.id } }), refused("not-owned"));
-        }
-      } finally { await native.disposeAgent(seeded); }
-      assert.deepEqual(await invoke("describeSession", { sessionId: a.id }), selected);
-      assert.deepEqual(await invoke("describeSession", { sessionId: b.id }), other);
-      assert.deepEqual([a, b].map(agent => agent.session.snapshotEvents().filter(event => event.type === "deepwork/mode")), modeEvents);
-    } finally { await native.disposeAgent(orphan); }
+    await assert.rejects(native.create({ origin: "subagent" }), { code: "UNAUTHORIZED" });
+    const inherited = a.session.snapshotEvents();
+    await assert.rejects(native.create({ origin: "subagent", parentSession: a.id, isSeeded: true }, undefined,
+      { seed: inherited, inheritedEventCount: SessionLogOffset(inherited.length) }), { code: "UNAUTHORIZED" });
+    assert.deepEqual(await invoke("describeSession", { sessionId: a.id }), selected);
+    assert.deepEqual(await invoke("describeSession", { sessionId: b.id }), other);
+    assert.deepEqual([a, b].map(agent => agent.session.snapshotEvents().filter(event => event.type === "deepwork/mode")), modeEvents);
     const child = await native.createAuxiliary("dsmm-reviewer", undefined, "one-shot", a);
     await assert.rejects(invoke("describeSession", { sessionId: child.id }), refused("not-owned"));
     await assert.rejects(invoke("selectMode", { sessionId: child.id, request: { ...modeRequest(selected, false), sessionId: child.id } }), refused("not-owned"));

@@ -4,7 +4,8 @@ import { getTraceable, symbols } from "@deepseek-ai/cordis";
 import type { Context } from "@deepseek-ai/cordis";
 import type { Agent } from "@deepseek-ai/dsh-agent";
 import { SessionId } from "@deepseek-ai/dsh-session";
-import { SubagentError, delegationDepthOf } from "@deepseek-ai/dsh-subagent";
+import { ReasoningEffortId } from "@deepseek-ai/dsh-llm";
+import { SubagentError, delegationDepthOf, foldSubagentDescriptor } from "@deepseek-ai/dsh-subagent";
 import type { SubagentProvider, SubagentActivation, ContinuableCreateRequest } from "@deepseek-ai/dsh-subagent";
 import type { ToolExecution } from "@deepseek-ai/dsh-tools";
 import type { DshAgent } from "./dsh-types.js";
@@ -14,13 +15,16 @@ import { freezeSettings } from "./settings.js";
 import type { ResolvedRoleInvocation } from "./role-invocation.js";
 import type { DsmmRolePolicy } from "./role-policy.js";
 import { scopeLifetime } from "./lifetime.js";
-import { sessionEvents } from "./session-scope.js";
-import { scopeParentOf } from "./native-scope.js";
+import { sessionEvents, childOwnedSessionEvents } from "./session-scope.js";
+import { scopeParentOf, scopeOf } from "./native-scope.js";
 import { DsmmProfileError } from "./profiles.js";
 import type { SessionActionUnavailableReason } from "./profile-types.js";
 import { roleProviderName } from "./roles.js";
 import { resolveRoleInvocation } from "./role-invocation.js";
 import { resolvedModelParameterPolicy } from "./model-parameter-policy.js";
+import { roleFromProviderName } from "./role-providers.js";
+import { isDsmmRoleId } from "./roles.js";
+import { latestNativeModelSelection } from "./role-routing.js";
 
 interface Pending {
   readonly childId: SessionId;
@@ -37,13 +41,15 @@ interface Pending {
   readonly maxDepth?: number;
   readonly toolFilter: import("@deepseek-ai/dsh-tools").ToolRestriction;
 }
-interface Live { readonly admission: DsmmProfileAdmission; readonly preset?: string; readonly scopeParent?: object; readonly parent?: Agent; readonly invocation?: ResolvedRoleInvocation }
+interface Live { readonly admission: DsmmProfileAdmission; readonly preset?: string; readonly scopeParent?: object; readonly parent?: Agent; readonly invocation?: ResolvedRoleInvocation; readonly dependencies?: readonly (object | undefined)[]; readonly provider?: SubagentProvider }
 declare module "@deepseek-ai/cordis" { interface Context { dsmmNativeAdmission: NativeAdmission } }
 
 /** Short-lived creation correlations and exact live bindings, never an execution queue. */
 export class NativeAdmission {
   readonly lifetime = new AbortController();
   private readonly pending = new Map<SessionId, Pending>();
+  private readonly providers = new Map<string, SubagentProvider>();
+  registerProvider(provider: SubagentProvider): void { this.providers.set(provider.name, provider); }
   private readonly live = new WeakMap<Agent, Live>();
   private readonly candidates = new WeakMap<Agent, DsmmProfileAdmission>();
   private readonly agents = new Set<Agent>();
@@ -80,7 +86,7 @@ export class NativeAdmission {
       for (const activation of this.activations) if (activation.childId === agent.id) this.activations.delete(activation);
       profiles.release(agent as DshAgent); policy.release(agent as DshAgent);
     }, { global: true });
-    // Only exact DSMM captures are guarded; native reconstruction is not an admission request.
+    // Exact admitted and failed-admission objects stay guarded through retirement.
     ctx.on("agent/pre-step", async (frame, next) => { await this.guardExecution(frame.agent); return next(); }, { global: true, prepend: true });
     ctx.on("agent/request", async (frame, next) => { await this.guardExecution(frame.agent); return next(); }, { global: true, prepend: true });
     ctx.on("tools/execute", async (exec, next) => {
@@ -151,6 +157,10 @@ export class NativeAdmission {
     if (this.failedInstallations.has(agent)) throw new SubagentError("Session configuration restoration failed; create a new session", "UNAUTHORIZED");
     if (this.selecting.has(agent)) throw new SubagentError("Session configuration maintenance is in progress", "UNAUTHORIZED");
     if (!this.isReady || !live || this.ctx.agents.get(agent.id) !== agent) throw new SubagentError("No trusted live admission; create a new session", "UNAUTHORIZED");
+    if (this.ctx.get("sessions")?.get(agent.id) !== agent.session || agent.session.id !== agent.id || agent.session.header.id !== agent.id
+      || scopeOf(agent.ctx) !== agent || original(agent.ctx.get("agents")!) !== original(this.ctx.agents)
+      || live.dependencies && this.dependencies(agent).some((value, index) => value !== live.dependencies![index])
+      || live.provider && this.ctx.get("subagents")?.getProvider(live.provider.name) !== live.provider) throw new SubagentError("Native admission dependencies changed", "UNAUTHORIZED");
     if (live.preset !== agent.ctx.get("agentPresets")?.composedPreset(agent.ctx) || live.scopeParent !== scopeParentOf(agent)) throw new SubagentError("Preset composition changed; create a new session", "UNAUTHORIZED");
     if (live.parent && (this.ctx.agents.get(live.parent.id) !== live.parent || !this.ctx.agents.isOwnedBy(agent.id, live.parent))) throw new SubagentError("Parent residency changed", "UNAUTHORIZED");
     if (live.parent) this.assert(live.parent);
@@ -333,21 +343,48 @@ export class NativeAdmission {
     this.lifetime.signal.throwIfAborted();
     this.agentLifetimes.get(agent)!.signal.throwIfAborted();
     if (!this.isReady || this.ctx.agents.get(agent.id) !== agent || this.live.get(agent) !== previous || scopeParentOf(agent) !== scopeParent) throw new SubagentError("Composition changed during blank admission", "UNAUTHORIZED");
-    this.live.set(agent, Object.freeze({ ...previous, preset, scopeParent }));
+    this.live.set(agent, Object.freeze({ ...previous, preset, scopeParent, dependencies: this.dependencies(agent) }));
   }
   private async created(agent: Agent, source: string, creationSignal?: AbortSignal): Promise<void> {
     if (this.owns(agent)) { this.assert(agent); return; }
     const pending = this.pending.get(agent.id);
-    // Native resume, promotion and durable provider recovery do not restore a DSMM role grant.
-    if (source === "resume" && pending === undefined) return;
     if (pending && source !== "startup") throw new SubagentError("Role creation requires its first pending call", "UNAUTHORIZED");
     if (!this.isReady || !this.install) throw new SubagentError("DSMM admission is initializing", "UNAUTHORIZED");
-    const signal = AbortSignal.any([...creationSignal ? [creationSignal] : [], this.lifetime.signal]);
+    let signal = AbortSignal.any([...creationSignal ? [creationSignal] : [], this.lifetime.signal]);
     signal.throwIfAborted();
     const parents = this.ctx.agents.list().filter(parent => parent !== agent && this.ctx.agents.isOwnedBy(agent.id, parent));
     const parent = parents[0], preset = agent.ctx.get("agentPresets")?.composedPreset(agent.ctx), presetScope = scopeParentOf(agent);
-    if (parents.length > 1 || this.ctx.agents.get(agent.id) !== agent) throw new SubagentError("Invalid native ownership", "UNAUTHORIZED");
-    if (!pending && (parent && !this.owns(parent) || !parent && agent.session.header.origin === "subagent")) return;
+    if (parents.length > 1 || this.ctx.agents.get(agent.id) !== agent || this.ctx.get("sessions")?.get(agent.id) !== agent.session
+      || agent.session.id !== agent.id || agent.session.header.id !== agent.id || scopeOf(agent.ctx) !== agent
+      || original(agent.ctx.get("agents")!) !== original(this.ctx.agents)) throw new SubagentError("Invalid native ownership", "UNAUTHORIZED");
+    const own = childOwnedSessionEvents(agent.session);
+    const descriptor = foldSubagentDescriptor(own as Parameters<typeof foldSubagentDescriptor>[0]);
+    if (!pending && parent && !this.owns(parent)) {
+      if (descriptor && roleFromProviderName(descriptor.provider) || isDsmmRoleId(preset)
+        || source === "resume" && await this.profiles.readChildIdentity(agent.id, parent.id)) throw new SubagentError("Role continuation requires an admitted parent", "UNAUTHORIZED");
+      return;
+    }
+    if (!parent && (!this.ctx.agents.roots().includes(agent) || agent.session.header.origin === "subagent" || descriptor !== undefined)) throw new SubagentError("Child requires its native parent", "UNAUTHORIZED");
+    this.agentLifetimes.set(agent, new AbortController());
+    signal = AbortSignal.any([signal, this.agentLifetimes.get(agent)!.signal, ...parent ? [this.agentLifetimes.get(parent)!.signal] : []]);
+    scopeLifetime(agent.ctx, "dsmm: retire exact Agent work", () => { void this.retireAgent(agent).catch(() => {}); });
+    agent.ctx.effect(() => async () => {
+      try { await this.retireAgent(agent); }
+      finally {
+        this.live.delete(agent); this.candidates.delete(agent); this.agents.delete(agent);
+        this.profiles.release(agent as DshAgent); this.policy.release(agent as DshAgent);
+      }
+    });
+    const dependencies = this.dependencies(agent);
+    const parentAdmission = parent ? this.assert(parent) : undefined;
+    const check = () => {
+      signal.throwIfAborted(); this.agentLifetimes.get(agent)!.signal.throwIfAborted();
+      if (!this.isReady || this.ctx.agents.get(agent.id) !== agent || this.ctx.get("sessions")?.get(agent.id) !== agent.session
+        || scopeOf(agent.ctx) !== agent || original(agent.ctx.get("agents")!) !== original(this.ctx.agents)
+        || this.dependencies(agent).some((value, index) => value !== dependencies[index]) || scopeParentOf(agent) !== presetScope || preset !== agent.ctx.get("agentPresets")?.composedPreset(agent.ctx)
+        || parent && (this.assert(parent) !== parentAdmission || !this.ctx.agents.isOwnedBy(agent.id, parent))) throw new SubagentError("Activation owner changed", "UNAUTHORIZED");
+    };
+    let continuation: ResolvedRoleInvocation | undefined, independent = false, continuationProvider: SubagentProvider | undefined;
     let admission: DsmmProfileAdmission;
     if (parent) {
       const parentAdmission = this.assert(parent), controlled = this.policy.identity(parent as DshAgent).role !== undefined;
@@ -358,6 +395,38 @@ export class NativeAdmission {
           || scopeParentOf(agent) !== pending.presetScope) throw new SubagentError("Child does not match the pending invocation", "UNAUTHORIZED");
         if (pending.maxDepth !== undefined && delegationDepthOf(agent) > pending.maxDepth) throw new SubagentError("Child exceeds depth ceiling", "UNAUTHORIZED");
         admission = pending.admission;
+      } else if (source === "resume") {
+        if (descriptor?.mode !== "continuable") throw new SubagentError("Native child is not continuable", "NOT_RESUMABLE");
+        const subagents = this.ctx.get("subagents")!;
+        const rows = await subagents.listChildren(parent.id, signal);
+        check();
+        const row = rows.find(row => row.id === agent.id);
+        if (!row || row.mode !== "continuable") throw new SubagentError("Native child catalog mismatch", "UNAUTHORIZED");
+        const metadata = await this.profiles.readChildIdentity(agent.id, parent.id);
+        check();
+        const ownPreset = own.find(event => event.type === "agent-preset/selected" || event.type === "subagent/descriptor");
+        independent = ownPreset?.type === "agent-preset/selected";
+        if (!independent && (preset !== parent.ctx.get("agentPresets")?.composedPreset(parent.ctx) || presetScope !== scopeParentOf(parent))) throw new SubagentError("Inherited composition changed", "UNAUTHORIZED");
+        const nativeRole = roleFromProviderName(descriptor.provider) ?? (independent && isDsmmRoleId(preset) ? preset : undefined);
+        if (metadata && nativeRole && metadata.role !== nativeRole) throw new SubagentError("Child role identity conflict", "UNAUTHORIZED");
+        const role = nativeRole ?? metadata?.role;
+        if (!role) {
+          admission = await this.profiles.prepareChild(agent as DshAgent, parentAdmission, signal);
+          check();
+        } else {
+          continuationProvider = this.providers.get(roleProviderName(role));
+          const currentProvider = continuationProvider && subagents.getProvider(continuationProvider.name);
+          if (!continuationProvider || !currentProvider || original(currentProvider) !== original(continuationProvider)) throw new SubagentError("Role provider is unavailable", "UNAUTHORIZED");
+          admission = await this.profiles.prepareChild(agent as DshAgent, parentAdmission, signal, metadata);
+          check();
+          if (!admission.settings.modules.deepwork.enabled || !admission.settings.roles[role]) throw new SubagentError("Role is disabled", "UNAUTHORIZED");
+          this.policy.assertDelegation(parent as DshAgent, role);
+          const manual = latestNativeModelSelection(agent as DshAgent)?.route;
+          continuation = await resolveRoleInvocation(parent, role, admission.settings, signal, metadata ? { level: metadata.level } : {}, manual === undefined ? undefined : {
+            provider: manual.provider, model: manual.model, ...(manual.reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(manual.reasoningEffort) })
+          }, resolvedModelParameterPolicy(admission));
+          check();
+        }
       } else {
         if (controlled || preset?.startsWith("dsmm-")) throw new SubagentError("Use an admitted DSMM role tool", "UNAUTHORIZED");
         admission = parentAdmission;
@@ -365,17 +434,9 @@ export class NativeAdmission {
     } else {
       if (pending) throw new SubagentError("Missing exact parent", "UNAUTHORIZED");
       admission = await this.profiles.prepareRoot(agent as DshAgent, signal);
+      check();
       this.policy.validateRootRole(agent as DshAgent, admission);
     }
-    this.agentLifetimes.set(agent, new AbortController());
-    scopeLifetime(agent.ctx, "dsmm: retire exact Agent work", () => { void this.retireAgent(agent).catch(() => {}); });
-    agent.ctx.effect(() => async () => {
-      try { await this.retireAgent(agent); }
-      finally {
-        this.live.delete(agent); this.candidates.delete(agent); this.agents.delete(agent);
-        this.profiles.release(agent as DshAgent); this.policy.release(agent as DshAgent);
-      }
-    });
     this.candidates.set(agent, admission);
     this.agents.add(agent);
     // These registrations belong to the Agent, not the plugin owner. Revocation remains effective after unload.
@@ -385,17 +446,18 @@ export class NativeAdmission {
     this.guardTools(agent);
     try {
       if (pending) this.policy.bindChild(agent as DshAgent, parent! as DshAgent, admission, pending.invocation, pending.maxDepth, pending.toolFilter);
-      else if (parent) this.policy.bindInheritedChild(agent as DshAgent, parent as DshAgent, admission);
+      else if (continuation) this.policy.bindChild(agent as DshAgent, parent! as DshAgent, admission, continuation,
+        this.ctx.get("subagents")!.resolveMaxDepth(admission.settings.subagents.maxDepth), this.policy.visibleToolCeiling(parent! as DshAgent), independent);
+      else if (parent) this.policy.bindInheritedChild(agent as DshAgent, parent as DshAgent, admission, source === "resume");
       await this.install(agent, this.getter(agent));
-      signal.throwIfAborted();
-      this.agentLifetimes.get(agent)!.signal.throwIfAborted();
+      check();
+      await this.profiles.revalidateActivation(admission);
+      check();
       if (pending) this.check(pending);
-      if (parent) this.assert(parent);
-      if (!this.isReady || this.ctx.agents.get(agent.id) !== agent || preset !== agent.ctx.get("agentPresets")?.composedPreset(agent.ctx)
-        || presetScope !== scopeParentOf(agent) || parent && !this.ctx.agents.isOwnedBy(agent.id, parent)) throw new SubagentError("Agent changed during initialization", "UNAUTHORIZED");
+      if (continuationProvider && this.ctx.get("subagents")!.getProvider(continuationProvider.name) !== continuationProvider) throw new SubagentError("Role provider changed", "UNAUTHORIZED");
       this.profiles.publish(agent as DshAgent, admission);
       const published = this.profiles.admission(agent as DshAgent);
-      this.live.set(agent, Object.freeze({ admission: published, preset, scopeParent: scopeParentOf(agent), parent, invocation: pending?.invocation }));
+      this.live.set(agent, Object.freeze({ admission: published, preset, scopeParent: scopeParentOf(agent), parent, invocation: pending?.invocation ?? continuation, dependencies, provider: pending?.provider ?? continuationProvider }));
       if (pending) this.pending.delete(agent.id);
     } catch (error) { this.policy.release(agent as DshAgent); throw error; }
     finally { this.candidates.delete(agent); }

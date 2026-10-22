@@ -1,6 +1,6 @@
 # Runtime recovery and route strategies
 
-DSMM 0.3.11 targets exactly DSH `0.2.1-rc.2`.
+DSMM 0.3.12 targets exactly DSH `0.2.1-rc.2`.
 
 ## Independent role strategies
 
@@ -8,7 +8,7 @@ Each role may use `startup-lock` (default) or explicit `rate-limit-fallback`. `r
 
 Child preparation admits the primary or first resolvable configured candidate in order without a sacrificial completion. A catalog isn't an authentication/network-health check. `startup-lock` retains the admitted route for bounded safe rate-limit retries. `rate-limit-fallback` may advance its ordered chain after the configured threshold. Success resets consecutive counts, duplicate failure delivery doesn't count twice, and exhausted chains don't wrap.
 
-Ordinary roots retain native assembled provider/model/effort, even before the first selection event. Role/global primary and fallback chains don't automatically replace that route. **Use profile model** is a separate explicit selection action against admitted immutable configuration, not a retry or overlay Apply.
+Root model and effort remain native-owned even without an explicit selection event. Role/global primaries and fallback chains never implicitly replace that route. **Use profile model** is an explicit native selection action against admitted configuration, not a retry or overlay Apply. A role child's own native selection is resolved before configured-primary preflight when it resumes; its historical descriptor default does not replace that selection.
 
 | Policy field | Default | Strict integer bound |
 | --- | --- | --- |
@@ -49,11 +49,11 @@ Native history loading, reading, promotion, explicit/declarative restoration and
 
 DSMM uses public serial `agent/created` callbacks for fresh admission. A role's first creation requires its exact pending parent/provider/invocation, standing composition, scope, tool filter and depth ceiling. Role binding precedes Agent-scoped installation; publication rechecks current owner, exact parent, cancellation and composition after installation. Fresh ordinary children of a non-controlled admitted parent inherit its captured configuration and tool ceiling without acquiring a role invocation.
 
-Native `resume` doesn't enroll a reconstructed Agent in DSMM admission. Historical descriptors, role/preset labels, mode events and profile selections don't grant current DSMM role qualification. Fresh roots use current `prepareRoot` and root eligibility checks; saved profile-selection `admissionEpoch` and disk CAS retain their configuration-selection meaning, not execution authority. Old retry, approval and pending-call state isn't restored.
+Native root resume and supported continuable children obtain fresh admission during awaited `agent/created`. Root selection identity and current named content are read separately. A child requires its exact admitted live parent, native direct catalog, own continuable descriptor and current role provider. Own independent composition is validated separately from a new pending invocation's shared composition. Old retry, approval and pending-call state isn't restored; settled one-shot children remain non-resumable.
 
-Restricted-role continuation can lose DSMM-specific readonly, tool-filter and depth captures on restoration. The current Host doesn't provide a supported guarantee of safe DSMM restricted-role continuation across restoration, unload/reinstall or restart. That capability is deferred; a restored native request isn't proof of valid DSMM role admission or preserved restrictions. This limitation doesn't block native restoration or ordinary configuration/UI saves.
+Restricted-role continuation recomputes current readonly, delegation and depth ceilings, intersecting the parent's actual capabilities and native filters/sandbox. The child's admitted maximum depth is the narrower of current configuration and its resident parent's admitted ceiling; subsequent delegation consumes that same bound. A disabled role or module refuses role activation rather than becoming an unrestricted native child. Failed/cancelled installation rolls back through the native factory; old objects remain revoked even after the same ID is activated again. Root and child image preflight and old native persona limitations are documented in [compatibility](compatibility.md#native-history-composition).
 
-Official Registry, Runtime and JSONL plugins own lifecycle and storage. DSMM live captures and callbacks retain their exact Agent and current owner checks; Agent-scoped guards remain fail-closed after that owner retires. They don't enroll other Agents or revoke native history globally. Ordinary unadmitted native tool calls, including managed shell calls, retain native approval/sandbox behavior and applicable permission rules through exact live registry, realm and lifetime checks, without acquiring DSMM role or configuration-write rights. Retired exact DSMM captures cannot use that native path. DSMM-specific entry points still require their applicable live admission and permission ceilings; native restoration doesn't provision those rights. No descriptor authorization ledger, persisted grant, cold migration, automatic history rewrite or cross-process automatic retry is provided.
+Official Registry, Runtime and JSONL plugins own lifecycle and storage. DSMM callbacks retain exact Agent and current owner checks; Agent-scoped guards remain fail-closed after that owner retires. Ordinary unadmitted native tool calls retain native approval/sandbox and applicable permission rules without acquiring DSMM role or configuration-write rights. Retired DSMM objects cannot use that native path. Restoration grants role capability only through the fresh validated admission above, never through serialized grants. No descriptor authorization ledger, cold migration, automatic history rewrite or cross-process automatic retry is provided.
 
 Diagnostics omit request/provider bodies, credentials and goal/todo text.
 

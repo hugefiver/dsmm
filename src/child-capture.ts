@@ -2,7 +2,7 @@ import type { DsmmInvocationLevel, DsmmLocale, DsmmModelRoute, DsmmProfileAdmiss
 import { copyJson, freezeSettings, resolveConfig, validateSparseConfig } from "./settings.js";
 import { parseModelParameterPolicy } from "./model-parameter-policy.js";
 import type { ResolvedModelParameterPolicy } from "./model-parameter-policy.js";
-import { validateProfileOverlay } from "./profiles.js";
+import { validateProfileOverlay, validateProfileId } from "./profiles.js";
 import { isProfileReference } from "./config-revision.js";
 import type { DsmmRoleId } from "./roles.js";
 import { DSMM_ROLE_IDS } from "./roles.js";
@@ -65,6 +65,28 @@ export interface ChildAdmissionCaptureV3 extends ChildAdmissionCaptureBase {
   invocation: ChildAdmissionCaptureV2["invocation"];
 }
 export type ChildAdmissionCapture = ChildAdmissionCaptureV1 | ChildAdmissionCaptureV2 | ChildAdmissionCaptureV3;
+export interface ChildAdmissionIdentity {
+  childSessionId: string;
+  parentSessionId: string;
+  role: DsmmRoleId;
+  profileId: string | null;
+  level: DsmmInvocationLevel;
+}
+/** Runtime snapshots are not authority or configuration inputs for a new activation. */
+export function parseChildAdmissionIdentity(input: unknown): ChildAdmissionIdentity {
+  if (!input || typeof input !== "object" || Array.isArray(input)) fail();
+  const row = input as Record<string, unknown>;
+  if (row.version !== 1 && row.version !== 2 && row.version !== 3) fail();
+  text(row.childSessionId, 256); text(row.parentSessionId, 256); role(row.role);
+  if (row.childSessionId === row.parentSessionId) fail();
+  const pin = row.profilePin === null ? null : object(row.profilePin, ["id", "revision"]);
+  if (pin) validateProfileId(pin.id);
+  if (!row.invocation || typeof row.invocation !== "object") fail();
+  const level = (row.invocation as Record<string, unknown>).level;
+  if (level !== "normal" && level !== "low" && level !== "high" && level !== "max") fail();
+  return { childSessionId: row.childSessionId, parentSessionId: row.parentSessionId, role: row.role as DsmmRoleId,
+    profileId: pin === null ? null : pin.id as string, level: level as DsmmInvocationLevel };
+}
 /** Trusted native folds only; never synthesized from the current parent's settings. */
 export interface LegacyChildEvidence {
   version: 1;

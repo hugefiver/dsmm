@@ -371,7 +371,7 @@ test("corrupt or missing immutable selections fail visibly rather than silently 
     const immutable = join(f.root, ".revisions", `${selected.selection.appliedRevision}.jsonc`);
     writeFileSync(immutable, "{}");
     await assert.rejects(new ProfileStore(f.root).loadSelection(), fault("corrupt-selection"));
-    assert.equal((await f.store.describe()).selectionError?.code, "corrupt-selection");
+    assert.equal((await f.store.describe()).selectedId, "focus", "identity and current content do not require the archival snapshot");
     rmSync(immutable);
     await assert.rejects(f.store.loadSelection(), fault("corrupt-selection"));
     writeFileSync(join(f.root, ".selection.json"), '{"version":1,"id":null,"revision":null,"settings":{"credentials":"private"}}');

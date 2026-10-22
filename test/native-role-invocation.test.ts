@@ -179,7 +179,7 @@ test("generic native spawn is refused under a controlled parent while ordinary o
   } finally { await f.dispose(); }
 });
 
-test("native child messaging and interrupt preserve exact adjacency and cannot cold-recover role authority", { timeout: 15000 }, async () => {
+test("native child messaging and interrupt preserve exact adjacency across role reactivation", { timeout: 15000 }, async () => {
   const f = await nativeRoutingFixture({ defaultActive: true, subagents: { enableRunInBackground: true } }, { nativePresets: true });
   const entered = gate(), release = gate();
   try {
@@ -211,9 +211,9 @@ test("native child messaging and interrupt preserve exact adjacency and cannot c
     assert.ok(resumed); assert.notEqual(resumed, child); assert.equal(resumed.id, child.id);
     assert.equal(resumed.session.header.parentSession, parent.id);
     assert.equal(f.agents.isOwnedBy(resumed.id, parent), true);
-    assert.equal(f.ctx.dsmmNativeAdmission.owns(resumed), false);
-    assert.equal((f.ctx.get("dsmmProfileRuntime") as DsmmProfileRuntime).hasAdmission(resumed as unknown as DshAgent), false);
-    assert.equal(f.ctx.dsmmNativeAdmission.invocation(resumed), undefined);
+    assert.equal(f.ctx.dsmmNativeAdmission.owns(resumed), true);
+    assert.equal((f.ctx.get("dsmmProfileRuntime") as DsmmProfileRuntime).hasAdmission(resumed as unknown as DshAgent), true);
+    assert.equal(f.ctx.dsmmNativeAdmission.invocation(resumed)?.target, "dsmm-coding");
     await resumed.whenIdle();
     const own = resumed.session.snapshotEvents().slice(offset);
     assert.ok(own.some(event => event.type === "user/message" && event.data.id === messageId));

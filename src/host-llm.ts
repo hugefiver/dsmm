@@ -9,7 +9,6 @@ import { copyRouteJson } from "./route-json.js";
 import { modelRouteFromCall } from "./role-llm.js";
 import { classifyDsmmAgent } from "./runtime-integration.js";
 import { latestNativeModelSelection } from "./role-routing.js";
-import { resolveSelectedAgentPreset } from "./session-scope.js";
 import type { DshAgent } from "./dsh-types.js";
 import { capturedRoleInvocation } from "./role-invocation.js";
 
@@ -28,8 +27,8 @@ export type DsmmEffortSource = "native" | "dsmm-config";
 export function captureDsmmEffortSource(agent: Agent): DsmmEffortSource {
   const current = agent as unknown as DshAgent;
   const invocation = capturedRoleInvocation(current);
-  if (latestNativeModelSelection(current) !== undefined
-    || agent.session.header.origin !== "subagent" && !resolveSelectedAgentPreset(current.session)?.startsWith("dsmm-")) return "native";
+  if (latestNativeModelSelection(current) !== undefined) return "native";
+  if (agent.session.header.origin !== "subagent") return "native";
   return invocation?.effortSource ?? (invocation?.routeSource === "inherited" ? "native" : "dsmm-config");
 }
 

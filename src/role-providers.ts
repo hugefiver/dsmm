@@ -30,5 +30,6 @@ export function registerRoleProviders(ctx: Context, getSettings: DsmmSettingsGet
       }
     };
     registry.registerProvider(provider);
+    admission.registerProvider(provider);
   }
 }

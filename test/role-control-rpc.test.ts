@@ -20,7 +20,7 @@ test("real Gateway authenticates the exact operator and validates requests witho
     for (const peer of [{ ...operator, async dispose() {} }, independent])
       await assert.rejects(f.ctx.typertGateway.invoke({ namespace: "dsmmChildren", method: "describe", args: { sessionId: root.id }, peer }), refused("not-owned"));
     await assert.rejects(f.invoke("describe", { sessionId: "cold-root" }), refused("not-found"));
-    await assert.rejects(f.invoke("prompt", { sessionId: root.id, request }), refused("not-resumable"));
+    await assert.rejects(f.invoke("prompt", { sessionId: root.id, request }), refused("not-owned"));
     assert.equal(f.agents.get(SessionId("cold-child")), undefined);
     await f.replaceConnection();
     await assert.rejects(f.ctx.typertGateway.invoke({ namespace: "dsmmChildren", method: "describe", args: { sessionId: root.id }, peer: operator }));
@@ -52,9 +52,13 @@ test("native Gateway queue/steer preserve request identity and interrupt acknowl
     await f.subagents.drainChildren(root, [child.id]);
     await f.ctx.sessionPersistence.flush();
     const cold = await f.invoke("describe", { sessionId: root.id }) as ChildSessionSnapshot;
-    assert.equal(cold.children[0].readonly, true);
-    await assert.rejects(f.invoke("prompt", { sessionId: root.id, request: f.request(root, child.id, "cold") }), refused("not-resumable"));
-    assert.equal(f.agents.get(child.id), undefined);
+    assert.equal(cold.children[0].readonly, false);
+    assert.equal(f.agents.get(child.id), undefined, "describe does not activate the child");
+    await f.invoke("prompt", { sessionId: root.id, request: f.request(root, child.id, "cold") });
+    const resumed = f.agents.get(child.id)!;
+    assert.ok(resumed); assert.notEqual(resumed, child);
+    assert.equal(f.ctx.dsmmNativeAdmission.invocation(resumed)?.target, "dsmm-coding");
+    await resumed.whenIdle(); await f.subagents.drainChildren(root, [child.id]);
   } finally { held.release(); await f.dispose(); }
 });
 

@@ -1,6 +1,6 @@
 # Deepwork Agent presets and child control
 
-DSMM 0.3.11 targets exactly DSH `0.2.1-rc.2`. Native package composition and callable admission are separate requirements.
+DSMM 0.3.12 targets exactly DSH `0.2.1-rc.2`. Native package composition and callable admission are separate requirements.
 
 ## Roles and composition
 
@@ -33,7 +33,7 @@ No child gains coordination authority from a preset label, persona or serialized
 
 Read-only roles remain read-only independently of mode and optional guards. Planner returns complete Markdown for native review/handoff; an authorized coordinator persists it. There is no Planner writer. Native catalog visibility and role permission are separate: a schema or read-only catalog listing doesn't authorize invocation, and own-layer native schemas may remain visible even when mandatory execution fences deny them.
 
-Descendants intersect parent allow-lists with requested restrictions and union deny-lists, using frozen captures. Existing native filters still execute. Reinstallation, direct aliases, continuable starts and cold resumes don't enlarge original authority. A named profile can narrow enabled roles but can't lift startup/deployment ceilings; required roles and conditional legacy review rules are covered in [profiles](profiles.md#inheritance-and-ceilings).
+Descendants intersect current parent capability ceilings with native/requested restrictions and union deny-lists. Existing native filters still execute. Cold resume rebuilds DSMM restrictions from current role/configuration and exact parent authority rather than restoring an old runtime snapshot. A named profile cannot lift startup/deployment or native ceilings; required roles are covered in [profiles](profiles.md#inheritance-and-ceilings).
 
 ## Invocation and lifecycle
 
@@ -51,7 +51,7 @@ Child report interfaces expose actual runs, direct children and a read-only desc
 
 Route comparison uses the live admitted `invocation-capture` and the child's latest `own-native-request-header`. Missing, invalid or unobserved evidence remains unknown; it is never inferred from a root route, current profile or role label. Display metadata isn't a cold-recovery credential.
 
-Human messages target only a supported live direct child with current exact-parent authority and native capabilities. Entries whose observed control projection is read-only remain inspection-only; this isn't the role's tool-level read-only policy. **Queue** accepts a distinct later turn; **Steer** targets the nearest step. An idle live child can receive another turn, but DSMM cold resume without trusted live binding is unsupported. Native attachment/model capabilities separately determine image availability.
+Human messages target supported direct children with current exact-parent authority and native capabilities. **Queue** accepts a distinct later turn; **Steer** targets the nearest step. A cold continuable child enters the native recovery path and obtains a fresh role admission. Listing and interrupt do not activate cold children. Inspection-only descendant controls are separate from tool-level readonly policy. Native attachment/model preflight can still limit image continuation; see [compatibility](compatibility.md#native-history-composition).
 
 An inbox receipt means **accepted**, not executed or completed. An interrupt acknowledgment isn't completion and doesn't claim queued work was removed. If transport leaves a send outcome unknown, the draft stays visible and automatic resend is disabled. Inspect the native child conversation before explicitly allowing a new message, which could duplicate an accepted one. Refresh and reconnection never imply automatic retry.
 
@@ -67,7 +67,7 @@ Arguments, result content, errors and metadata remain inspectable as JSON. Nonte
 
 Official AgentRegistry, SubagentRuntime and JSONL namespace plugins own execution and storage. There is no custom Registry/Runtime selector, manual-runtime activation path or companion requirement. Native runtime availability and actual DSMM admission are still separate observations; seeing a catalog isn't proof of callable policy. See [settings](settings-status.md#child-runtime-composition).
 
-Cold DSMM recovery without a trusted live binding refuses execution and preserves history. Logs, IDs, PluginRecord display data or current parent settings can't restore authority. Read-only history queries don't resume Agents. `preset-skills` is an internal handle installed and released by the admitted Agent scope, not a public plugin. See [compatibility](compatibility.md#retired-compatibility-surfaces).
+Cold recovery requires verified native root/child identity and creates a new exact-object admission. Logs, IDs and display data alone cannot restore authority. Missing old captures do not block a valid native DSMM child. Read-only history queries never resume Agents. `preset-skills` is installed and released by the admitted Agent scope, not a public plugin. See [compatibility](compatibility.md#native-history-composition).
 
 Native Host commands, sessions, inbox, permissions, process/cwd/model selection and transports retain ownership. DSMM supplies role admission and bounded controls, not a replacement lifecycle scheduler, generic permission bypass or automatic retry system.
 

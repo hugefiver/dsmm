@@ -29,6 +29,7 @@ import type { DshContext } from "../lib/dsh-types.js";
 import type { DsmmRoleId } from "../lib/roles.js";
 import * as NativeSessionPersistence from "@deepseek-ai/dsh-session-persistence-jsonl";
 import { DSMM_ROLES } from "../lib/roles.js";
+import DsmmNativeLlmRuntime from "../lib/llm-runtime.js";
 import { useIsolatedDshEnvironment } from "./dsh-test-environment.ts";
 
 useIsolatedDshEnvironment();
@@ -118,6 +119,10 @@ export async function nativeFixturePlugin(name: string, peer?: string) {
 }
 
 export async function nativeRoutingFixture(config: DsmmPluginConfig = {}, options: { headless?: boolean; spawn?: boolean; profileDir?: string; home?: string; nativePresets?: boolean; isolatedPrompt?: boolean; persistence?: boolean;
+  persistenceRoot?: string;
+  dsmmLlm?: boolean;
+  controller?: boolean;
+  reopenProfile?: boolean;
   adapter?: RoutingFixtureAdapter;
   managedRuntime?: boolean;
   nativePermissionSettings?: boolean;
@@ -156,7 +161,7 @@ export async function nativeRoutingFixture(config: DsmmPluginConfig = {}, option
     const managedRuntime = options.managedRuntime ?? options.spawn !== false;
     const fibers = [
       ctx.plugin(AgentRegistry), ctx.plugin(SessionStore), ctx.plugin(SessionProjectionRegistry),
-      ctx.plugin(LlmRuntime), ctx.plugin(SystemPrompt, {}), ctx.plugin(ToolRuntime, { mode: "native" }),
+      ctx.plugin(options.dsmmLlm ? DsmmNativeLlmRuntime : LlmRuntime), ctx.plugin(SystemPrompt, {}), ctx.plugin(ToolRuntime, { mode: "native" }),
       ctx.plugin(SubagentRuntime, options.nativeSubagents ?? {}), ctx.plugin(SkillRegistry, {})
     ];
     await Promise.all(fibers.map((fiber) => fiber.await()));
@@ -208,7 +213,7 @@ export async function nativeRoutingFixture(config: DsmmPluginConfig = {}, option
       await ctx.plugin(ExactQuery).await();
     }
     if (options.persistence ?? options.spawn !== false) {
-      await ctx.plugin(NativeSessionPersistence, { root: join(fixtureDir, "sessions"), compression: "none" }).await();
+      await ctx.plugin(NativeSessionPersistence, { root: options.persistenceRoot ?? join(fixtureDir, "sessions"), compression: "none" }).await();
     }
     if (options.nativeJobs) {
       const jobs = await nativeFixturePlugin("@deepseek-ai/dsh-jobs-local");
@@ -236,7 +241,7 @@ export async function nativeRoutingFixture(config: DsmmPluginConfig = {}, option
       });
     }
     for (const definition of options.fixtureTools ?? []) tools.register(definition);
-    ctx.provide("profileContext", { ...(permissionHost ? permissionHost.permissionHostProfile(profileDir, home, config)
+    ctx.provide("profileContext", { ...(permissionHost ? permissionHost.permissionHostProfile(profileDir, home, config, options.reopenProfile)
       : { home, dir: profileDir, installAnchor: options.nativeControls ? require.resolve("@deepseek-ai/dsh-tool-subagent-control") : process.env.DSMM_TEST_DSH_ENTRY }),
       baseUrl: new URL("../", import.meta.url).href, startedBundles: options.headless ? ["@deepseek-ai/dsh-headless"] : [] });
     let loader: Context["loader"] | undefined;
@@ -332,6 +337,10 @@ export async function nativeRoutingFixture(config: DsmmPluginConfig = {}, option
         while (parent.uid !== 0 && parent.uid !== dsmmFiber.uid) parent = parent.parent.fiber;
         if (parent.uid === dsmmFiber.uid) await fiber.await();
       }
+    }
+    if (options.controller) {
+      const { installFixtureController } = await import("./native-controller-fixture.ts");
+      await installFixtureController(ctx);
     }
     return {
       ctx, host, adapter, agents, subagents, dsmmFiber, spawnFiber, tools, profileDir, home, dsmmEntryId, mountPresets,

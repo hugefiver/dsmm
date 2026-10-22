@@ -2,13 +2,13 @@
 
 Providers, accounts and credentials remain native DSH configuration, never named-profile contents.
 
-DSMM 0.3.11 targets exactly DSH `0.2.1-rc.2`. Standard calls use native prepared calls. The public Pi-AI completions seam supports self-contained literal and explicit model-mapping raw configurations; unsupported catalog-backed raw combinations are rejected without affecting standard calls.
+DSMM 0.3.12 targets exactly DSH `0.2.1-rc.2`. Standard calls use native prepared calls. The public Pi-AI completions seam supports self-contained literal and explicit model-mapping raw configurations; unsupported catalog-backed raw combinations are rejected without affecting standard calls.
 
 ## Native roots and child defaults
 
-Every ordinary top-level Agent keeps the native model tab's assembled provider/model/effort, including an implicit default before the first selection event. Deepwork activation, preset selection, draft Save and future-default selection don't select a model or calibrate root effort. Live overlay Apply is unavailable. Only explicit **Use profile model** asks native selection to change it; later manual choices remain authoritative.
+Every root retains native assembled provider/model/effort, including implicit defaults before the first `model/selection` event. Activating Deepwork, choosing a preset, saving/selecting a profile or refreshing a cold admission does not implicitly apply a root primary. **Use profile model** is the explicit native selection action against admitted configuration; later manual choices remain authoritative. Root retry preserves the exact native downstream configuration and never switches to a profile fallback channel automatically.
 
-`roleRouting` is keyed by canonical IDs such as `dsmm-reviewer`, not tool names or labels. Each entry accepts `primary`, ordered `fallbackRoutes`, `strategy`, bounded `rateLimit`, and `levels`. Omitted primary inherits the native parent route for a child. Configured primary supplies child defaults, not a root override or new selection permission. Native child AgentOptions remain explicit host authority; changing provider/model without effort clears stale configured effort.
+`roleRouting` is keyed by canonical IDs such as `dsmm-reviewer`, not tool names or labels. Each entry accepts `primary`, ordered `fallbackRoutes`, `strategy`, bounded `rateLimit`, and `levels`. Omitted primary inherits the native parent route for a child. Explicit host options on new delegation retain their priority. Historical descriptor options are reconstruction defaults, not a new override of current DSMM routing. A cold child resolves its invocation again, taking its own explicit native selection before configured-route preparation; a configured model that will not be used is not a preflight dependency. Ancestor selections, labels and old request defaults are not child selection intent.
 
 ```jsonc
 {
@@ -41,7 +41,7 @@ rc.2's `LlmCallConfig` doesn't carry arbitrary provider JSON, and its Pi-AI stre
 
 The raw seam captures the actual registered adapter fiber, provider configuration and credential-reference generation, with native `LlmAdapter.prepareCall` model/capability checks and single dispatch. Admission, cancellation and owner generations are rechecked after awaits and before submission. Native attribution, attachments, system prompts, tool updates and error classification are preserved. Credentials aren't copied into profiles or resolved through an ambient fallback. Standard native effort encoding remains unchanged; a raw payload hook can't mutate a captured native route or widen its authority.
 
-Saving or selecting a future default preserves route JSON without sending a completion. Actual invocation/preparation checks provider/model support. Existing Agents use admitted parameter policy, not desired disk values or a later parent profile. Live overlay Apply and DSMM cold resume remain unavailable. **Use profile model** is a separate native selection action, not raw execution authorization.
+Saving or selecting a future default preserves route JSON without sending a completion. Actual invocation/preparation checks provider/model support. Existing Agents use admitted parameter policy, while native reactivation resolves current configuration. **Use profile model** is a separate native selection action, not raw execution authorization.
 
 ```jsonc
 {
@@ -91,9 +91,9 @@ Child preparation selects the primary or first resolvable configured candidate i
 
 Only provider absence established through the public registration directory, or adapter-proven `UNKNOWN_MODEL`, can advance a remaining startup candidate before accepted output/tool fragments. A generic `NO_ADAPTER` from preparation, middleware or an unready registered adapter is not absence proof. Transport, authorization, quota, payment, context and cancelled failures don't authorize model hopping. Partial text, reasoning or tool output forbids automatic retry, including same-route retry. Ordinary roots remain on their native route. See [runtime recovery](runtime-recovery.md).
 
-Existing Agents and future children use immutable admitted policy, not a later draft or desired deployment. Child initial routes don't override later accepted native manual intent or valid fallback every turn. Omitted effort clears stale explicit effort rather than retaining a prior route's value. Profile storage, native persistence and execution ownership remain separate; see [profiles](profiles.md#storage-and-lifetime) and [compatibility](compatibility.md).
+Resident Agents and freshly delegated children use immutable admitted policy, not a later draft or desired deployment. Cold continuation obtains current policy at its new activation. Child initial routes don't override later accepted native manual intent or valid fallback every turn. Omitted effort clears stale explicit effort. Profile storage, native persistence and execution ownership remain separate; see [profiles](profiles.md#storage-and-lifetime) and [compatibility](compatibility.md).
 
-Cold DSMM recovery without a trusted live binding refuses. Serialized captures, PluginRecord display metadata and same-name documents don't restore authority. Existing data isn't rewritten, migrated or replaced with current-parent configuration.
+Native cold restoration establishes a new exact-Agent admission from current configuration and verified native ownership, not from serialized runtime authority. Old capture metadata may supply profile ID and explicit level intent only. A missing capture does not block a native DSMM descriptor. New epochs isolate historical route locks and retry counters. The existing DSMM owner performs admission → recovery preparation → role routing → parameter/model validation → final snapshot/capture → native `prepareCall`; stock-only integrations use the same preparation body once. Exact proposal, Agent, scope, signal and single-consumption checks remain mandatory.
 
 ## Observed route versus declared route
 

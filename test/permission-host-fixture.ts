@@ -16,7 +16,8 @@ const { SettingsForms } = sdk("@deepseek-ai/dsh-settings");
 const { loadProfileDirectory, mountRootInclude, readProfilePatches } = sdk("@deepseek-ai/dsh-app-boot");
 
 /** A real Include-owned entry is required for SettingsForms to authenticate Core's policy source. */
-export function permissionHostProfile(dir: string, home: string, config: DsmmNativeConfig) {
+export function permissionHostProfile(dir: string, home: string, config: DsmmNativeConfig, reopen = false) {
+  if (!reopen) {
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "permission-host-fixture", private: true,
     dependencies: {}, dsh: { profile: { bundles: [] } } }), { flag: "wx" });
@@ -24,6 +25,7 @@ export function permissionHostProfile(dir: string, home: string, config: DsmmNat
   writeFileSync(join(dir, "cordis.patch.yml"), JSON.stringify([
     { insert: [{ id: "permission-core", name: "cordis:permission-fixture-core", config }] }
   ]), { flag: "wx" });
+  }
   const installAnchor = sdk.resolve("@deepseek-ai/dsh-app-boot");
   return { ...loadProfileDirectory("dsh", dir, installAnchor), home, installAnchor, overlays: [], startedBundles: [] };
 }

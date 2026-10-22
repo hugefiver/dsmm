@@ -306,9 +306,9 @@ test("headless live continuation retains inherited filters while cold recovery h
       assert.ok(resumed); assert.notEqual(resumed, child); assert.equal(resumed.id, child.id);
       assert.equal(resumed.session.header.parentSession, owner.id);
       assert.equal(f.agents.isOwnedBy(resumed.id, owner), true);
-      assert.equal(f.ctx.dsmmNativeAdmission.owns(resumed), false);
-      assert.equal((f.ctx.get("dsmmProfileRuntime") as DsmmProfileRuntime).hasAdmission(resumed as DshAgent), false);
-      assert.equal(f.ctx.dsmmNativeAdmission.invocation(resumed), undefined);
+      assert.equal(f.ctx.dsmmNativeAdmission.owns(resumed), true);
+      assert.equal((f.ctx.get("dsmmProfileRuntime") as DsmmProfileRuntime).hasAdmission(resumed as DshAgent), true);
+      assert.equal(f.ctx.dsmmNativeAdmission.invocation(resumed)?.target, "dsmm-quick");
       await resumed.whenIdle();
       const own = resumed.session.snapshotEvents().slice(offset);
       assert.ok(own.some(event => event.type === "user/message" && event.data.id === messageId));
