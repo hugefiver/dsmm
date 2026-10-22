@@ -149,7 +149,7 @@ export function ProfilesSection(props: ProfilesSectionProps) {
     <div className="dsmm-effective-summary" data-dsmm-effective-summary>
       <div className="dsmm-summary-row">
         <div><span className="dsmm-summary-label">{t("futureDefaultSummary")}</span> <span className="dsmm-summary-val" data-dsmm-selection>{selection}</span></div>
-        <Button type="button" variant="primary" size="sm" disabled={editorDisabled || state.dirty || editor?.revision == null || !reconcilable || (applied && !selectionConflict)} onClick={() => { void props.apply(); }}>{t(state.busy === "apply" ? "applying" : "apply")}</Button>
+        <Button type="button" variant="primary" size="sm" disabled={editorDisabled || state.dirty || state.invalidFields.length > 0 || editor?.revision == null || !reconcilable || (applied && !selectionConflict)} onClick={() => { void props.apply(); }}>{t(state.busy === "apply" ? "applying" : "apply")}</Button>
       </div>
       {snapshot?.refreshRequired && <p role="status">{t("savedRefreshRequired")}</p>}
       {snapshot?.selectedWarnings?.length ? <div><p>{t("futureWarnings")}</p><ProfileWarnings warnings={snapshot.selectedWarnings} t={t} /></div> : null}

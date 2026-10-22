@@ -1257,6 +1257,54 @@ test("committed profile save with unavailable version requires explicit reread a
   } finally { f.controller.dispose(); }
 });
 
+for (const recovery of ["correct", "discard"] as const) test(`future-default Apply blocks invalid numeric drafts despite clean JSONC until ${recovery}`, async () => {
+  const component = await nativeHeaderComponent("ProfilesSection"), f = fixture();
+  const path = ["settings", "roleRouting", "dsmm-planner", "rateLimit", "maxRetries"];
+  const key = path.join(".");
+  const applyButton = () => {
+    const summary = elements(headerTree(component, f.controller)).find(node => node.props["data-dsmm-effective-summary"] === true);
+    assert.ok(summary);
+    const button = elements(summary).find(node => node.type === NativeProfileButton);
+    assert.ok(button);
+    return button;
+  };
+  try {
+    await f.controller.refresh(); await f.controller.open("p");
+    assert.equal(applyButton().props.disabled, false);
+    assert.equal(structuredDocument(content)!.roleRouting["dsmm-planner"].rateLimit!.maxRetries, 0);
+    f.controller.actions.setNumberDraft(key, { draft: "999", invalid: true, sourceValue: 0 });
+    f.controller.actions.setFieldInvalid(key, true);
+    f.controller.actions.editContent(content + "\n{ invalid");
+    f.controller.actions.editContent(content);
+    assert.equal(f.controller.store.getSnapshot().dirty, false);
+    assert.deepEqual(f.controller.store.getSnapshot().invalidFields, [key]);
+    const disabled = applyButton().props.disabled;
+    await f.controller.actions.apply();
+    assert.deepEqual({ disabled, requests: f.calls.filter(call => call === "select").length }, { disabled: true, requests: 0 });
+    assert.equal(f.controller.store.getSnapshot().snapshot!.selectedId, null);
+    assert.equal(f.controller.actions.getNumberDraft(key)?.draft, "999");
+
+    if (recovery === "correct") {
+      f.controller.actions.setNumberDraft(key, null);
+      f.controller.actions.setFieldInvalid(key, false);
+      f.controller.actions.editPath(path, 0);
+    } else {
+      f.controller.actions.discard();
+      assert.equal(f.controller.store.getSnapshot().pendingEditor, "p");
+      await f.controller.actions.discardAndOpen();
+    }
+    assert.equal(f.controller.store.getSnapshot().dirty, false);
+    assert.deepEqual(f.controller.store.getSnapshot().invalidFields, []);
+    assert.equal(f.controller.actions.getNumberDraft(key), undefined);
+    const recoveredButton = applyButton();
+    assert.equal(recoveredButton.props.disabled, false);
+    (recoveredButton.props.onClick as () => void)();
+    await setImmediate();
+    assert.equal(f.calls.filter(call => call === "select").length, 1);
+    assert.equal(f.controller.store.getSnapshot().snapshot!.selectedId, "p");
+  } finally { f.controller.dispose(); }
+});
+
 test("open, reload and discard protect unsaved state when dirty is false but invalidFields is non-empty", async () => {
   const f = fixture();
   try {

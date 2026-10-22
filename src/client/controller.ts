@@ -573,8 +573,8 @@ export class ProfilesController {
     });
   }
   async apply(): Promise<void> {
-    const { editor, snapshot, dirty } = this.current;
-    if (editor?.refreshRequired || !isConfigRevision(editor?.revision) || !canReconcileSelection(snapshot) || dirty) return;
+    const { editor, snapshot, dirty, invalidFields } = this.current;
+    if (editor?.refreshRequired || !isConfigRevision(editor?.revision) || !canReconcileSelection(snapshot) || dirty || invalidFields.length > 0) return;
     await this.perform("apply", async (live) => {
       const accepted = await this.unwrap(this.remote.select({ id: editor.id, expectedRevision: editor.revision!, expectedSelectionRevision: snapshot!.selectionRevision }));
       if (live()) this.acceptSelection(accepted, { key: "applied", id: accepted.selectedId ?? undefined });
