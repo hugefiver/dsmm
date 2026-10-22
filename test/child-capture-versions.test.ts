@@ -52,6 +52,33 @@ for (const version of [1, 2] as const) test(`historical v${version} durable evid
   } finally { f.cleanup(); }
 });
 
+for (const version of [1, 2, 3] as const) test(`v${version} captures without Git scope restore all-writes without changing durable evidence or authority`, async () => {
+  const f = fixture();
+  try {
+    const raw = payload(version);
+    Reflect.deleteProperty(raw.runtimePolicyCapture.guards, "gitWriteScope");
+    mkdirSync(join(f.root, ".children", "v1"), { recursive: true });
+    persist(f.path, raw);
+    const before = readFileSync(f.path);
+    const parsed = parseChildAdmissionCapture(raw);
+    assert.equal(parsed.runtimePolicyCapture.guards.gitWriteScope, "all-writes");
+    assert.equal(Object.hasOwn(raw.runtimePolicyCapture.guards, "gitWriteScope"), false);
+    const restored = await new ProfileStore(f.root).readChildAdmission("child", "parent");
+    assert.deepEqual(restored, parsed);
+    const admission = admissionFromChildCapture(restored!, resolveConfig({ guards: { gitWriteScope: "high-risk", gitWriteGuard: "off" }, subagents: { allowRouteOverride: true } }));
+    assert.equal(admission.settings.guards.gitWriteScope, "all-writes");
+    assert.equal(admission.settings.guards.gitWriteGuard, "ask");
+    assert.deepEqual(admission.childCapture?.authorityCeiling, raw.authorityCeiling);
+    assert.equal(admission.settings.subagents.allowRouteOverride, false);
+    assert.equal(admission.settings.subagents.maxDepth, 2);
+    assert.equal(admission.settings.roles["dsmm-reviewer"], true);
+    assert.equal(admission.settings.roles["dsmm-coding"], false);
+    assert.equal(admission.epoch, raw.originalAdmissionEpoch);
+    assert.deepEqual(admission.profile, raw.profilePin);
+    assert.deepEqual(readFileSync(f.path), before);
+  } finally { f.cleanup(); }
+});
+
 test("v3 random snapshot pins survive cold reads with captured route, epoch and ceiling", async () => {
   const f = fixture();
   try {
@@ -75,6 +102,7 @@ test("capture integrity, lineage, original epoch and reference grammars fail clo
     await assert.rejects(f.store.readChildAdmission("child", "other"), { code: "corrupt-selection" });
     for (const version of [1, 2, 3] as const) {
       const raw = payload(version);
+      for (const gitWriteScope of ["invalid", null, false]) assert.throws(() => parseChildAdmissionCapture({ ...raw, runtimePolicyCapture: { ...raw.runtimePolicyCapture, guards: { ...raw.runtimePolicyCapture.guards, gitWriteScope } } }));
       for (const changed of [{ ...raw, parentSessionId: "child" }, { ...raw, originalAdmissionEpoch: "stat-v1-1-2" },
         { ...raw, profilePin: { id: "focus", revision: "../escape" } }, { ...raw, profilePin: { id: "focus", revision: "stat-v1-1-2" } }]) {
         persist(f.path, changed);

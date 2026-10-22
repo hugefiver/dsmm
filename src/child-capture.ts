@@ -165,6 +165,9 @@ export function parseChildAdmissionCapture(input: unknown): ChildAdmissionCaptur
   }
   const policyKeys = ["modules", "roleRouting", "runtimePolicy", "workflow", "guards", "runtimeRecovery", "defaultActive", "skills", "subagents", ...version === 3 ? [] : HISTORICAL_POLICY_FIELDS];
   const policy = object(row.runtimePolicyCapture, policyKeys);
+  const guards = object(policy.guards, Object.keys(CAPTURE_POLICY_SHAPE.guards).filter(key => key !== "gitWriteScope"), ["gitWriteScope"]);
+  // All capture versions permit omission with the original all-writes behavior.
+  if (!Object.hasOwn(guards, "gitWriteScope")) guards.gitWriteScope = "all-writes";
   if (version !== 3) for (const key of HISTORICAL_POLICY_FIELDS) {
     const choices = key.endsWith("Calibration") ? ["off", "auto", "strict"] : ["off", "low", "high"];
     if (typeof policy[key] !== "string" || !choices.includes(policy[key])) fail();
@@ -200,7 +203,7 @@ const CAPTURE_POLICY_SHAPE = {
   modules: { deepwork: { enabled: null } },
   runtimePolicy: { strategy: null, rateLimit: { maxRetries: null, initialDelayMs: null, maxDelayMs: null, maxTotalDelayMs: null, switchAfterRateLimits: null, maxSwitches: null } },
   workflow: { policy: null, strictGates: null, reviewCap: null, finalReviewPolicy: null },
-  guards: { scope: null, shellCommandSafety: null, gitWriteGuard: null, toolOutputTruncation: { enabled: null, maxInlineBytes: null }, planFormatValidation: null, questionLabelHelper: { enabled: null, maxLabelChars: null }, todoDisciplineHelper: null },
+  guards: { scope: null, shellCommandSafety: null, gitWriteGuard: null, gitWriteScope: null, toolOutputTruncation: { enabled: null, maxInlineBytes: null }, planFormatValidation: null, questionLabelHelper: { enabled: null, maxLabelChars: null }, todoDisciplineHelper: null },
   runtimeRecovery: { enabled: null, retryOnStatusCodes: null, retryOnCodes: null, fallbackRoutes: null, maxFallbackAttempts: null, idleContinuation: { enabled: null, maxContinuations: null, prompt: null } },
 };
 function validateLegacyRoutes(policy: Record<string, unknown>): void {

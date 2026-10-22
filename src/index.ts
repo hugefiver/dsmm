@@ -23,6 +23,7 @@ import { runtimeAdmissionView, assertSupportedHostStartup } from "./runtime-inte
 import type { DsmmHostStartupOptions } from "./runtime-integration.js";
 import { createCorePermissionAuthority } from "./core-permission-authority.js";
 import { installCorePermissions } from "./core-permissions.js";
+import { CommandApprovals } from "./command-approval.js";
 import { registerRoleControlRpc } from "./role-control-rpc.js";
 import { nativeStandingFullAccess } from "./permission-native-access.js";
 import { DsmmProfileError } from "./profiles.js";
@@ -50,7 +51,7 @@ export { DSMM_STATUS_VERSION, createDsmmStatusSnapshot, formatDsmmStatus } from 
 export type { DsmmStatusSnapshot } from "./status.js";
 export type * from "./dsh-types.js";
 export { DSMM_SKILL_NAMES, DSMM_SETTINGS_SCHEMA, DEFAULT_DSMM_SETTINGS, MVP_SKILL_NAMES, deploymentEditorSchema, isRoleEnabled, resolveConfig, resolveDeployment, resolveRoleRouting, registerSettings, validateNativeConfig } from "./settings.js";
-export type { DsmmFinalReviewPolicy, DsmmGitWritePolicy, DsmmGuardScope, DsmmGuardSettings, DsmmPluginConfig, DsmmNativeConfig,
+export type { DsmmFinalReviewPolicy, DsmmGitWritePolicy, DsmmGitWriteScope, DsmmGuardScope, DsmmGuardSettings, DsmmPluginConfig, DsmmNativeConfig,
   DsmmModelRoute, DsmmRoleRoutingConfig, DsmmRoleRouting, DsmmRecoveryRoute, DsmmRuntimeRecoverySettings, DsmmSettings,
   DsmmSettingsGetter, DsmmSkillName, DsmmWorkflowSettings, MvpSkillName, DsmmSubagentSettings, DsmmDeploymentSnapshot } from "./settings.js";
 export { createProfileRuntime, DsmmProfileRuntime } from "./profile-runtime.js";
@@ -78,6 +79,7 @@ export async function apply(input: DshContext, config: Config = {}, startupOptio
   const ctx = input;
   const deployment = new DsmmDeploymentConfig(ctx, config);
   const lifetime = new AbortController();
+  const commandApprovals = new CommandApprovals(ctx);
   scopeLifetime(ctx, "dsmm: retire Core", () => lifetime.abort());
   let admission: NativeAdmission | undefined;
   const assert = (agent: Agent) => { lifetime.signal.throwIfAborted(); if (!admission) throw new Error("DSMM initialization is incomplete"); return admission.assert(agent); };
@@ -152,7 +154,7 @@ export async function apply(input: DshContext, config: Config = {}, startupOptio
       return;
     }
     registerModelRouting(scope, controller, candidate);
-    registerSafetyGuards(scope, controller, candidate, policy);
+    registerSafetyGuards(scope, controller, candidate, policy, commandApprovals);
     if (startup.settings.modules.deepwork.enabled) {
       if (ctx.get("subagents") !== undefined) await registerHeadlessRoleTools(scope, controller, candidate, policy, nativeAdmission, agent as DshAgent);
     }
@@ -165,7 +167,7 @@ export async function apply(input: DshContext, config: Config = {}, startupOptio
   ctx.inject(["typert"], scope => { registerConfigRpc(scope, deployment, startup.settings, () => profiles, startup.sources, mountedPermission); new DsmmProfilesHost(scope, profiles); registerRoleControlRpc(scope, nativeAdmission); });
   const permissions = createCorePermissionAuthority(ctx, { getSettings, rolePolicy: policy, signal: lifetime.signal });
   const installPermissions = () => ctx.inject(["tools", ...(ctx.fiber.entry === undefined ? [] : ["settings"])], scope => {
-    const installed = installCorePermissions(scope, deployment, permissions.authority, permissions.assertWritable);
+    const installed = installCorePermissions(scope, deployment, permissions.authority, permissions.assertWritable, commandApprovals);
     const identity: object = Reflect.get(installed, symbols.original) ?? installed;
     scopeLifetime(scope, "dsmm: release permission projection", () => { if (permissionOwner === identity) permissionOwner = undefined; }, () => { permissionOwner = identity; });
   });

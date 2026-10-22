@@ -7,7 +7,7 @@ import { permissionOutcome } from "./permission-errors.js";
 import { classifyPermissionShell, parsePermissionShellReadPaths } from "./permission-shell.js";
 import type { PermissionShellIdentity } from "./permission-shell.js";
 import { intersectPermissionActions } from "./permission-rules.js";
-import type { PermissionRuleSnapshot, PermissionRulesRuntimeSync } from "./permission-rules.js";
+import type { PermissionRule, PermissionRuleSnapshot, PermissionRulesRuntimeSync } from "./permission-rules.js";
 import type { PermissionRulesStatus } from "./permission-rules.js";
 import type { PermissionControlSettings, PermissionRuleAction } from "./permission-settings.js";
 import { nativeStandingFullAccess } from "./permission-native-access.js";
@@ -52,9 +52,11 @@ export interface NativePermissionRulesOptions {
   /** Pure restriction fallback for standalone consumers without an authority capture. */
   assertCurrent(execution: Readonly<ToolExecution>): void;
   /** Compose this exact registration's native request; never creates an independent approval UI. */
-  managedShellDecision?(execution: Readonly<ToolExecution>, action: Exclude<PermissionRuleAction, "deny">, downstream: () => Promise<PreToolDecision>, snapshot: PermissionRuleSnapshot | undefined): Promise<PreToolDecision>;
+  managedShellDecision?(execution: Readonly<ToolExecution>, action: Exclude<PermissionRuleAction, "deny">, downstream: () => Promise<PreToolDecision>, snapshot: PermissionRuleSnapshot | undefined, asks: readonly PermissionRule[]): Promise<PreToolDecision>;
 }
 interface NativeBinding {
+  readonly exec: Readonly<ToolExecution>;
+  readonly token: ToolExecution["token"];
   readonly definition: ToolDefinition;
   readonly body: ToolDefinition["execute"];
   readonly identity: NativePermissionToolIdentity;
@@ -71,6 +73,7 @@ interface NativeBinding {
   readonly fs?: FileSystem;
   readonly workspaceRoot: string;
   provenCoLocation?: boolean;
+  readonly asks: PermissionRule[];
 }
 type RuleBinding = NativeBinding & { readonly snapshot: PermissionRuleSnapshot };
 function text(input: unknown): string {
@@ -104,13 +107,13 @@ export function parseNativePermissionReadPaths(kind: "read" | "glob" | "grep", i
 /** Tool-call-boundary rules only. No body fence, scoped memory, socket isolation or final-inode guarantee. */
 export function registerNativePermissionRules(ctx: Context, options: NativePermissionRulesOptions): () => void {
   if (!options.runtime.status().mounted) return () => {};
-  const bindings = new Map<ToolExecution["token"], NativeBinding>();
+  const bindings = new WeakMap<object, NativeBinding>();
   const asks = new WeakMap<object, { exec: Readonly<ToolExecution>; binding: NativeBinding }>();
   const lifetime = new AbortController();
   const tools = ctx.tools;
   const checkIntegrity = (exec: Readonly<ToolExecution>, binding: NativeBinding): void => {
     if (exec.signal.aborted || binding.signal.aborted) throw new PermissionRefusal("cancelled");
-    if (exec.arguments !== binding.args || exec.agent !== binding.agent || exec.callId !== binding.callId || exec.name !== binding.name
+    if (exec !== binding.exec || exec.token !== binding.token || exec.arguments !== binding.args || exec.agent !== binding.agent || exec.callId !== binding.callId || exec.name !== binding.name
       || tools.get(binding.name, binding.agent) !== binding.definition || binding.definition.execute !== binding.body) throw new PermissionRefusal("stale");
     if (exec.agent !== undefined && ctx.agents.get(exec.agent.id) !== exec.agent) throw new PermissionRefusal("not-owned");
     binding.identity.assertIntegrity?.(exec); binding.integrity?.assertCurrent();
@@ -192,8 +195,10 @@ export function registerNativePermissionRules(ctx: Context, options: NativePermi
     if (shell === undefined) return policy.rules.some(rule => !rule.revoked && rule.match.kind === "shell" && rule.action === "deny") ? "deny" : "inherit";
     const operation = classifyPermissionShell(shell, exec.arguments, cwd, exec);
     shell.readCapability?.assertCurrent(exec);
-    const rules = policy.rules.filter(rule => !rule.revoked && rule.match.kind === "shell" && rule.match.executable === operation.executable
-      && rule.match.command === operation.command && rule.match.workingDirectory === operation.workingDirectory).map(rule => rule.action);
+    const matched = policy.rules.filter(rule => !rule.revoked && rule.match.kind === "shell" && rule.match.executable === operation.executable
+      && rule.match.command === operation.command && rule.match.workingDirectory === operation.workingDirectory);
+    binding.asks.push(...matched.filter(rule => rule.action === "ask"));
+    const rules = matched.map(rule => rule.action);
     if (operation.effect !== "read") {
       // Unknown reads cannot bypass a configured hard outside-read boundary.
       const hardRead = operation.effect === "unknown" && (policy.outsideReads === "deny" || policy.rules.some(rule => !rule.revoked && rule.match.kind === "outside-read" && rule.action === "deny"));
@@ -216,11 +221,11 @@ export function registerNativePermissionRules(ctx: Context, options: NativePermi
     catch (error) { if (!nativeOnly) throw error; }
     const authority = nativeOnly ? undefined : options.captureAuthority?.(exec);
     const integrity = options.captureIntegrity?.(exec);
-    const binding: NativeBinding = { definition, body: definition.execute, identity, snapshot, nativeOnly, authority, integrity,
+    const binding: NativeBinding = { exec, token: exec.token, asks: [], definition, body: definition.execute, identity, snapshot, nativeOnly, authority, integrity,
       args: exec.arguments, agent: exec.agent, name: exec.name, callId: exec.callId,
       signal: AbortSignal.any([exec.signal, lifetime.signal, ...identity.signal === undefined ? [] : [identity.signal], ...integrity?.signal === undefined ? [] : [integrity.signal]]), approval: ctx.get("approval"), fs: identity.context.get("fs") as FileSystem | undefined,
       workspaceRoot: exec.agent?.session.header.cwd ?? "" };
-    bindings.set(exec.token, binding); check(exec, binding);
+    bindings.set(exec, binding); check(exec, binding);
     let action: PermissionRuleAction = "inherit";
     if (snapshot !== undefined) {
       try { action = await evaluate(exec, binding as RuleBinding); }
@@ -228,7 +233,7 @@ export function registerNativePermissionRules(ctx: Context, options: NativePermi
     }
     check(exec, binding);
     if (action === "deny") return { kind: "deny", reason: "DSMM native permission rule denied this tool call." };
-    if (identity.kind === "shell" && options.managedShellDecision !== undefined) return options.managedShellDecision(exec, action, next, snapshot);
+    if (identity.kind === "shell" && options.managedShellDecision !== undefined) return options.managedShellDecision(exec, action, next, snapshot, binding.asks);
     const downstream = await next();
     if (exec.signal.aborted) return { kind: "cancel" };
     checkIntegrity(exec, binding);
@@ -255,11 +260,11 @@ export function registerNativePermissionRules(ctx: Context, options: NativePermi
     return permissionOutcome(next, ask.binding.signal, "cancelled");
   }), { prepend: true, global: true });
   const unguard = tools.guard(exec => {
-    const binding = bindings.get(exec.token); if (binding === undefined) return undefined;
+    const binding = bindings.get(exec); if (binding === undefined) return undefined;
     try { checkIntegrity(exec, binding); return undefined; } catch { return "Native tool execution identity is no longer current."; }
   });
-  const unresult = ctx.on("tools/result", exec => { bindings.delete(exec.token); }, { global: true });
-  const dispose = (): void => { lifetime.abort(); unhook(); unguard(); unresult(); unapproval(); bindings.clear(); };
+  const unresult = ctx.on("tools/result", exec => { bindings.delete(exec); }, { global: true });
+  const dispose = (): void => { lifetime.abort(); unhook(); unguard(); unresult(); unapproval(); };
   return ctx.effect(() => dispose);
 }
 

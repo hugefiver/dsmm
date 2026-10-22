@@ -29,6 +29,7 @@ export type { DsmmSkillName, MvpSkillName } from "./skills.js";
 export type DsmmFinalReviewPolicy = "simple-oracle-complex-reviewer" | "reviewer-only" | "off";
 export type DsmmGuardScope = "deepwork-or-dsmm-agent" | "always" | "off";
 export type DsmmGitWritePolicy = "ask" | "deny" | "off";
+export type DsmmGitWriteScope = "all-writes" | "high-risk";
 export type DsmmInvocationLevel = "normal" | "low" | "high" | "max";
 export type DsmmLevelOverride = { reasoningEffort: string; provider?: never; model?: never } | DsmmModelRoute;
 export interface DsmmInvocationOptions { level?: DsmmInvocationLevel; route?: DsmmLevelOverride }
@@ -59,6 +60,7 @@ export interface DsmmGuardSettings {
   scope: DsmmGuardScope;
   shellCommandSafety: boolean;
   gitWriteGuard: DsmmGitWritePolicy;
+  gitWriteScope: DsmmGitWriteScope;
   toolOutputTruncation: {
     enabled: boolean;
     maxInlineBytes: number;
@@ -241,6 +243,7 @@ export const DEFAULT_DSMM_SETTINGS: DsmmSettings = {
     scope: "deepwork-or-dsmm-agent",
     shellCommandSafety: true,
     gitWriteGuard: "ask",
+    gitWriteScope: "all-writes",
     toolOutputTruncation: {
       enabled: true,
       maxInlineBytes: 12000
@@ -320,6 +323,7 @@ const ROLE_ROUTING_VALIDATION_SCHEMA = Schema.transform(Schema.any(), (input: un
   if (!isRoutingRecord(input)) return input;
   rejectDeprecatedFields(input);
   if (Object.hasOwn(input, "locale")) validateLocale(input.locale);
+  if (isRoutingRecord(input.guards) && Object.hasOwn(input.guards, "gitWriteScope")) validateShape(input.guards.gitWriteScope, GIT_WRITE_SCOPE_SCHEMA, ["guards", "gitWriteScope"]);
   if (isRoutingRecord(input.runtimeRecovery) && Array.isArray(input.runtimeRecovery.fallbackRoutes)) {
     for (const route of input.runtimeRecovery.fallbackRoutes) {
       normalizeExplicitRoute(route);
@@ -376,6 +380,11 @@ const GIT_WRITE_POLICY_SCHEMA = Schema.union([
   Schema.const("off")
 ]).default(DEFAULT_DSMM_SETTINGS.guards.gitWriteGuard);
 
+const GIT_WRITE_SCOPE_SCHEMA = Schema.union([
+  Schema.const("all-writes"),
+  Schema.const("high-risk")
+]).default(DEFAULT_DSMM_SETTINGS.guards.gitWriteScope);
+
 const TOOL_OUTPUT_TRUNCATION_SCHEMA = Schema.object({
   enabled: Schema.boolean().default(DEFAULT_DSMM_SETTINGS.guards.toolOutputTruncation.enabled),
   maxInlineBytes: Schema.number().default(DEFAULT_DSMM_SETTINGS.guards.toolOutputTruncation.maxInlineBytes)
@@ -390,6 +399,7 @@ const GUARDS_SCHEMA = Schema.object({
   scope: GUARD_SCOPE_SCHEMA,
   shellCommandSafety: Schema.boolean().default(DEFAULT_DSMM_SETTINGS.guards.shellCommandSafety),
   gitWriteGuard: GIT_WRITE_POLICY_SCHEMA,
+  gitWriteScope: GIT_WRITE_SCOPE_SCHEMA,
   toolOutputTruncation: TOOL_OUTPUT_TRUNCATION_SCHEMA,
   planFormatValidation: Schema.boolean().default(DEFAULT_DSMM_SETTINGS.guards.planFormatValidation),
   questionLabelHelper: QUESTION_LABEL_HELPER_SCHEMA,
@@ -819,6 +829,7 @@ function resolveWorkflowSettings(config: DsmmPluginConfig["workflow"]): DsmmWork
 
 export function resolveGuardSettings(config: DsmmPluginConfig["guards"]): DsmmGuardSettings {
   const defaults = DEFAULT_DSMM_SETTINGS.guards;
+  if (config !== undefined && Object.hasOwn(config, "gitWriteScope")) validateShape(config.gitWriteScope, GIT_WRITE_SCOPE_SCHEMA, ["guards", "gitWriteScope"]);
 
   return {
     ...defaults,

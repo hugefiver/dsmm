@@ -297,9 +297,10 @@ function workflow(value: unknown, field: string): void {
 
 function guards(value: unknown, field: string): void {
   const item = record(value, field);
-  keys(item, ["scope", "shellCommandSafety", "gitWriteGuard", "toolOutputTruncation", "planFormatValidation", "questionLabelHelper", "todoDisciplineHelper"], field);
+  keys(item, ["scope", "shellCommandSafety", "gitWriteGuard", "gitWriteScope", "toolOutputTruncation", "planFormatValidation", "questionLabelHelper", "todoDisciplineHelper"], field);
   optional(item, "scope", (scope, path) => enumeration(scope, ["deepwork-or-dsmm-agent", "always", "off"], path), field);
   optional(item, "gitWriteGuard", (policy, path) => enumeration(policy, ["ask", "deny", "off"], path), field);
+  optional(item, "gitWriteScope", (scope, path) => enumeration(scope, ["all-writes", "high-risk"], path), field);
   for (const key of ["shellCommandSafety", "planFormatValidation", "todoDisciplineHelper"]) optional(item, key, bool, field);
   optional(item, "toolOutputTruncation", (raw, path) => {
     const nested = record(raw, path);

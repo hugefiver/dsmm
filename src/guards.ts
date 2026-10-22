@@ -3,8 +3,10 @@ import { isDsmmRoleId } from "./roles.js";
 import type { DsmmSettings, DsmmSettingsGetter } from "./settings.js";
 import { resolveSelectedAgentPreset } from "./session-scope.js";
 import { validatePlanMutation } from "./plan-validation.js";
-import { classifyKnownGitWrite, classifyShellDialectViolation } from "./shell-command.js";
-import type { ShellDialect, ShellDialectViolation } from "./shell-command.js";
+import { evaluateGitCommand, classifyShellDialectViolation } from "./shell-command.js";
+import type { GitCommandAction, ShellDialect, ShellDialectViolation } from "./shell-command.js";
+import { isAbsolute, resolve } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import type { DeepworkModeController } from "./state.js";
 import { resolveAdmittedDsmmRole } from "./role-policy.js";
 import type { DsmmRolePolicy } from "./role-policy.js";
@@ -15,6 +17,7 @@ import type { Agent } from "@deepseek-ai/dsh-agent";
 import { nativeStandingFullAccess } from "./permission-native-access.js";
 import { DsmmProfileError } from "./profiles.js";
 import { simpleShellCommand, simpleShellDialect } from "./permission-native-command.js";
+import type { CommandApprovals, CommandRuleContribution } from "./command-approval.js";
 
 export const DSMM_GUARD_PREFIX = "[dsmm safety]";
 
@@ -132,25 +135,42 @@ function shellDialectViolationDecision(violation: ShellDialectViolation): DshPre
   };
 }
 
-function gitWriteDecision(exec: DshToolExecution, settings: DsmmSettings, simple = false): DshPreToolDecision | undefined {
-  if (settings.guards.gitWriteGuard === "off") return undefined;
-
+function gitActions(exec: DshToolExecution, settings: DsmmSettings): readonly GitCommandAction[] {
+  if (settings.guards.gitWriteGuard === "off") return [];
   const command = commandText(exec);
   const dialect = shellDialect(exec);
-  const operation = command === undefined || dialect === undefined ? undefined : classifyKnownGitWrite(command, dialect);
-  if (operation === undefined) return undefined;
+  return command === undefined || dialect === undefined ? [] : evaluateGitCommand(command, dialect)
+    .filter(action => settings.guards.gitWriteScope !== "high-risk" || action.risk === "high-risk");
+}
+function gitRuleReason(actions: readonly { readonly action: string; readonly ruleId: string }[]): string {
+  return actions.map(({ action, ruleId }) => `git ${action === "reset.hard" ? "reset --hard" : action.replaceAll(".", " ")} [${ruleId}]`).join(", ");
+}
+function commandWorkingDirectory(exec: DshToolExecution): string | undefined {
+  const workspace = exec.agent?.session.header?.cwd, workdir = asRecord(exec.arguments)?.workdir;
+  return typeof workspace === "string" && isAbsolute(workspace) && (workdir === undefined || typeof workdir === "string")
+    ? resolve(workspace, workdir ?? ".") : undefined;
+}
+function gitContributions(exec: DshToolExecution, actions: readonly GitCommandAction[]): readonly CommandRuleContribution[] {
+  const cwd = commandWorkingDirectory(exec);
+  const dialect = shellDialect(exec);
+  return actions.map(action => ({ kind: "git", reusable: action.reusable && cwd !== undefined,
+    semantics: { ruleId: action.ruleId, risk: action.risk, context: action.context, cwd, dialect } }));
+}
+function gitWriteDecision(exec: DshToolExecution, settings: DsmmSettings, simple = false): DshPreToolDecision | undefined {
+  const actions = gitActions(exec, settings);
+  if (actions.length === 0) return undefined;
 
   if (settings.guards.gitWriteGuard === "deny") {
     return {
       kind: "deny",
-      reason: `${DSMM_GUARD_PREFIX} git write command is disabled by dsmm settings: git ${operation}`
+      reason: `${DSMM_GUARD_PREFIX} git write command is disabled by dsmm settings: ${gitRuleReason(actions)}`
     };
   }
 
   if (simple) return undefined;
   return {
     kind: "ask",
-    reason: `${DSMM_GUARD_PREFIX} git write command requires explicit user approval before running: git ${operation}`
+    reason: `${DSMM_GUARD_PREFIX} git write command requires explicit user approval before running: ${gitRuleReason(actions)}`
   };
 }
 
@@ -258,8 +278,15 @@ export function decidePostToolExecution(
   };
 }
 
-export function registerSafetyGuards(ctx: DshContext, controller: DeepworkModeController, getSettings: DsmmSettingsGetter, rolePolicy?: DsmmRolePolicy): void {
+export function registerSafetyGuards(ctx: DshContext, controller: DeepworkModeController, getSettings: DsmmSettingsGetter, rolePolicy?: DsmmRolePolicy, commandApprovals?: CommandApprovals): void {
   const truncationLimits = new WeakMap<object, number>();
+  const sources = new WeakMap<object, { value: object; generation: object }>();
+  const sourceFor = (agent: DshAgent, settings = getSettings(agent)): object => {
+    const value = getSettings.admission?.(agent) ?? settings;
+    let source = sources.get(agent);
+    if (source?.value !== value) { source = { value, generation: {} }; sources.set(agent, source); }
+    return source.generation;
+  };
   const tools = ctx.get?.<ToolRuntime>("tools");
   if (rolePolicy !== undefined && tools !== undefined) {
     const guard = tools.guard((execution) => execution.agent === undefined ? undefined : rolePolicy.toolDenial(execution.agent as unknown as DshAgent, execution.name, tools, execution));
@@ -275,10 +302,21 @@ export function registerSafetyGuards(ctx: DshContext, controller: DeepworkModeCo
     try { settings = getSettings(exec.agent); }
     catch (error) { if (full && error instanceof DsmmProfileError && !["disposed", "not-owned", "cancelled"].includes(error.code)) return next(); throw error; }
     const simple = Context.is(ctx) && await ctx.get("dsmmPermissionController")?.simpleCommandAllowed(execution) === true;
+    const source = commandApprovals === undefined || full || simple || exec.agent === undefined ? undefined : sourceFor(exec.agent, settings);
     const decision = decidePreToolExecution(exec, settings, controller, full, simple);
     if (!full && settings.modules.deepwork.enabled && settings.guards.toolOutputTruncation.enabled && isSafetyScopeActive(exec, settings, controller)) truncationLimits.set(exec, settings.guards.toolOutputTruncation.maxInlineBytes);
     if (decision === undefined) return next();
     if (decision.kind === "deny") return decision;
+
+    if (commandApprovals !== undefined && decision.kind === "ask") {
+      const actions = gitActions(exec, settings), contributions = gitContributions(exec, actions);
+      const binding = commandApprovals.capture(execution, contributions,
+        { source, sourceCurrent: exec.agent === undefined ? undefined : () => sourceFor(exec.agent!) });
+      const missing = binding === undefined ? actions : actions.filter((_action, index) => binding.missing.some(rule =>
+        isDeepStrictEqual(rule, contributions[index])));
+      return commandApprovals.decide(execution, binding, next,
+        `${DSMM_GUARD_PREFIX} git write command requires explicit user approval before running: ${gitRuleReason(missing)}\nCommand: ${commandText(exec)}\nWorking directory: ${commandWorkingDirectory(exec) ?? "unresolved"}`);
+    }
 
     const downstream = await next();
     return downstream.kind === "allow" ? decision : downstream;

@@ -117,7 +117,7 @@ test("command patterns: overlapping patterns retain ask and ambiguous precedence
   assert.equal(call([ask, patternEntry({ id: "other", mode: "allow" })], "go test ."), "ambiguous");
 });
 
-test("command patterns: managed native calls use once approval, preserve explicit targets and leave unsupported shell on the native path", async () => {
+test("command patterns: widening stays once-per-call while remembered rules need no same-level approval and unsupported shell retains native policy", async () => {
   const f = await permissionFixture(2000, { settings: settings(patternEntry({ sandboxMode: "danger-full-access" })) });
   try {
     await f.mountManagedShell();
@@ -129,16 +129,20 @@ test("command patterns: managed native calls use once approval, preserve explici
     f.setOutcome("rejected");
     assert.equal((await f.execute("go build")).isError, true); assert.equal(f.starts(), 2); assert.equal(f.nativeAnswers(), 3);
     f.setOutcome("allowed-once");
+    const sandbox = f.ctx.get("sandboxPolicy") as { resolve(request: { session: typeof f.root.session }): { mode: string } };
+    assert.equal(sandbox.resolve({ session: f.root.session }).mode, "workspace-write");
+    const asked = () => f.root.session.snapshotEvents().filter(event => event.type === "approval/asked").length;
+    assert.equal(asked(), 3);
     const explicit = { sandbox_permissions: "workspace-write", justification: "Use this exact workspace target only" };
     assert.equal((await f.execute("go test", explicit)).isError, false);
     assert.equal((f.specs.at(-1)!.sandboxPolicy as { mode: string }).mode, "workspace-write");
-    assert.equal(f.nativeAnswers(), 4);
+    assert.equal(f.nativeAnswers(), 3); assert.equal(asked(), 3);
     assert.equal((await f.execute("go build|test")).isError, false);
     assert.equal((f.specs.at(-1)!.sandboxPolicy as { mode: string }).mode, "workspace-write");
-    assert.equal(f.nativeAnswers(), 4); assert.equal(f.starts(), 4);
+    assert.equal(f.nativeAnswers(), 3); assert.equal(f.starts(), 4);
     await f.update(settings(patternEntry({ mode: "allow", sandboxMode: "danger-full-access" })));
     assert.equal((await f.execute("go test -exec runner")).isError, false);
-    assert.equal(f.nativeAnswers(), 4); assert.equal(f.starts(), 5);
+    assert.equal(f.nativeAnswers(), 3); assert.equal(f.starts(), 5);
     assert.equal((f.specs.at(-1)!.sandboxPolicy as { mode: string }).mode, "danger-full-access");
   } finally { await f.dispose(); }
 });

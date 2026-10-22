@@ -41,7 +41,7 @@ test("native bash registration retains its own dialect/tool match and original C
     f.setOutcome("rejected"); assert.equal((await call()).isError, true); assert.equal(f.starts(), 2);
   } finally { await f.dispose(); }
 });
-test("B ask and C same-purpose native ask are single interactive grants and never remembered", async () => {
+test("native widening remains once-per-call after command rule memory and preserves independent asks", async () => {
   const f = await permissionFixture(2000, { settings: { nativeCommands: { enabled: true, entries: [commandEntry("ask")] } } });
   let nextCalls = 0;
   try {

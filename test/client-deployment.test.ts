@@ -14,10 +14,10 @@ import type { DeploymentAdmissionView, DeploymentEditorSnapshot, SessionProfileS
 import type { DeploymentPageProps } from "../src/client/DeploymentPage.js";
 import { deploymentEn, deploymentZh } from "../src/client/deployment-locales.js";
 import { permissionEn } from "../src/client/permission-locales.ts";
-import { deploymentEditorSchema, resolveConfig } from "../src/settings.js";
+import { deploymentEditorSchema, resolveConfig, resolveDeployment } from "../src/settings.js";
 import { DeploymentController } from "../src/client/deployment-controller.js";
 import type { NativePageForm } from "../src/client/deployment-controller.js";
-import { editLayer, layerDiff, mergeLayer, parseAdvanced, record, validateEditorValue } from "../src/client/deployment-data.js";
+import { at, editLayer, layerDiff, mergeLayer, parseAdvanced, record, validateEditorValue } from "../src/client/deployment-data.js";
 
 function fixture() {
   const defaults = resolveConfig() as unknown as Record<string, unknown>;
@@ -281,6 +281,59 @@ test("Global native editor preserves sparse untouched fields, bytes CAS and save
   assert.equal(controller.getSnapshot().saved, true);
   controller.setInvalid("workflow.reviewCap", false);
   assert.equal(controller.getSnapshot().saved, true, "a mounted valid field must not erase successful live feedback"); controller.dispose();
+});
+
+test("schema-driven Git scope selector saves and reloads Global values and restores defaults", async () => {
+  const f = fixture(), page = await compiledNativePage(f.remote);
+  const path = ["guards", "gitWriteScope"];
+  try {
+    page.open(deploymentEn["module:permissions"]);
+    const select = () => {
+      const field = elements(page.tree()).find(node => node.props["data-field"] === path.join("."));
+      assert.ok(field);
+      const control = elements(field).find(node => node.type === "select"); assert.ok(control); return control;
+    };
+    assert.deepEqual(elements(select()).filter(node => node.type === "option").map(node => node.props.value), ["inherit", '"all-writes"', '"high-risk"']);
+    assert.equal(select().props.value, "inherit");
+    (select().props.onChange as (event: unknown) => void)({ currentTarget: { value: '"high-risk"' } });
+    await page.workspace.save();
+    assert.equal(page.core.getSnapshot().saved, true);
+    assert.equal(resolveDeployment(f.get().global, f.get().profile).guards.gitWriteScope, "high-risk");
+    await page.core.refresh();
+    assert.equal(select().props.value, '"high-risk"');
+    (select().props.onChange as (event: unknown) => void)({ currentTarget: { value: "inherit" } });
+    await page.workspace.save();
+    assert.equal(select().props.value, "inherit");
+    assert.equal(resolveDeployment(f.get().global, f.get().profile).guards.gitWriteScope, "all-writes");
+    assert.equal(f.writes.length, 2);
+    assert.deepEqual(f.get().global.workflow, { reviewCap: 3 });
+  } finally { page.dispose(); }
+});
+
+test("native profile Git scope saves sparse overrides, restores Global inheritance and refuses readonly writes", async () => {
+  const f = fixture(), c = new DeploymentController(f.remote, "profile", "dsmm");
+  f.change({ global: { guards: { gitWriteScope: "high-risk", gitWriteGuard: "deny" } } });
+  let mutations = 0;
+  const attach = (writable: boolean) => c.attachForm({ state: { status: "ready", writable, revision: f.get().nativeFormRevision!, value: f.get().profile, base: f.get().nativeForm!.base as Record<string, unknown>, user: f.get().nativeForm!.user as Record<string, unknown> }, mutate });
+  const mutate: NativePageForm["mutate"] = async (ops, revision) => {
+    mutations++; f.mutateNative(ops, revision); attach(true); return true;
+  };
+  try {
+    attach(true); await c.refresh();
+    c.edit(["guards", "gitWriteScope"], "all-writes"); await c.save();
+    assert.equal(c.getSnapshot().saved, true);
+    assert.deepEqual(f.get().nativeForm!.user, { guards: { gitWriteScope: "all-writes" } });
+    assert.equal(resolveDeployment(f.get().global, f.get().profile).guards.gitWriteScope, "all-writes");
+    assert.equal(resolveDeployment(f.get().global, f.get().profile).guards.gitWriteGuard, "deny");
+    await c.refresh();
+    assert.deepEqual(c.getSnapshot().draft, { guards: { gitWriteScope: "all-writes" } });
+    c.edit(["guards", "gitWriteScope"], undefined); await c.save();
+    assert.equal(resolveDeployment(f.get().global, f.get().profile).guards.gitWriteScope, "high-risk");
+    assert.equal(at(f.get().nativeForm!.user, ["guards", "gitWriteScope"]), undefined);
+    attach(false); c.edit(["guards", "gitWriteScope"], "all-writes"); await c.save();
+    assert.equal(c.canEdit(), false); assert.equal(c.canSave(), false);
+    assert.equal(mutations, 2); assert.equal(f.writes.length, 0);
+  } finally { c.dispose(); }
 });
 
 test("Global conflict and refresh keep the dirty CAS baseline until an explicit discard", async () => {

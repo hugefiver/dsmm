@@ -1,6 +1,6 @@
 # DSMM Safety Guards
 
-DSMM 0.3.10 targets exactly DSH `0.2.1-rc.2`. Its guards use `tools/pre-execute` for allow, deny and ask decisions, and `tools/post-execute` for accepted-result truncation. They don't use OpenCode hook names or mutate tool arguments. Deployment overrides belong in the `id: dsmm` Loader entry's `config` object, not a settings.yaml namespace.
+DSMM 0.3.11 targets exactly DSH `0.2.1-rc.2`. Its guards use `tools/pre-execute` for allow, deny and ask decisions, and `tools/post-execute` for accepted-result truncation. They don't use OpenCode hook names or mutate tool arguments. Deployment overrides belong in the `id: dsmm` Loader entry's `config` object, not a settings.yaml namespace.
 
 ## Scope
 
@@ -17,6 +17,7 @@ The default scope is `deepwork-or-dsmm-agent`: helpers apply when the agent is i
       scope: deepwork-or-dsmm-agent
       shellCommandSafety: true
       gitWriteGuard: ask
+      gitWriteScope: all-writes
       toolOutputTruncation:
         enabled: true
         maxInlineBytes: 12000
@@ -35,8 +36,8 @@ All DSMM guard messages begin with `[dsmm safety]`.
 - `[dsmm safety] PowerShell command uses POSIX null redirection (...)` rejects `/dev/null` in `pwsh`.
 - `[dsmm safety] PowerShell command uses POSIX \`source\` (...)` rejects `source` in `pwsh`.
 - `[dsmm safety] bash command appears to use PowerShell syntax (...)` rejects `$env:` in `bash`.
-- `[dsmm safety] git write command requires explicit user approval before running: git ...` requests host approval for mutating git operations such as `git add`, `git rm`, `git mv`, `git commit`, `git push`, `git tag`, `git merge`, `git rebase`, `git cherry-pick`, `git revert`, `git reset`, `git clean`, `git stash`, `git checkout`, `git switch`, `git pull`, `git fetch`, `git remote`, `git submodule`, and `git worktree`, including forms with git global options such as `git -C repo commit`. If host approval is unavailable, dsh fails closed.
-- `[dsmm safety] git write command is disabled by dsmm settings: git ...` denies those same git write operations when `gitWriteGuard: deny`.
+- Git approval requests identify the applicable automatic Git actions. With `gitWriteGuard: ask`, uncovered DSMM rules require host approval; unavailable approval fails closed. Valid live-Agent rule approvals may satisfy later matching DSMM asks.
+- Git denial messages reject actions within `gitWriteScope` when `gitWriteGuard: deny`; approval memory cannot override deny.
 - `[dsmm safety] truncated ... output` marks accepted plain-text tool results that were replaced with a head/tail preview.
 - `[dsmm safety] plan file contains a malformed checklist entry: ...` rejects malformed checkbox lines in writes to `docs/superpowers/plans/*.md` and `.omo/plans/*.md`.
 - `[dsmm safety] question option label exceeds ... characters: ...` rejects `ask_user_question` option labels longer than `maxLabelChars`.
@@ -47,9 +48,26 @@ All DSMM guard messages begin with `[dsmm safety]`.
 
 Shell checks inspect the command argument for `bash`, `sh`, `zsh`, `pwsh`, and `powershell`. Command parsing separates `;`, newlines, pipes, and `&&`/`||` continuations; it also honors the dialect's normal line continuation escape. Git write detection recognizes an executable named `git` or `git.exe`, including a path-qualified executable, Git global options such as `git -C repo commit`, and the `env` wrapper with its supported options and POSIX-style assignments. Other aliases, shell functions, and wrappers are deliberately unclassified rather than guessed.
 
-Known write operations are `add`, `am`, `apply`, `branch`, `checkout`, `cherry-pick`, `clean`, `clone`, `commit`, `fetch`, `init`, `merge`, `mv`, `pull`, `push`, `rebase`, `remote`, `reset`, `restore`, `revert`, `rm`, `stash`, `submodule`, `switch`, `tag`, and `worktree`. The guard also classifies mutating `config`, `notes`, `replace`, `update-ref`, and `symbolic-ref` forms, plus `reset --hard` and destructive `stash` actions. With `gitWriteGuard: ask`, each known write returns an ask decision for the host to compose with user approval; with `deny`, it is rejected; with `off`, it is not classified by DSMM. An unrecognized alias or wrapper receives no DSMM git decision.
+`guards.gitWriteScope` is independent of `guards.gitWriteGuard`:
 
-DSMM's pre-execute handler runs before downstream handlers. Its own deny wins immediately. For its own ask, DSMM calls downstream and returns the ask only when downstream allowed the call; a downstream ask or deny is preserved. This keeps another safety policy's stricter decision intact rather than replacing it with DSMM's request. Structured-value replacements, errors, and blocked post-tool results are not truncated into apparently successful text.
+| Scope | Automatic Git coverage |
+| --- | --- |
+| `all-writes` (default) | All recognized writes, including ordinary add, commit, push, fetch, pull, merge and branch/tag creation. Recognized query forms, such as `branch --show-current`, `remote -v`, `stash list`, `tag --list` and `worktree list`, do not count as writes. |
+| `high-risk` | The closed set of force/delete/mirror pushes, hard reset, non-dry-run clean, destructive/forced branch and tag changes, commit amend, rebase rewriting, stash drop/clear, worktree remove/prune, checkout/switch discard and forced replacement, worktree restore, and recognized reference/history modification actions. Ordinary writes are outside this automatic scope. |
+
+For either scope, `ask` requires approval of the covered rules, `deny` rejects covered actions, and `off` contributes no automatic Git decision. `high-risk` only narrows automatic Git protection: explicit shell ask/deny and object-form native command asks still apply. Guard activation, shell dialect safety, readonly ceilings and existing standing Full access/simple-command priority are unchanged. This is not a general dangerous-command detector. Unrecognized aliases/wrappers receive no automatic Git decision; uncertain syntax cannot create a reusable broad approval. All command segments are considered, so an ordinary write before a high-risk action cannot hide the latter.
+
+The existing schema-driven **Plugins → DSMM bundle config → Permissions** fields expose both options in Global and current DSH profile scopes. Unset uses defaults in Global and restores inheritance in the profile; a named profile can also override `guards.gitWriteScope`. Sparse saves do not pin omitted values. Read-only configuration stays non-writable. Saved settings follow existing new-session admission; they do not apply a live overlay.
+
+## Command-rule approval memory
+
+DSMM remembers approved automatic Git actions, exact explicit shell ask rules and matched object-form native command ask rules only for the **exact live Agent object**. A Git action approval can cover parameter changes within the same action and proven tool/dialect/cwd/static Git context; approving branch creation does not approve branch deletion or a later force push. Explicit shell rules retain their exact command/cwd matching. Each applicable DSMM ask must be satisfied independently. Uncertain context may still require approval on every call.
+
+Only the complete native approval-service result can establish memory. Denial, cancellation, unavailable approval and audit failure do not. Rule/source changes invalidate future memory; Agent disposal, session replacement or controller retirement ends it. Settings may be captured by children, but approvals are not inherited by children or siblings, persisted, restored or shared by session ID. Reducing repeated manual intervention is a behavior and risk change, not unchanged overall risk.
+
+Memory satisfies only DSMM's rule contribution. It neither reuses a native once/sandbox target nor changes standing sandbox permissions. Native escalation, independent downstream or third-party asks/denials, cancellation and native `approval.policy=never` remain authoritative; later calls may still show approval prompts. An already pending native request retains its single-call contract when a rule source changes, without granting memory for the new source. Structured-value replacements, errors, and blocked post-tool results are not truncated into apparently successful text.
+
+Generic Git checks bind approval to the actual invocation and registration and recheck at the existing guard boundary. They retain the Host's mutable in-process middleware trust boundary; they do not guarantee isolation from plugins replacing execution after that guard. Managed Shell retains its existing controlled final-entry checks. Neither path supplies OS isolation or a guarantee that every tool will run without prompts.
 
 Workflow and role instructions also prefer short shell operations and repository-native tools, prohibit cross-shell destructive path composition, require exact path checks before recursive deletion, and prohibit autonomous Git writes. These instructions complement, not replace, the host sandbox and approval pipeline. Read-only role authority is bound to exact live Agent ownership/admission, not a persona label. Native caller filters remain intact. Agent admission restricts inherited tools and installs monotonic execution guards; own-layer definitions are identity-fenced, including a re-registered `read` impersonating a safe operation. rc.2 has no public hide-own-layer filter: a registration may remain displayed, but forbidden/unadmitted invocation must fail. Native sandbox/approval/observation remain authoritative.
 

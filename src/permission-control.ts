@@ -9,6 +9,8 @@ import type { NativeCommandEntry } from "./permission-settings.js";
 import { PermissionRefusal, permissionOutcome } from "./permission-errors.js";
 import { nativeStandingFullAccess } from "./permission-native-access.js";
 import type { NativePermissionMode } from "./permission-native-access.js";
+import { CommandApprovals } from "./command-approval.js";
+import type { CommandApprovalBinding, CommandApprovalScope, CommandRuleContribution } from "./command-approval.js";
 export { PermissionRefusal } from "./permission-errors.js";
 
 export interface PermissionExecutionAuthority {
@@ -50,6 +52,7 @@ export function permissionApprovalAdapter(ctx: Context, listener: (request: Requ
   return Reflect.apply(factory, approval, [listener]) as typeof listener;
 }
 interface Binding {
+  readonly token: ToolExecution["token"]; readonly session?: Agent["session"];
   readonly exec: Readonly<ToolExecution>; readonly registration: PermissionRegistration;
   readonly args: unknown; readonly agent: ToolExecution["agent"]; readonly callId: ToolExecution["callId"]; readonly name: string;
   readonly root?: Agent; readonly integrity: PermissionExecutionIntegrity;
@@ -58,6 +61,8 @@ interface Binding {
   readonly simple: boolean;
   readonly officialMode?: NativePermissionMode; readonly target?: NativePermissionMode;
   readonly ask: boolean; readonly lifetime: AbortController;
+  readonly rules?: CommandApprovalBinding;
+  askSatisfied: boolean;
   entered: boolean; nativeRequest: boolean;
   approvedTarget?: NativePermissionMode; mode?: NativePermissionMode;
 }
@@ -69,14 +74,18 @@ export function isSandboxWidening(requested: NativeCommandEntry["sandboxMode"], 
 /** Permission admission precedes native approval; subsequent checks enforce execution integrity only. */
 export class PermissionControl {
   private readonly lifetime = new AbortController();
-  private readonly bindings = new Map<ToolExecution["token"], Binding>();
+  private readonly bindings = new Map<Readonly<ToolExecution>, Binding>();
   private readonly requests = new WeakMap<object, RequestBinding>();
   private readonly execution = new AsyncLocalStorage<Binding>();
-  constructor(private readonly ctx: Context, private readonly collaborators: PermissionControlCollaborators) {}
+  readonly commandApprovals: CommandApprovals;
+  constructor(private readonly ctx: Context, private readonly collaborators: PermissionControlCollaborators, approvals?: CommandApprovals) {
+    this.commandApprovals = approvals ?? new CommandApprovals(ctx);
+  }
 
   async compose(exec: Readonly<ToolExecution>, registration: PermissionRegistration, entry: NativeCommandEntry | undefined,
-    action: "inherit" | "allow" | "ask", next: () => Promise<PreToolDecision>, cwd: string, simple = false): Promise<PreToolDecision> {
-    const previous = this.bindings.get(exec.token);
+    action: "inherit" | "allow" | "ask", next: () => Promise<PreToolDecision>, cwd: string, simple = false,
+    contributions: readonly CommandRuleContribution[] = [], source: CommandApprovalScope = {}): Promise<PreToolDecision> {
+    const previous = this.bindings.get(exec);
     if (simple && previous?.simple) { this.checkIntegrity(previous); return this.composeDecision(previous, next, false); }
     const nativeOnly = !simple && nativeStandingFullAccess(this.ctx, exec.agent);
     const authority = nativeOnly ? undefined : this.collaborators.current(exec);
@@ -92,32 +101,40 @@ export class PermissionControl {
     const args = exec.arguments as Record<string, unknown>;
     const officialMode = !nativeOnly && (args.sandbox_permissions === "workspace-write" || args.sandbox_permissions === "danger-full-access") ? args.sandbox_permissions : undefined;
     const standing = registration.standingMode(exec);
-    const target = simple ? "danger-full-access" : officialMode ?? (entry === undefined ? undefined : isSandboxWidening(entry.sandboxMode, standing) ? entry.sandboxMode : standing ?? entry.sandboxMode);
-    const reason = `DSMM command: ${String(args.command)}\nWorking directory: ${cwd}\nSandbox mode: ${target ?? "native standing policy"}. ${target === "danger-full-access" ? "Command execution may write outside the workspace to any OS-permitted location; this is not a cache-only or path-whitelist grant." : "Exact native tool invocation under the stated native sandbox policy."}`;
+    const target = simple ? "danger-full-access" : officialMode ?? (entry === undefined ? undefined : isSandboxWidening(entry.sandboxMode, standing) ? entry.sandboxMode : entry.mode === "allow" ? standing ?? entry.sandboxMode : undefined);
+    const rules = simple || nativeOnly || contributions.length === 0 ? undefined : this.commandApprovals.capture(exec, contributions, {
+      ...source, deferredCommit: true, owner: authority?.owner, ownerGeneration: authority?.ownerGeneration, realm: authority?.realm, assertCurrent: () => integrity.assertCurrent(),
+    });
+    const ask = !simple && (rules === undefined ? action === "ask" || entry?.mode === "ask" : rules.missing.length > 0);
+    const ruleNames = (rules?.missing ?? contributions).map(rule => {
+      const semantics = rule.semantics;
+      return semantics !== null && typeof semantics === "object" && "id" in semantics ? `${rule.kind}:${String(semantics.id)}` : rule.kind;
+    });
+    const reason = `DSMM command: ${String(args.command)}\nWorking directory: ${cwd}\n${ruleNames.length === 0 ? "" : `Command rules: ${ruleNames.join(", ")}\n`}Sandbox mode: ${target ?? "native standing policy"}. ${target === "danger-full-access" ? "Command execution may write outside the workspace to any OS-permitted location; this is not a cache-only or path-whitelist grant." : "Exact native tool invocation under the stated native sandbox policy."}`;
     const lifetime = new AbortController();
-    const binding: Binding = { exec, args: exec.arguments, agent: exec.agent, callId: exec.callId, name: exec.name,
+    const binding: Binding = { exec, token: exec.token, session: exec.agent?.session, args: exec.arguments, agent: exec.agent, callId: exec.callId, name: exec.name,
       registration, root: authority?.root, integrity, entry, officialMode, simple,
       target: target === "workspace-write" || target === "danger-full-access" ? target : undefined,
-      reason, ask: !simple && (action === "ask" || entry?.mode === "ask"), lifetime,
+      reason, ask, rules, lifetime,
       signal: AbortSignal.any([exec.signal, lifetime.signal, this.lifetime.signal,
         ...integrity.signal === undefined ? [] : [integrity.signal], ...registration.signal === undefined ? [] : [registration.signal]]),
-      entered: false, nativeRequest: false };
-    this.checkIntegrity(binding); this.bindings.set(exec.token, binding);
+      entered: false, nativeRequest: false, askSatisfied: !ask };
+    this.checkIntegrity(binding); this.bindings.set(exec, binding);
     return this.composeDecision(binding, next, nativeOnly);
   }
   private async composeDecision(binding: Binding, next: () => Promise<PreToolDecision>, nativeOnly: boolean): Promise<PreToolDecision> {
-    const { exec, registration, entry, officialMode, reason } = binding;
+    const { exec, registration, reason } = binding;
     const downstream = await next();
     if (exec.signal.aborted) return { kind: "cancel" };
     this.checkIntegrity(binding);
     if (downstream.kind === "deny" || downstream.kind === "cancel") return downstream;
     if (nativeOnly) return downstream;
-    const needsAsk = downstream.kind === "ask" || binding.ask && (entry === undefined || officialMode !== undefined);
+    const needsAsk = downstream.kind === "ask" || binding.ask && (binding.entry === undefined || binding.officialMode !== undefined);
     if (!needsAsk) return downstream;
     const reasons = [downstream.kind === "ask" ? downstream.reason : undefined, reason].filter(Boolean).join("\n");
     const displayReason = Object.freeze({ en: reasons, zh: reasons,
       ...downstream.kind === "ask" && downstream.displayReason !== undefined ? Object.fromEntries(Object.entries(downstream.displayReason).map(([locale, text]) => [locale, `${text}\n${reason}`])) : {} });
-    if (binding.target === undefined) return { kind: "ask", reason: reasons, displayReason };
+    if (binding.target === undefined && !binding.ask) return { kind: "ask", reason: reasons, displayReason };
     const approval = registration.approval();
     if (approval === undefined || exec.agent === undefined) return { kind: "deny", reason: "Native approval is unavailable for this command." };
     const request: Request = { agent: exec.agent, callId: exec.callId, toolName: exec.name, reason: reasons, displayReason, signal: binding.signal };
@@ -125,6 +142,8 @@ export class PermissionControl {
     if (exec.signal.aborted) return { kind: "cancel" };
     this.checkIntegrity(binding);
     if (outcome !== "allowed-once") return { kind: "deny", reason: `Native command approval ${outcome}.` };
+    binding.rules?.resolved(outcome);
+    binding.askSatisfied = true;
     binding.approvedTarget = binding.target;
     return { kind: "allow" };
   }
@@ -132,14 +151,15 @@ export class PermissionControl {
   private checkIntegrity(binding: Binding): void {
     if (binding.signal.aborted || binding.exec.signal.aborted) throw new HarnessError("Permission-controlled call cancelled.", TOOL_ABORTED);
     const { exec, registration } = binding;
-    if (exec.arguments !== binding.args || exec.agent !== binding.agent || exec.callId !== binding.callId || exec.name !== binding.name
+    if (exec.token !== binding.token || exec.agent?.session !== binding.session || exec.arguments !== binding.args || exec.agent !== binding.agent || exec.callId !== binding.callId || exec.name !== binding.name
       || !registration.active || !registration.unchanged() || registration.definition.execute !== (registration.wrapper ?? registration.body)
       || this.ctx.tools.get(binding.name, binding.agent) !== registration.registered) throw new PermissionRefusal("stale");
     binding.integrity.assertCurrent();
     registration.assertIntegrity?.(exec);
+    binding.rules?.assertCurrent();
   }
   guard(exec: Readonly<ToolExecution>): string | undefined {
-    const binding = this.bindings.get(exec.token);
+    const binding = this.bindings.get(exec);
     if (binding === undefined) return undefined;
     try { this.checkIntegrity(binding); return undefined; }
     catch { return "Native command execution identity is no longer current."; }
@@ -157,18 +177,18 @@ export class PermissionControl {
     return owned.allow ? "allowed-once" : permissionOutcome(next, owned.binding.signal, "cancelled");
   }
   isSimple(exec: Readonly<ToolExecution>): boolean {
-    const binding = this.bindings.get(exec.token);
+    const binding = this.bindings.get(exec);
     if (binding?.simple !== true) return false;
     this.checkIntegrity(binding); return true;
   }
   pending(registration: PermissionRegistration): boolean { return [...this.bindings.values()].some(binding => binding.registration === registration); }
   async run<T>(exec: ToolRunContext, args: unknown, registration: PermissionRegistration, body: (signal: AbortSignal, args: unknown) => Promise<T>): Promise<T> {
-    const binding = this.bindings.get(exec.token);
+    const binding = this.bindings.get(exec);
     if (binding === undefined && registration.simpleOnly) return body(exec.signal, args);
     if (binding === undefined || binding.registration !== registration || binding.entered || args !== binding.args) throw new PermissionRefusal("stale");
     binding.signal = AbortSignal.any([binding.signal, exec.signal]); this.checkIntegrity(binding); binding.entered = true;
     try {
-      if (binding.entry !== undefined && binding.officialMode === undefined && !nativeStandingFullAccess(this.ctx, exec.agent)) {
+      if (binding.entry !== undefined && (binding.target !== undefined || !binding.askSatisfied) && binding.officialMode === undefined && !nativeStandingFullAccess(this.ctx, exec.agent)) {
         if (binding.approvedTarget === undefined) {
           const approval = registration.approval();
           if (approval === undefined || exec.agent === undefined) throw new PermissionRefusal("unavailable");
@@ -176,10 +196,13 @@ export class PermissionControl {
           const outcome = await this.request(binding, request, approval, binding.entry.mode === "allow" && !binding.ask);
           if (outcome === "cancelled") throw new HarnessError("Native permission request cancelled.", TOOL_ABORTED);
           if (outcome !== "allowed-once") throw new PermissionRefusal(outcome === "unavailable" ? "unavailable" : "denied");
+          binding.rules?.resolved(outcome);
+          binding.askSatisfied = true;
           binding.approvedTarget = binding.target;
         }
         binding.mode = binding.approvedTarget;
       }
+      this.commandApprovals.commit(binding.exec);
       return await this.execution.run(binding, () => body(binding.signal, binding.simple ? Object.freeze({ ...args as Record<string, unknown>,
         sandbox_permissions: "danger-full-access", justification: binding.reason }) : args));
     } finally { this.finish(binding.exec); }
@@ -199,10 +222,13 @@ export class PermissionControl {
     if (binding.approvedTarget === binding.officialMode) { binding.approvedTarget = undefined; return "allowed-once"; }
     const actual: Request = { ...request, reason: [request.reason, binding.reason].filter(Boolean).join("\n") };
     const covers = binding.entry !== undefined && (binding.entry.sandboxMode === "danger-full-access" || binding.officialMode === "workspace-write");
-    return this.request(binding, actual, service, covers && binding.entry!.mode === "allow" && !binding.ask);
+    const outcome = await this.request(binding, actual, service, covers && binding.entry!.mode === "allow" && !binding.ask);
+    binding.rules?.resolved(outcome);
+    if (outcome === "allowed-once") this.commandApprovals.commit(binding.exec);
+    return outcome;
   }
   approvedTarget(exec: Readonly<ToolExecution>): NativePermissionMode | undefined {
-    const binding = this.bindings.get(exec.token); if (binding === undefined) return undefined;
+    const binding = this.bindings.get(exec); if (binding === undefined) return undefined;
     this.checkIntegrity(binding); return binding.approvedTarget;
   }
   sandboxMode(): NativePermissionMode | undefined {
@@ -210,12 +236,12 @@ export class PermissionControl {
     this.checkIntegrity(binding); const mode = binding.mode; binding.mode = undefined; binding.approvedTarget = undefined; return mode;
   }
   finish(exec: Readonly<ToolExecution>): void {
-    const binding = this.bindings.get(exec.token);
+    const binding = this.bindings.get(exec);
     if (binding !== undefined) { binding.mode = undefined; binding.approvedTarget = undefined; binding.lifetime.abort(); }
-    this.bindings.delete(exec.token);
+    this.bindings.delete(exec); this.commandApprovals.finish(exec);
   }
-  revokePolicy(): void { /* Native pending requests are decided by the latest operator action. */ }
+  revokePolicy(): void { this.commandApprovals.invalidate(); }
   revokeRegistration(registration: PermissionRegistration): void { registration.active = false; }
-  revokeAgent(agent: Agent): void { for (const binding of this.bindings.values()) if (binding.agent === agent || binding.root === agent) this.finish(binding.exec); }
-  retire(): void { this.lifetime.abort(); for (const binding of this.bindings.values()) { binding.lifetime.abort(); binding.mode = undefined; binding.approvedTarget = undefined; } }
+  revokeAgent(agent: Agent): void { this.commandApprovals.revokeAgent(agent); for (const binding of this.bindings.values()) if (binding.agent === agent || binding.root === agent) this.finish(binding.exec); }
+  retire(): void { this.lifetime.abort(); this.commandApprovals.invalidate(); for (const binding of this.bindings.values()) { binding.lifetime.abort(); binding.mode = undefined; binding.approvedTarget = undefined; } }
 }

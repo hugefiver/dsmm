@@ -17,7 +17,7 @@ import { parseDsmmInvocationView, parseProfileDiagnostic, parseRoleAvailability,
 const raw = (settings: unknown, label?: string) => JSON.stringify({ version: 1, id: "focus", ...(label === undefined ? {} : { label }), settings });
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
 function capture(child = "child/opaque", parent = "parent/opaque", epoch = "a".repeat(64)): ChildAdmissionCaptureV3 {
-  const settings = resolveConfig({ locale: "ja", guards: { gitWriteGuard: "deny" }, roleRouting: { "dsmm-reviewer": { levels: { low: { reasoningEffort: "low" } } } } });
+  const settings = resolveConfig({ locale: "ja", guards: { gitWriteGuard: "deny", gitWriteScope: "high-risk" }, roleRouting: { "dsmm-reviewer": { levels: { low: { reasoningEffort: "low" } } } } });
   return { version: 3, delegationMode: "continuable", modelParameterPolicy: { mode: "passthrough" }, childSessionId: child, parentSessionId: parent, role: "dsmm-reviewer", profilePin: null, originalAdmissionEpoch: epoch,
     invocation: { level: "low", initialRoute: { provider: "fixture", model: "old-model", reasoningEffort: "low" },
       requestedRoute: { provider: "fixture", model: "old-model", reasoningEffort: "low" }, effortSource: "dsmm-config", routeSource: "level" },
@@ -142,6 +142,21 @@ test("strict warning codecs cannot downgrade arbitrary security errors or echo u
   assert.throws(() => parser(getter)); assert.equal(accessed, false);
 });
 
+test("Git scope survives named profile storage and reports its exact validation field", async () => {
+  const f = fixture();
+  try {
+    const content = raw({ guards: { gitWriteScope: "high-risk" } });
+    await f.store.save({ id: "focus", content, expectedRevision: null });
+    const reopened = await new ProfileStore(f.store.profileDir).read("focus");
+    assert.equal(resolveProfileSettings({}, parseProfileDocument(reopened.content).settings).guards.gitWriteScope, "high-risk");
+    const issue = validateProfileDocument(raw({ guards: { gitWriteScope: "invalid" } })).diagnostics[0];
+    assert.equal(issue.field, "settings.guards.gitWriteScope");
+    parseProfileDiagnostic(issue);
+    assert.throws(() => validateSparseConfig({ guards: { gitWriteScope: "invalid" } }), (error: unknown) =>
+      error instanceof DsmmConfigValidationError && error.diagnostic.field === "guards.gitWriteScope");
+  } finally { f.cleanup(); }
+});
+
 test("child capture is immutable/create-only, keyed by opaque IDs, strict and never migrated on missing/corrupt data", async () => {
   const f = fixture();
   try {
@@ -173,6 +188,7 @@ test("capture grammar requires full executable policy but excludes private insta
   assert.throws(() => parseChildAdmissionCapture(incomplete));
   const admitted = admissionFromChildCapture(input, resolveConfig({ locale: "ru", guards: { gitWriteGuard: "off" }, subagents: { allowRouteOverride: true }, roleRouting: { "dsmm-reviewer": { primary: { provider: "new", model: "new" } } } }));
   assert.equal(admitted.settings.guards.gitWriteGuard, "deny"); assert.equal(admitted.settings.subagents.allowRouteOverride, false);
+  assert.equal(admitted.settings.guards.gitWriteScope, "high-risk");
   assert.equal(admitted.settings.locale, "ja"); assert.equal(admitted.settings.roleRouting["dsmm-reviewer"]?.primary, undefined);
   assert.equal(admitted.epoch, input.originalAdmissionEpoch);
 });

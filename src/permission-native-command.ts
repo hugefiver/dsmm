@@ -52,12 +52,17 @@ export function literalCommand(command: string, dialect: PermissionShellIdentity
   return Object.freeze(words);
 }
 export function nativeCommandMatch(settings: NativeCommandsSettings, tool: "bash" | "pwsh", identity: PermissionShellIdentity, args: unknown, workspace: string): NativeCommandEntry | "ambiguous" | undefined {
-  if (!settings.enabled || args === null || typeof args !== "object") return undefined;
+  const matches = nativeCommandMatches(settings, tool, identity, args, workspace);
+  return matches === "ambiguous" ? matches : matches.find(entry => entry.mode === "ask") ?? matches[0];
+}
+/** All matching entries retain provenance; mode ambiguity is resolved before any memory lookup. */
+export function nativeCommandMatches(settings: NativeCommandsSettings, tool: "bash" | "pwsh", identity: PermissionShellIdentity, args: unknown, workspace: string): readonly NativeCommandEntry[] | "ambiguous" {
+  if (!settings.enabled || args === null || typeof args !== "object") return [];
   const command = Reflect.get(args, identity.commandField), modelCwd = identity.cwdField === undefined ? undefined : Reflect.get(args, identity.cwdField);
-  if (typeof command !== "string" || !isAbsolute(workspace) || modelCwd !== undefined && typeof modelCwd !== "string") return undefined;
+  if (typeof command !== "string" || !isAbsolute(workspace) || modelCwd !== undefined && typeof modelCwd !== "string") return [];
   const cwd = normalize(modelCwd === undefined ? workspace : resolve(workspace, modelCwd));
   const words = literalCommand(command, identity.dialect);
-  if (words === undefined) return undefined;
+  if (words === undefined) return [];
   const matches = parseHostNativeCommands(settings).entries.filter((entry): entry is NativeCommandEntry => {
     if (typeof entry === "string") return false;
     const match = entry.match;
@@ -66,7 +71,7 @@ export function nativeCommandMatch(settings: NativeCommandsSettings, tool: "bash
     return pattern.executable === words[0] && pattern.subcommands.includes(words[1]);
   });
   if (new Set(matches.map(entry => entry.sandboxMode)).size > 1) return "ambiguous";
-  return matches.find(entry => entry.mode === "ask") ?? matches[0];
+  return matches;
 }
 
 export function simpleShellDialect(name: string): PermissionShellIdentity["dialect"] | undefined {

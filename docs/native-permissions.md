@@ -1,6 +1,6 @@
 # Native permissions
 
-DSMM 0.3.10 targets exactly DSH `0.2.1-rc.2`. DSH owns approval; DSMM composes policy into the native tool pipeline without a second approval queue, UI, TTL or session permit memory.
+DSMM 0.3.11 targets exactly DSH `0.2.1-rc.2`. DSH owns approval; DSMM composes policy into the native tool pipeline without a second approval queue or UI. DSMM command-rule approval memory is limited to the exact live Agent and is distinct from native once grants.
 
 ## Full access and approval
 
@@ -11,6 +11,8 @@ A captured read-only child or a live, composed DSMM read-only preset has an expl
 Actual DSH manual approval is final for the same call and approved scope. Older DSMM rules, a changed permission revision or epoch, and DSMM internal gates don't veto it afterward. A pending native approval isn't canceled merely because a permission source changes.
 
 A native once grant applies only to its actual call and scope. It doesn't change standing session permissions, authorize later calls or turn a narrower approval into full access. Model-supplied arguments aren't approval; a matching simple allowlist entry selects an automatic answer for the current native request, not a reusable grant. Native policy `never` refuses before the rc2 answerer and cannot be overridden by it. Caller/native cancellation remains effective, and the original tool or OS can still fail. Permission to execute isn't a command-success guarantee.
+
+DSMM remembers only its approved Git action rules, exact explicit shell ask rules and object-form native command ask rules after the native service returns final `allowed-once` with the invocation/lifecycle bindings intact. Matching later calls from that exact live Agent may omit the satisfied DSMM ask contribution, but never reuse the native once target or automatically answer a new native escalation. All applicable DSMM asks must be satisfied; explicit deny, independent native/third-party ask or deny, cancellation and `approval.policy=never` still apply. Rule/source changes invalidate future memory without canceling an already pending native request. No memory passes to children, restored/recreated Agents or another registration; nothing is persisted as recoverable approval.
 
 ## Settings and synchronization
 
@@ -37,6 +39,8 @@ This removes only DSMM outside-read asks. Independent downstream asks, denials a
 ## Configuration drawer and command rules
 
 Use **Plugins → DSMM bundle config → Permissions**. The selected Global/native-profile scope edits its sparse deployment policy; a separate Root-rules transaction writes Global only under the existing live operator, exact open Root, registration and synchronized-policy authority. A child, stale connection, read-only Host or shadowing native policy doesn't acquire a fallback Global write. Named Profiles can't grant these permissions. No duplicate Settings permission page or Conversation permission tab is registered.
+
+The existing safety fields include `guards.gitWriteScope: all-writes | high-risk` (default `all-writes`) alongside `gitWriteGuard: ask | deny | off`. Scope selects only the automatic Git action set; it does not filter explicit shell ask/deny or disable object-form command asks. Unset restores the lower layer/default, and read-only forms cannot save. Named profiles may carry this guard setting without granting native permission-control authority. Child captures include settings, never parent approval memory. See [safety guards](safety-guards.md) for coverage and limits.
 
 A trusted, writable native Root can manage Global rules without DSMM role admission, including when it predates Core mounting and currently uses the user-selectable `dsmm-orchestrator` composition. Qualification uses the current native composition, never a historical preset label; auxiliary, read-only and unknown `dsmm-` compositions remain ineligible without admission. Rule management does not grant DSMM role execution rights. Captured DSMM objects still require current admission and role checks, and retired captures cannot fall back to ordinary native authority.
 

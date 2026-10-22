@@ -7,7 +7,8 @@ import type { Agent } from "@deepseek-ai/dsh-agent";
 import { isSandboxWidening, PermissionControl, PermissionRefusal, permissionApprovalAdapter, permissionOriginal } from "./permission-control.js";
 import type { PermissionControlCollaborators, PermissionRegistration } from "./permission-control.js";
 import { classifyPermissionShell } from "./permission-shell.js";
-import { nativeCommandMatch, simpleCommandMatch, simpleShellCommand, simpleShellDialect } from "./permission-native-command.js";
+import { nativeCommandMatches, simpleCommandMatch, simpleShellCommand, simpleShellDialect } from "./permission-native-command.js";
+import type { CommandApprovals, CommandRuleContribution } from "./command-approval.js";
 import type { PermissionShellIdentity } from "./permission-shell.js";
 import { NATIVE_PERMISSION_CAPABILITIES, registerNativePermissionRules } from "./permission-native-rules.js";
 import type { NativePermissionCapabilityView, NativePermissionFileSystem, NativePermissionToolIdentity } from "./permission-native-rules.js";
@@ -20,6 +21,7 @@ export type ManagedPermissionTool = "fs" | "fs-search" | "web";
 type NativeToolKind = Exclude<NativePermissionToolIdentity["kind"], "shell">;
 export const PERMISSION_CONTROLLER_INJECT = ["tools", "agents"] as const;
 export interface PermissionControllerOptions {
+  readonly commandApprovals?: CommandApprovals;
   /** The existing live Core owner/admission/Root/realm/run facts, not serialized settings or a ready boolean. */
   readonly authority: PermissionControlCollaborators;
   readonly rules: PermissionRulesRuntimeSync;
@@ -111,7 +113,7 @@ export class DsmmPermissionController extends Service {
         if (current.agent !== exec.agent || this.lifetime.signal.aborted) throw new PermissionRefusal("stale");
       },
     };
-    this.permissions = new PermissionControl(ctx, authority);
+    this.permissions = new PermissionControl(ctx, authority, options.commandApprovals);
     if (this.rules.status().mounted) {
       registerNativePermissionRules(ctx, {
         runtime: this.rules,
@@ -137,18 +139,24 @@ export class DsmmPermissionController extends Service {
           return { signal: current.signal, assertCurrent: () => options.authority.assertCurrent(current, exec) };
         },
         assertCurrent: exec => authority.assertCurrent(authority.current(exec), exec),
-        managedShellDecision: async (exec, action, downstream, snapshot) => {
+        managedShellDecision: async (exec, action, downstream, snapshot, asks) => {
           const definition = ctx.tools.get(exec.name, exec.agent), managed = definition === undefined ? undefined : this.registrations.get(definition);
           if (managed === undefined) throw new PermissionRefusal("stale");
           const workspace = exec.agent?.session.header.cwd ?? "";
           const full = nativeStandingFullAccess(ctx, exec.agent);
           if (full) return this.permissions.compose(exec, managed.registration, undefined, "inherit", downstream, workspace);
-          const policy = (snapshot ?? this.rules.getPolicy()).policy;
-          const entry = nativeCommandMatch(policy.nativeCommands, managed.kind, managed.shell, exec.arguments, workspace);
-          if (entry === "ambiguous") managed.scope.logger.warn("Ambiguous native command sandbox modes; retaining native execution policy.");
-          if (entry !== undefined && entry !== "ambiguous" && (managed.scope.get("shell") as NativeShell | undefined)?.sandboxMode === undefined) return { kind: "deny", reason: "Native command sandbox enhancement is unavailable in this executor." };
+          const source = snapshot ?? this.rules.getPolicy(), policy = source.policy;
+          const entries = nativeCommandMatches(policy.nativeCommands, managed.kind, managed.shell, exec.arguments, workspace);
+          if (entries === "ambiguous") managed.scope.logger.warn("Ambiguous native command sandbox modes; retaining native execution policy.");
+          const entry = entries === "ambiguous" ? undefined : entries.find(entry => entry.mode === "ask") ?? entries[0];
+          if (entry !== undefined && (managed.scope.get("shell") as NativeShell | undefined)?.sandboxMode === undefined) return { kind: "deny", reason: "Native command sandbox enhancement is unavailable in this executor." };
           const operation = classifyPermissionShell(managed.shell, exec.arguments, workspace, exec);
-          return this.permissions.compose(exec, managed.registration, entry === "ambiguous" ? undefined : entry, action, downstream, operation.workingDirectory);
+          const contributions: CommandRuleContribution[] = [
+            ...asks.map(rule => ({ kind: "shell" as const, semantics: rule })),
+            ...entries === "ambiguous" ? [] : entries.filter(entry => entry.mode === "ask").map(entry => ({ kind: "native-command" as const, semantics: entry })),
+          ];
+          return this.permissions.compose(exec, managed.registration, entry, action, downstream, operation.workingDirectory, false, contributions,
+            { source, sourceCurrent: () => this.rules.getPolicy() });
         },
       });
       ctx.on("tools/pre-execute", async (exec, next) => {

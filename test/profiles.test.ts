@@ -69,6 +69,9 @@ test("profiles validate every supported nested enum, type, finite bound, role an
     { guards: { unknown: true } },
     { guards: { scope: "all" } },
     { guards: { gitWriteGuard: "allow" } },
+    { guards: { gitWriteScope: "all" } },
+    { guards: { gitWriteScope: null } },
+    { guards: { gitWriteScope: false } },
     { guards: { toolOutputTruncation: { enabled: 1 } } },
     { guards: { toolOutputTruncation: { maxInlineBytes: 0 } } },
     { guards: { questionLabelHelper: { maxLabelChars: 257 } } },
@@ -102,15 +105,28 @@ test("all allowed runtime families round-trip through the existing resolver", ()
     defaultActive: true,
     roleRouting: { "dsmm-reviewer": { primary: { provider: "fixture", model: "review", reasoningEffort: "max" }, fallbackRoutes: [] } },
     workflow: { policy: "risk-based", strictGates: false, reviewCap: 0, finalReviewPolicy: "off" },
-    guards: { scope: "always", shellCommandSafety: false, gitWriteGuard: "deny", toolOutputTruncation: { enabled: false, maxInlineBytes: 512 }, questionLabelHelper: { enabled: false, maxLabelChars: 20 }, planFormatValidation: false, todoDisciplineHelper: false },
+    guards: { scope: "always", shellCommandSafety: false, gitWriteGuard: "deny", gitWriteScope: "high-risk", toolOutputTruncation: { enabled: false, maxInlineBytes: 512 }, questionLabelHelper: { enabled: false, maxLabelChars: 20 }, planFormatValidation: false, todoDisciplineHelper: false },
     runtimeRecovery: { enabled: true, retryOnStatusCodes: [], retryOnCodes: [], fallbackRoutes: [{ provider: "fixture", model: "recover", reasoningEffort: "xhigh" }], maxFallbackAttempts: 0, idleContinuation: { enabled: false, maxContinuations: 0, prompt: "Continue\ncarefully." } }
   }));
   const settings = resolveProfileSettings({}, document.settings);
   assert.equal(settings.defaultActive, true);
   assert.equal(settings.guards.toolOutputTruncation.enabled, false);
+  assert.equal(settings.guards.gitWriteScope, "high-risk");
   assert.equal(settings.runtimeRecovery.maxFallbackAttempts, 0);
   assert.equal(settings.runtimeRecovery.fallbackRoutes[0]?.reasoningEffort, "xhigh");
   assert.equal(settings.roleRouting["dsmm-reviewer"]?.primary?.reasoningEffort, "max");
+});
+
+test("named Git scope overlays preserve omission, inheritance and explicit default overrides", () => {
+  const baseline: DsmmPluginConfig = { guards: { gitWriteScope: "high-risk", gitWriteGuard: "deny" } };
+  const inherited = parseProfileDocument(content({ guards: { shellCommandSafety: false } }));
+  assert.equal(Object.hasOwn(inherited.settings.guards!, "gitWriteScope"), false);
+  assert.equal(resolveProfileSettings(baseline, inherited.settings).guards.gitWriteScope, "high-risk");
+  const explicit = parseProfileDocument(content({ guards: { gitWriteScope: "all-writes" } }));
+  const settings = resolveProfileSettings(baseline, explicit.settings);
+  assert.equal(settings.guards.gitWriteScope, "all-writes");
+  assert.equal(settings.guards.gitWriteGuard, "deny");
+  assert.equal(resolveProfileSettings({}, inherited.settings).guards.gitWriteScope, "all-writes");
 });
 
 test("overlay merge preserves false, explicit empty arrays, nested baseline and absent fallback inheritance", () => {

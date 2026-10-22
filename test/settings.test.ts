@@ -5,7 +5,7 @@ import type { DshContext } from "../lib/dsh-types.js";
 import { DSMM_STATUS_COMMAND } from "../lib/commands.js";
 import { DEFAULT_DSMM_LSP_SETTINGS } from "../lib/lsp.js";
 import { DSMM_ROLES } from "../lib/roles.js";
-import { DSMM_CONFIG_SCHEMA, DSMM_SETTINGS_SCHEMA, DSMM_SKILL_NAMES, DEFAULT_DSMM_SETTINGS, resolveConfig, resolveRoleRuntimePolicy, registerSettings } from "../lib/settings.js";
+import { DSMM_CONFIG_SCHEMA, DSMM_NATIVE_CONFIG_SCHEMA, DSMM_SETTINGS_SCHEMA, DSMM_SKILL_NAMES, DEFAULT_DSMM_SETTINGS, resolveConfig, resolveRoleRuntimePolicy, registerSettings } from "../lib/settings.js";
 import { DEFAULT_DSMM_RUNTIME_POLICY, DSMM_RATE_LIMIT_BOUNDS } from "../lib/routing-policy.js";
 import type { DsmmPluginConfig, DsmmSettings } from "../lib/settings.js";
 import { useIsolatedDshEnvironment } from "./dsh-test-environment.ts";
@@ -142,6 +142,7 @@ const DEFAULT_GUARD_SETTINGS = {
   scope: "deepwork-or-dsmm-agent",
   shellCommandSafety: true,
   gitWriteGuard: "ask",
+  gitWriteScope: "all-writes",
   toolOutputTruncation: {
     enabled: true,
     maxInlineBytes: 12000
@@ -306,6 +307,28 @@ test("resolveConfig supports partial guard setting overlays", () => {
       maxLabelChars: 30
     }
   });
+});
+
+test("Git write scope defaults to all writes, stays sparse and is independent of the action policy", () => {
+  assert.equal(resolveConfig().guards.gitWriteScope, "all-writes");
+  assert.deepEqual(DSMM_CONFIG_SCHEMA({ guards: {} }), { guards: {} });
+  for (const gitWriteGuard of ["ask", "deny", "off"] as const) {
+    for (const gitWriteScope of ["all-writes", "high-risk"] as const) {
+      const input = { guards: { gitWriteGuard, gitWriteScope } };
+      assert.deepEqual(DSMM_CONFIG_SCHEMA(input), input);
+      assert.equal(resolveConfig(input).guards.gitWriteScope, gitWriteScope);
+      assert.equal(DSMM_SETTINGS_SCHEMA({ ...DEFAULT_DSMM_SETTINGS, guards: { ...DEFAULT_DSMM_SETTINGS.guards, ...input.guards } }).guards.gitWriteGuard, gitWriteGuard);
+      const native = DSMM_NATIVE_CONFIG_SCHEMA(input).guards as unknown as { get(): unknown };
+      assert.deepEqual(native.get(), input.guards);
+    }
+  }
+  for (const gitWriteScope of ["all", "HIGH-RISK", "", false, null, undefined]) {
+    const input = { guards: { gitWriteScope } };
+    assert.throws(() => resolveConfig(input as unknown as DsmmPluginConfig));
+    assert.throws(() => DSMM_CONFIG_SCHEMA(input as unknown as DsmmPluginConfig));
+    assert.throws(() => DSMM_NATIVE_CONFIG_SCHEMA(input as unknown as DsmmPluginConfig));
+    assert.throws(() => DSMM_SETTINGS_SCHEMA(input as unknown as DsmmSettings));
+  }
 });
 
 test("resolveConfig normalizes guard positive integer limits", () => {

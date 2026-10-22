@@ -102,6 +102,7 @@ export const deploymentFieldLabels: Record<string, [string, string]> = {
   promptOrder: ["Prompt order", "提示词顺序"], defaultActive: ["Default Deepwork mode", "默认 Deepwork 模式"],
   enabled: ["Enabled", "启用"], materialize: ["Materialize presets", "物化预设"], scope: ["Guard scope", "保护范围"],
   shellCommandSafety: ["Shell command safety", "Shell 命令安全"], gitWriteGuard: ["Git write policy", "Git 写入策略"],
+  gitWriteScope: ["Automatic Git write scope (all-writes / high-risk)", "自动 Git 写入范围（all-writes 全部写入 / high-risk 仅高危）"],
   toolOutputTruncation: ["Tool output truncation", "工具输出截断"], maxInlineBytes: ["Inline byte limit", "内联字节上限"],
   planFormatValidation: ["Plan format validation", "计划格式校验"], questionLabelHelper: ["Question labels", "提问标签"], maxLabelChars: ["Label character limit", "标签字符上限"], todoDisciplineHelper: ["Todo discipline", "待办纪律"],
   enableRunInBackground: ["Allow background runs", "允许后台执行"], backgroundMode: ["Background mode", "后台模式"], maxDepth: ["Maximum depth", "最大深度"],
