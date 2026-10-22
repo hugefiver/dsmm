@@ -35,7 +35,9 @@ export function preparingRoleTool(toolName: string, args: ToolArgs) {
     return value === undefined ? [] : [[key, value]];
   }));
   const complete = Object.fromEntries(Object.entries(received).filter(([key]) => args.complete(key)));
-  return { requested: requestedRoleTool(toolName, args.invalid ? "" : JSON.stringify(complete)),
+  const requested = requestedRoleTool(toolName, args.invalid ? "" : JSON.stringify(complete));
+  const description = requested.description ?? (typeof received.description === "string" ? received.description : undefined);
+  return { requested: { ...requested, description },
     preview: Object.keys(received).length === 0 ? "" : JSON.stringify(received, null, 2) };
 }
 

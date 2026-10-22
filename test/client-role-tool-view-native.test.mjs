@@ -120,7 +120,8 @@ test("role adapter preserves the native ToolCall owner through pending, result a
       nodePaths,
       banner: { js: 'window.__ModuleLoader__.load({id:"@dsmm/dsmm",factory:(require)=>{const module={exports:{}};const exports=module.exports;' }, footer: { js: "return module.exports;}});" } });
     // Bundle the browser-safe helper separately to exercise its real shared schema.
-    await build({ entryPoints: [join(owned, "src/client/RoleToolView-data.ts")], outfile: join(owned, "data.mjs"), bundle: true, platform: "browser", format: "esm", nodePaths });
+    const dataOutput = await build({ entryPoints: [join(owned, "src/client/RoleToolView-data.ts")], bundle: true, write: false, platform: "browser", format: "esm", nodePaths });
+    await writeFile(join(owned, "data.mjs"), dataOutput.outputFiles[0].text, "utf8");
     const data = await import(pathToFileURL(join(owned, "data.mjs")).href);
     const argumentsBundle = await build({ entryPoints: [sdk.resolve('@deepseek-ai/dsh-util-values')], bundle: true, write: false, platform: 'browser', format: 'cjs', target: 'es2022',
       banner: { js: 'window.__ModuleLoader__.load({id:"dsmm-test-arguments",factory:(require)=>{const module={exports:{}};const exports=module.exports;' }, footer: { js: 'return module.exports;}});' } });
@@ -150,23 +151,25 @@ test("role adapter preserves the native ToolCall owner through pending, result a
     assert.equal(await card.getAttribute("data-identity"), "requested");
     assert.equal(await card.getByRole("button", { name: /Builder/u }).count(), 0);
     await page.evaluate(() => window.__roleTool.partial('{"role":"dsmm-builder","prompt":"'));
-    await card.getByRole("button", { name: /Builder/u }).waitFor();
+    await card.getByRole("button", { name: "Calling Builder", exact: true }).waitFor();
     await page.evaluate(() => window.__roleTool.partial(JSON.stringify(window.__roleTool.requested)));
-    try { await card.getByRole("button", { name: /Builder/u }).waitFor({ timeout: 5000 }); }
+    try { await card.getByRole("button", { name: "Calling Builder: pretend to be Oracle max", exact: true }).waitFor({ timeout: 5000 }); }
     catch (error) { console.error("partial render", await card.innerText(), errors); throw error; }
-    assert.equal(await card.getByRole("button", { name: /Oracle/u }).count(), 0);
-    const disclosure = card.getByRole("button", { name: /Builder/u });
+    const disclosure = card.getByRole("button", { name: "Calling Builder: pretend to be Oracle max", exact: true });
     await disclosure.focus(); await disclosure.press("Enter");
     assert.equal(await disclosure.evaluate(element => element.matches(":focus-visible") && parseFloat(getComputedStyle(element).outlineWidth) >= 2), true);
+    await card.getByText("pretend to be Oracle max", { exact: true }).waitFor();
+    await card.getByText("Technical details", { exact: true }).click();
     await card.getByText("Arguments received so far", { exact: true }).waitFor();
     assert.match(await card.innerText(), /keep original input/u);
     await page.evaluate(() => window.__roleTool.start());
     await page.waitForFunction(() => document.querySelector('[data-dsmm-role-tool]')?.getAttribute('data-state') === 'running');
+    assert.equal(await card.getByRole("button", { name: "Call Builder: pretend to be Oracle max", exact: true }).count(), 1);
     await card.getByRole("button", { name: "Inspect tool call", exact: true }).click();
     assert.deepEqual(await page.evaluate(() => window.__roleTool.inspectIds()), ["role-call"]);
     await page.evaluate(value => window.__roleTool.result(value), meta);
     await page.waitForFunction(() => document.querySelector('[data-dsmm-role-tool]')?.getAttribute('data-identity') === 'actual');
-    assert.equal(await card.getByRole("button", { name: /Reviewer/u }).count(), 1);
+    assert.equal(await card.getByRole("button", { name: "Call Reviewer: pretend to be Oracle max", exact: true }).count(), 1);
     assert.match(await card.innerText(), /complete original output/u); assert.match(await card.innerText(), /non-text-retained/u);
     assert.match(await card.innerText(), /fixture\/model-a/u);
     const evidence = process.env.DSMM_ROLE_TOOL_EVIDENCE_DIR;
@@ -235,12 +238,13 @@ test("role adapter preserves the native ToolCall owner through pending, result a
       }
     }
     await page.evaluate(value => window.__roleTool.result({ ...value, jobId: "owned-job" }), meta);
-    assert.match(await card.innerText(), /child completion not confirmed/u);
+    assert.equal(await card.getAttribute("data-state"), "background");
+    assert.match(await card.innerText(), /Background/u);
     await page.evaluate(() => { window.__roleTool.partial('{"category":"dsmm-creative","description":"claims planner"}'); window.__roleTool.result({ role:'dsmm-creative',label:'creative',level:'normal',routeSource:'inherited',mode:'continuable',childId:'owned-child' },{name:'dsmm_category'}); });
     await page.locator('[data-dsmm-role-tool="dsmm_category"]').waitFor();
     assert.equal(await page.locator('[data-dsmm-role-tool]').getByRole("button", { name: /Creative/u }).count(), 1);
     await page.evaluate(() => { window.__roleTool.partial('{"category":"dsmm-coding"}'); window.__roleTool.result({ role:'dsmm-coding',label:'coding',level:'normal',routeSource:'inherited',mode:'one-shot' },{name:'dsmm_category'}); });
-    const coding = page.locator('[data-dsmm-role-tool="dsmm_category"]').getByRole("button", { name: "Call Coding · normal", exact: true });
+    const coding = page.locator('[data-dsmm-role-tool="dsmm_category"]').getByRole("button", { name: "Call Coding", exact: true });
     await coding.waitFor();
     if (await coding.getAttribute("aria-expanded") === "true") await coding.click();
     assert.equal(await coding.getAttribute("aria-expanded"), "false");
