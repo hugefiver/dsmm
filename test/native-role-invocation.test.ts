@@ -4,6 +4,9 @@ import { join } from "node:path";
 import { test } from "node:test";
 import type { Agent } from "@deepseek-ai/dsh-agent";
 import { ToolCallId } from "@deepseek-ai/dsh-llm";
+import { foldSubagentDescriptor } from "@deepseek-ai/dsh-subagent";
+import type { DshAgent } from "../lib/dsh-types.js";
+import type { DsmmProfileRuntime } from "../lib/profile-runtime.js";
 import { nativeRoutingFixture, runFixtureTurn } from "./native-routing-fixture.ts";
 
 function gate() { let release!: () => void; const promise = new Promise<void>(resolve => { release = resolve; }); return { promise, release }; }
@@ -187,7 +190,7 @@ test("native child messaging and interrupt preserve exact adjacency and cannot c
     if (result.isError) return;
     await entered.promise;
     const child = f.agents.list().find(agent => f.agents.isOwnedBy(agent.id, parent))!;
-    await assert.rejects(f.subagents.sendMessage(foreign, child.id, [{ type: "text", text: "foreign" }], { signal: new AbortController().signal }));
+    await assert.rejects(f.subagents.sendMessage(foreign, child.id, [{ type: "text", text: "foreign" }], { signal: new AbortController().signal }), { code: "UNAUTHORIZED" });
     assert.throws(() => f.subagents.interrupt(child.id, { kind: "ancestor", agent: foreign }));
     const receipt = await f.subagents.sendMessage(parent, child.id, [{ type: "text", text: "queued" }], { signal: new AbortController().signal });
     assert.equal(typeof receipt, "string");
@@ -195,7 +198,28 @@ test("native child messaging and interrupt preserve exact adjacency and cannot c
     await child.whenIdle();
     assert.equal(child.session.snapshotEvents().filter(event => event.type === "turn/end").at(-1)?.data.reason.kind, "aborted");
     await f.subagents.drainChildren(parent, [child.id]);
-    await assert.rejects(f.subagents.sendMessage(parent, child.id, [{ type: "text", text: "cold" }], { signal: new AbortController().signal }));
+    await f.ctx.sessionPersistence.flush();
+    assert.equal(foldSubagentDescriptor(child.session.snapshotEvents())?.mode, "continuable");
+    const offset = child.session.snapshotEvents().length, calls = f.adapter.calls.length;
+    await assert.rejects(f.subagents.sendMessage(foreign, child.id, [{ type: "text", text: "foreign cold" }], { signal: new AbortController().signal }), { code: "UNAUTHORIZED" });
     assert.equal(f.agents.get(child.id), undefined);
+    assert.equal(f.adapter.calls.length, calls);
+    release.release(); f.adapter.beforeStream = undefined;
+    const messageId = await f.subagents.sendMessage(parent, child.id, [{ type: "text", text: "cold" }], { signal: new AbortController().signal });
+    assert.equal(typeof messageId, "string");
+    const resumed = f.agents.get(child.id)!;
+    assert.ok(resumed); assert.notEqual(resumed, child); assert.equal(resumed.id, child.id);
+    assert.equal(resumed.session.header.parentSession, parent.id);
+    assert.equal(f.agents.isOwnedBy(resumed.id, parent), true);
+    assert.equal(f.ctx.dsmmNativeAdmission.owns(resumed), false);
+    assert.equal((f.ctx.get("dsmmProfileRuntime") as DsmmProfileRuntime).hasAdmission(resumed as unknown as DshAgent), false);
+    assert.equal(f.ctx.dsmmNativeAdmission.invocation(resumed), undefined);
+    await resumed.whenIdle();
+    const own = resumed.session.snapshotEvents().slice(offset);
+    assert.ok(own.some(event => event.type === "user/message" && event.data.id === messageId));
+    assert.match(JSON.stringify(own.filter(event => event.type === "assistant/message")), /fixture complete/);
+    assert.equal(own.filter(event => event.type === "turn/end").at(-1)?.data.reason.kind, "completed");
+    assert.equal(f.adapter.calls.slice(calls).filter(call => call.sessionId === resumed.id).length, 1);
+    await f.subagents.drainChildren(parent, [resumed.id]);
   } finally { release.release(); await f.dispose(); }
 });

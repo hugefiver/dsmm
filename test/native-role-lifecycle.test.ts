@@ -3,6 +3,10 @@ import { test } from "node:test";
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ToolCallId } from "@deepseek-ai/dsh-llm";
+import { SessionId } from "@deepseek-ai/dsh-session";
+import { foldSubagentDescriptor, SUBAGENT_DESCRIPTOR_VERSION } from "@deepseek-ai/dsh-subagent";
+import type { DshAgent } from "../lib/dsh-types.js";
+import type { DsmmProfileRuntime } from "../lib/profile-runtime.js";
 import type { StreamChunk } from "@deepseek-ai/dsh-llm";
 import { nativeFixturePlugin, nativeRoutingFixture, runFixtureTurn } from "./native-routing-fixture.ts";
 
@@ -205,9 +209,62 @@ test("official model-facing controls enforce adjacency and continue useful outpu
     assert.match(JSON.stringify(events.filter((event) => event.type === "assistant/message")), /CONTINUED_USEFUL_OUTPUT/);
     await f.subagents.drainChildren(parent, [id]);
     await disposed;
-    assert.equal((await invoke(parent, "send_message", { agent_id: id, message: "Cold-resume the same durable child" })).isError, true);
+    await f.ctx.sessionPersistence.flush();
+    assert.equal(foldSubagentDescriptor(child.session.snapshotEvents())?.mode, "continuable");
+    const offset = child.session.snapshotEvents().length, calls = f.adapter.calls.length;
+    await assert.rejects(f.subagents.sendMessage(other, id, [{ type: "text", text: "Foreign cold message" }], { signal: new AbortController().signal }), { code: "UNAUTHORIZED" });
     assert.equal(f.agents.get(id), undefined);
+    assert.equal(f.adapter.calls.length, calls);
+    const cold = await invoke(parent, "send_message", { agent_id: id, message: "Cold-resume the same durable child" });
+    assert.equal(cold.isError, false, JSON.stringify(cold));
+    const messageId = (cold.value as { messageId: string }).messageId;
+    assert.equal(typeof messageId, "string");
+    const resumed = f.agents.get(id)!;
+    assert.ok(resumed); assert.notEqual(resumed, child); assert.equal(resumed.id, id);
+    assert.equal(resumed.session.header.parentSession, parent.id);
+    assert.equal(f.agents.isOwnedBy(id, parent), true);
+    assert.equal(f.ctx.dsmmNativeAdmission.owns(resumed), false);
+    assert.equal((f.ctx.get("dsmmProfileRuntime") as DsmmProfileRuntime).hasAdmission(resumed as unknown as DshAgent), false);
+    assert.equal(f.ctx.dsmmNativeAdmission.invocation(resumed), undefined);
+    await resumed.whenIdle();
+    const own = resumed.session.snapshotEvents().slice(offset);
+    assert.ok(own.some(event => event.type === "user/message" && event.data.id === messageId));
+    assert.match(JSON.stringify(own.filter(event => event.type === "assistant/message")), /CONTINUED_USEFUL_OUTPUT/);
+    assert.equal(own.filter(event => event.type === "turn/end").at(-1)?.data.reason.kind, "completed");
+    assert.equal(f.adapter.calls.slice(calls).filter(call => call.sessionId === id).length, 1);
+    await f.subagents.drainChildren(parent, [id]);
     await f.disposeAgent(other);
     assert.equal(f.agents.list().some((agent) => agent !== parent && f.agents.isOwnedBy(agent.id, other)), false);
+  } finally { await f.dispose(); }
+});
+
+test("settled native one-shot history cannot be cold-resumed as a continuable child", async () => {
+  const f = await nativeRoutingFixture({}, { persistence: true });
+  try {
+    const parent = await f.create();
+    const session = f.ctx.sessions.prepare(SessionId("settled-native-one-shot"), { meta: {
+      cwd: f.profileDir, parentSession: parent.id, origin: "subagent", delegationDepth: 1
+    } });
+    session.append("turn/start", { turn: 1 });
+    session.append("subagent/descriptor", { version: SUBAGENT_DESCRIPTOR_VERSION, mode: "one-shot", provider: "spawn", label: "Settled native one-shot" });
+    session.append("turn/end", { turn: 1, reason: { kind: "completed" } });
+    assert.equal(foldSubagentDescriptor(session.snapshotEvents())?.mode, "one-shot");
+    const stored = await f.ctx.sessionPersistence.create(session.header);
+    try {
+      await stored.append(session.snapshotEvents());
+      await stored.flush();
+    } finally { await stored.close(); }
+    assert.equal(f.ctx.sessions.get(session.id), undefined);
+    const observation = await f.ctx.sessionQuery.observeSession(session.id, { signal: new AbortController().signal });
+    try {
+      assert.equal(observation.header.parentSession, parent.id);
+      assert.equal(foldSubagentDescriptor(observation.events)?.mode, "one-shot");
+      assert.equal(observation.events.filter(event => event.type === "turn/end").at(-1)?.data.reason.kind, "completed");
+    } finally { observation[Symbol.dispose](); }
+    const calls = f.adapter.calls.length;
+    await assert.rejects(f.subagents.sendMessage(parent, session.id, [{ type: "text", text: "Must not revive a one-shot" }], { signal: new AbortController().signal }), { code: "NOT_RESUMABLE" });
+    assert.equal(f.agents.get(session.id), undefined);
+    assert.deepEqual(f.agents.list(), [parent]);
+    assert.equal(f.adapter.calls.length, calls);
   } finally { await f.dispose(); }
 });

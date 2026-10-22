@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test, mock } from "node:test";
 import { ToolCallId } from "@deepseek-ai/dsh-llm";
+import { foldSubagentDescriptor } from "@deepseek-ai/dsh-subagent";
 import { getTraceable } from "@deepseek-ai/cordis";
 import type { StreamChunk } from "@deepseek-ai/dsh-llm";
 import type { Agent } from "@deepseek-ai/dsh-agent";
@@ -255,7 +256,7 @@ test("bounded Builder's admitted deny-write remains effective in its legal quick
   } finally { await f.dispose(); }
 });
 
-test("headless native continuation retains inherited filters and cold metadata cannot recover execution", { timeout: 15000 }, async () => {
+test("headless live continuation retains inherited filters while cold recovery has no DSMM capture", { timeout: 15000 }, async () => {
   const f = await nativeRoutingFixture({ defaultActive: true, subagents: { enableRunInBackground: true, backgroundMode: "continuable", maxDepth: 3 } }, { headless: true, persistence: true });
   try {
     const readable = join(f.profileDir, "readable.txt"); writeFileSync(readable, "FILTERED_CONTINUATION_PROOF");
@@ -290,10 +291,31 @@ test("headless native continuation retains inherited filters and cold metadata c
       await f.subagents.sendMessage(owner, child.id, [{ type: "text", text: "Continue with the inherited denial" }], { signal: new AbortController().signal });
       await child.whenIdle();
       assert.match(JSON.stringify(child.session.snapshotEvents()), /FILTERED_CONTINUATION_PROOF/);
-      await f.subagents.drainChildren(owner, [child.id]);
-      await assert.rejects(f.subagents.sendMessage(owner, child.id, [{ type: "text", text: "Cold metadata is not permission" }], { signal: new AbortController().signal }));
-      assert.equal(f.agents.get(child.id), undefined);
       assert.equal(writes, 0);
+      await f.subagents.drainChildren(owner, [child.id]);
+      await f.ctx.sessionPersistence.flush();
+      assert.equal(foldSubagentDescriptor(child.session.snapshotEvents())?.mode, "continuable");
+      const offset = child.session.snapshotEvents().length, calls = f.adapter.calls.length;
+      await assert.rejects(f.subagents.sendMessage(parent, child.id, [{ type: "text", text: "Foreign cold message" }], { signal: new AbortController().signal }), { code: "UNAUTHORIZED" });
+      assert.equal(f.agents.get(child.id), undefined);
+      assert.equal(f.adapter.calls.length, calls);
+      f.adapter.streamChunks = async function* () { yield* answer("NATIVE_COLD_OUTPUT"); };
+      const messageId = await f.subagents.sendMessage(owner, child.id, [{ type: "text", text: "Cold native continuation" }], { signal: new AbortController().signal });
+      assert.equal(typeof messageId, "string");
+      const resumed = f.agents.get(child.id)!;
+      assert.ok(resumed); assert.notEqual(resumed, child); assert.equal(resumed.id, child.id);
+      assert.equal(resumed.session.header.parentSession, owner.id);
+      assert.equal(f.agents.isOwnedBy(resumed.id, owner), true);
+      assert.equal(f.ctx.dsmmNativeAdmission.owns(resumed), false);
+      assert.equal((f.ctx.get("dsmmProfileRuntime") as DsmmProfileRuntime).hasAdmission(resumed as DshAgent), false);
+      assert.equal(f.ctx.dsmmNativeAdmission.invocation(resumed), undefined);
+      await resumed.whenIdle();
+      const own = resumed.session.snapshotEvents().slice(offset);
+      assert.ok(own.some(event => event.type === "user/message" && event.data.id === messageId));
+      assert.match(JSON.stringify(own.filter(event => event.type === "assistant/message")), /NATIVE_COLD_OUTPUT/);
+      assert.equal(own.filter(event => event.type === "turn/end").at(-1)?.data.reason.kind, "completed");
+      assert.equal(f.adapter.calls.slice(calls).filter(call => call.sessionId === resumed.id).length, 1);
+      await f.subagents.drainChildren(owner, [resumed.id]);
     } finally { await f.releaseAuxiliary(owner); }
   } finally { await f.dispose(); }
 });

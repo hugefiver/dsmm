@@ -187,7 +187,14 @@ test("real Loader module admission preserves busy captures, fences off work, and
     await assert.rejects(mounted.create({ agentPreset: "dsmm-fake" }), { code: "activation" });
     const resume = Session.create(SessionId("module-off-child-resume"));
     resume.append("subagent/descriptor", snapshotSubagentDescriptor({ mode: "continuable", provider: "dsmm-role-coding", label: "Captured DW child" }));
-    await assert.rejects(mounted.create({ origin: "subagent" }, undefined, { seed: JSON.parse(JSON.stringify(resume.snapshotEvents())) }), { code: "UNAUTHORIZED" });
+    const nativeSeed = await mounted.create({ origin: "subagent" }, undefined, { seed: JSON.parse(JSON.stringify(resume.snapshotEvents())) });
+    try {
+      assert.equal(mounted.ctx.dsmmNativeAdmission.owns(nativeSeed), false);
+      assert.equal(runtime.hasAdmission(nativeSeed as DshAgent), false);
+      assert.equal(mounted.ctx.dsmmNativeAdmission.invocation(nativeSeed), undefined);
+      await assert.rejects(mounted.subagents.startActivation({ provider: "dsmm-role-coding", label: "Uncaptured seed", delivery: "caller", signal: new AbortController().signal,
+        request: { parent: nativeSeed, prompt: [] } }), { code: "UNAUTHORIZED" });
+    } finally { await mounted.disposeAgent(nativeSeed); }
     assert.equal(standingBody, 0); assert.equal(standingRequest, 0);
     assert.equal(mounted.adapter.calls.length, beforeDenied + 1);
 
@@ -364,17 +371,30 @@ test("real Loader module admission preserves busy captures, fences off work, and
     await restartedRuntime.selectMode({ sessionId: first.id, active: false, expectedModeRevision: firstState.deepwork!.revision, expectedAdmissionEpoch: firstState.admissionEpoch }, first as DshAgent);
     await restarted.disposeAgent(first);
     await restarted.ctx.sessionPersistence.flush();
-    // A persisted session resumes with a fresh admission; the user's explicit
-    // Deepwork-off intent survives as a mode event, so the resumed session
-    // stays on its ordinary composition without delegated role tools.
+    // Native resume retains recorded intent without creating a DSMM admission.
     const resumedHandle = await restarted.agents.resume({ resumeSessionId: first.id, agentOptions: first.options,
       async setup(scope) { await restarted.ctx.agentPresets.mount(scope, "standard"); } });
     const resumed = resumedHandle.agent;
-    assert.equal(restarted.agents.get(first.id), resumed);
-    assert.equal((await (restarted.ctx.get("dsmmProfileRuntime") as DsmmProfileRuntime).getSession(resumed as DshAgent)).deepwork!.active, false, "the explicit Deepwork-off intent survives the resume");
-    assert.equal((restarted.ctx.get("dsmmProfileRuntime") as DsmmProfileRuntime).getSettings(resumed as DshAgent).modules.deepwork.enabled, true);
-    assert.equal(resumed.ctx.tools.schemas(resumed).some(schema => schema.name.startsWith("dsmm_")), false, "the mounted standard composition exposes no delegated role tools");
-    await resumedHandle.dispose();
+    try {
+      assert.equal(restarted.agents.get(first.id), resumed);
+      assert.notEqual(resumed, first);
+      assert.deepEqual(sessionEvents(resumed.session).filter(event => event.type === "deepwork/mode").at(-1)!.data, { active: false });
+      assert.equal(restarted.ctx.dsmmNativeAdmission.owns(resumed), false);
+      assert.equal(restartedRuntime.hasAdmission(resumed as DshAgent), false);
+      assert.equal(restarted.ctx.dsmmNativeAdmission.invocation(resumed), undefined);
+      await assert.rejects(restartedRuntime.getSession(resumed as DshAgent), { code: "activation" });
+      assert.equal(resumed.ctx.tools.schemas(resumed).some(schema => schema.name.startsWith("dsmm_")), false, "the mounted standard composition exposes no delegated role tools");
+      const offset = resumed.session.snapshotEvents().length, calls = restarted.adapter.calls.length;
+      await assert.rejects(restarted.subagents.startActivation({ provider: "dsmm-role-coding", label: "Native resume has no role grant", delivery: "caller", signal: new AbortController().signal,
+        request: { parent: resumed, prompt: [] } }), { code: "UNAUTHORIZED" });
+      assert.equal(restarted.adapter.calls.length, calls);
+      await runFixtureTurn(resumed);
+      const own = resumed.session.snapshotEvents().slice(offset);
+      assert.match(JSON.stringify(own.filter(event => event.type === "assistant/message")), /fixture complete/);
+      assert.equal(own.filter(event => event.type === "turn/end").at(-1)?.data.reason.kind, "completed");
+      assert.equal(restarted.ctx.dsmmNativeAdmission.owns(resumed), false);
+      assert.equal(restartedRuntime.hasAdmission(resumed as DshAgent), false);
+    } finally { await resumedHandle.dispose(); }
     assert.equal(restarted.agents.get(first.id), undefined);
     for (const agent of [childAgent, pinnedAgent]) {
       await runFixtureTurn(agent);

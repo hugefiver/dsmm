@@ -9,6 +9,7 @@ import * as Spawn from "@deepseek-ai/dsh-subagent-spawn-in-process";
 import { createDsmmStatusSnapshot, resolveConfig, resolveEffectiveDsmmRole } from "../lib/index.js";
 import type { DsmmPluginConfig } from "../lib/index.js";
 import type { DshAgent } from "../lib/dsh-types.js";
+import type { DsmmProfileRuntime } from "../lib/profile-runtime.js";
 import { headerRoutes, nativeRoutingFixture as createNativeRoutingFixture, runFixtureTurn } from "./native-routing-fixture.ts";
 
 /** Earlier fallback fixtures opt in explicitly; production omission remains startup-lock. */
@@ -89,7 +90,7 @@ test("a live role child's effort-only override stays exact", async () => {
   } finally { await fixture.dispose(); }
 });
 
-test("live configured child routes retain exact profile fallbacks while unowned restored children are refused", async () => {
+test("live configured child routes retain exact profile fallbacks without granting restored children DSMM authority", async () => {
   const explicit = { provider: "fixture", model: "explicit-beta", reasoningEffort: "low" };
   const firstBackup = { provider: "fixture", model: "profile-gamma", reasoningEffort: "max" };
   const secondBackup = { provider: "fixture", model: "profile-delta", reasoningEffort: "high" };
@@ -112,8 +113,26 @@ test("live configured child routes retain exact profile fallbacks while unowned 
     } finally { await fixture.releaseAuxiliary(child); }
     fixture.adapter.rateLimitModels.clear();
     const calls = fixture.adapter.calls.length;
-    await assert.rejects(fixture.create({ origin: "subagent", agentPreset: "dsmm-orchestrator" }, undefined, { seed: persisted }), { code: "UNAUTHORIZED" });
-    assert.equal(fixture.adapter.calls.length, calls);
+    const restored = await fixture.create({ origin: "subagent", agentPreset: "dsmm-orchestrator" }, undefined, { seed: persisted });
+    try {
+      assert.equal(fixture.ctx.dsmmNativeAdmission.owns(restored), false);
+      assert.equal((fixture.ctx.get("dsmmProfileRuntime") as DsmmProfileRuntime).hasAdmission(restored as unknown as DshAgent), false);
+      assert.equal(fixture.ctx.dsmmNativeAdmission.invocation(restored), undefined);
+      await assert.rejects(fixture.subagents.startActivation({ provider: "dsmm-role-reviewer", label: "Uncaptured restored child", delivery: "caller", signal: new AbortController().signal,
+        request: { parent: restored, prompt: [] } }), { code: "UNAUTHORIZED" });
+      await assert.rejects(fixture.subagents.getProvider("dsmm-role-reviewer")!.prepareContinuable!({ parent: restored, cwd: fixture.profileDir,
+        sessionId: SessionId("unowned-restored-delegation"), signal: new AbortController().signal }), { code: "UNAUTHORIZED" });
+      assert.equal(fixture.adapter.calls.length, calls);
+      const offset = restored.session.snapshotEvents().length;
+      fixture.adapter.rateLimitModels.add("native-default");
+      await runFixtureTurn(restored);
+      const own = restored.session.snapshotEvents().slice(offset);
+      assert.deepEqual(fixture.adapter.calls.slice(calls).filter(call => call.sessionId === restored.id).map(call => call.model), ["native-default"]);
+      assert.deepEqual(own.filter(event => event.type === "request/header").map(event => event.data.header.config.model), ["native-default"]);
+      assert.equal(own.some(event => event.type === "dsmm/role-policy"), false);
+      assert.equal(own.filter(event => event.type === "turn/end").at(-1)?.data.reason.kind, "error");
+      assert.equal(fixture.ctx.dsmmNativeAdmission.owns(restored), false);
+    } finally { await fixture.disposeAgent(restored); }
     assert.deepEqual(fixture.agents.list().map(agent => agent.id), [parent.id]);
   } finally { await fixture.dispose(); }
 });
@@ -569,11 +588,29 @@ test("a seeded child cannot borrow an ancestor policy epoch, fallback or delegat
     fixture.adapter.rateLimitModels.delete(reviewer.model);
     const requestOwners: Agent[] = [];
     fixture.ctx.on("agent/request", async (frame, next) => { requestOwners.push(frame.agent); return next(); }, { global: true });
-    await assert.rejects(fixture.create({ origin: "subagent", parentSession: ancestor.id, isSeeded: true, agentPreset: "dsmm-orchestrator" }, undefined, {
+    const seeded = await fixture.create({ origin: "subagent", parentSession: ancestor.id, isSeeded: true, agentPreset: "dsmm-orchestrator" }, undefined, {
       seed: childSeed.snapshotEvents(), inheritedEventCount: SessionLogOffset(inherited.length), parentAgent: ancestor
-    }), { code: "UNAUTHORIZED" });
-    assert.ok(requestOwners.every(agent => agent.session.header.origin !== "subagent"), "only the native completion report may run the original root; the refused child never requests");
-    assert.equal(fixture.agents.list().filter(agent => fixture.agents.isOwnedBy(agent.id, ancestor)).length, 0);
+    });
+    try {
+      assert.equal(fixture.ctx.dsmmNativeAdmission.owns(seeded), false);
+      assert.equal((fixture.ctx.get("dsmmProfileRuntime") as DsmmProfileRuntime).hasAdmission(seeded as unknown as DshAgent), false);
+      assert.equal(fixture.ctx.dsmmNativeAdmission.invocation(seeded), undefined);
+      const calls = fixture.adapter.calls.length, residents = fixture.agents.list();
+      await assert.rejects(fixture.subagents.startActivation({ provider: "dsmm-role-reviewer", label: "Forged seed", delivery: "caller", signal: new AbortController().signal,
+        request: { parent: seeded, prompt: [] } }), { code: "UNAUTHORIZED" });
+      await assert.rejects(fixture.subagents.getProvider("dsmm-role-reviewer")!.prepareContinuable!({ parent: seeded, cwd: fixture.profileDir,
+        sessionId: SessionId("forged-seed-delegation"), signal: new AbortController().signal }), { code: "UNAUTHORIZED" });
+      assert.deepEqual(fixture.agents.list(), residents);
+      assert.equal(fixture.adapter.calls.length, calls);
+      const offset = seeded.session.snapshotEvents().length;
+      await runFixtureTurn(seeded);
+      const own = seeded.session.snapshotEvents().slice(offset);
+      assert.ok(requestOwners.includes(seeded));
+      assert.deepEqual(fixture.adapter.calls.slice(calls).filter(call => call.sessionId === seeded.id).map(call => call.model), ["native-default"]);
+      assert.deepEqual(own.filter(event => event.type === "request/header").map(event => event.data.header.config.model), ["native-default"]);
+      assert.equal(own.some(event => event.type === "dsmm/role-policy"), false);
+      assert.equal(own.filter(event => event.type === "turn/end").at(-1)?.data.reason.kind, "completed");
+    } finally { await fixture.disposeAgent(seeded); }
   } finally { await fixture.dispose(); }
 });
 

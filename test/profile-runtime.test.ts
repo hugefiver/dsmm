@@ -3,6 +3,7 @@ import { mkdtempSync, renameSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { test } from "node:test";
+import { getTraceable } from "@deepseek-ai/cordis";
 import { ReasoningEffortId, ToolCallId } from "@deepseek-ai/dsh-llm";
 import { foldSubagentDescriptor } from "@deepseek-ai/dsh-subagent";
 import { renderPrompt } from "@deepseek-ai/dsh-system-prompt";
@@ -410,9 +411,21 @@ test("native global A-to-B switching retains admitted routes, guards and startup
     await runFixtureTurn(blank);
     assert.equal(headerRoutes(blank).at(-1)?.model, "native-default", "blank root rebinding retains the native model selection");
     assert.equal(runtime.getSettings(blank as unknown as DshAgent).workflow.reviewCap, 2, "blank composition changes keep the admitted snapshot rather than newer desired defaults");
-    const executeGit = (agent: typeof parent) => agent.ctx.get("tools")!.execute({ callId: ToolCallId(`profile-guard-${agent.id}`), name: "bash", arguments: { command: "git commit -m never-executed-by-fixture" }, agent, signal: new AbortController().signal });
-    assert.equal((await executeGit(parent)).isError, true);
-    assert.equal((await executeGit(newRoot)).isError, false);
+    const bodies = new Map([[parent, 0], [newRoot, 0]]);
+    for (const agent of [parent, newRoot]) {
+      const tools = fixture.ctx.agentPresets.serviceFor(agent, "tools") ?? agent.ctx.tools;
+      const dispose = getTraceable(agent.ctx, tools).register({ name: "bash", description: "Counter-only shell; never executes commands",
+        parameters: { command: { type: "string", required: true }, description: { type: "string", required: true } },
+        output: { schema: { type: "string" }, render: (_args, value) => [{ type: "text", text: String(value) }] },
+        async execute() { bodies.set(agent, bodies.get(agent)! + 1); return "COUNTER_ONLY"; } });
+      try {
+        const result = await tools.execute({ callId: ToolCallId(`profile-guard-${agent.id}`), name: "bash",
+          arguments: { command: "git commit -m never-executed-by-fixture", description: "Counter-only guard probe" }, agent, signal: new AbortController().signal });
+        assert.equal(result.isError, agent === parent, JSON.stringify(result));
+      } finally { dispose(); }
+    }
+    assert.equal(bodies.get(parent), 0);
+    assert.equal(bodies.get(newRoot), 1);
     assert.match(renderPrompt(await parent.ctx.get("systemPrompt")!.assemble({ agent: parent, scope: parent })), /reviewCap: 2/u);
     assert.match(renderPrompt(await newRoot.ctx.get("systemPrompt")!.assemble({ agent: newRoot, scope: newRoot })), /reviewCap: 4/u);
     let status: Parameters<DshCommandsRegistry["register"]>[0] | undefined;

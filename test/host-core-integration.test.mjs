@@ -41,9 +41,22 @@ test("MAIN never enrolls a retained unbound Agent merely because it is resident"
   const f = await nativeRoutingFixture({}, { nativePresets: true, async beforeDsmm(_ctx, create) { retained = await create(); } });
   try {
     assert.ok(retained);
+    const admission = f.ctx.get("dsmmNativeAdmission"), profiles = f.ctx.get("dsmmProfileRuntime");
+    assert.equal(admission.owns(retained), false);
+    assert.equal(profiles.hasAdmission(retained), false);
+    assert.equal(admission.invocation(retained), undefined);
     const result = await retained.ctx.tools.execute({ agent: retained, name: "read", callId: ToolCallId("unbound-read"), arguments: {}, signal: new AbortController().signal });
-    assert.equal(result.isError, true);
+    assert.equal(result.isError, false, JSON.stringify(result));
+    await assert.rejects(f.subagents.startActivation({ provider: "dsmm-role-reviewer", label: "Unbound retained caller", delivery: "caller", signal: new AbortController().signal,
+      request: { parent: retained, prompt: [{ type: "text", text: "Must not delegate" }] } }), { code: "UNAUTHORIZED" });
     assert.equal(f.adapter.calls.length, 0);
+    assert.deepEqual(f.agents.list(), [retained]);
+    await runFixtureTurn(retained);
+    assert.deepEqual(f.adapter.calls.map(call => call.sessionId), [retained.id]);
+    assert.match(JSON.stringify(retained.session.snapshotEvents().filter(event => event.type === "assistant/message")), /fixture complete/);
+    assert.equal(admission.owns(retained), false);
+    assert.equal(profiles.hasAdmission(retained), false);
+    assert.equal(admission.invocation(retained), undefined);
   } finally { await f.dispose(); }
 });
 
