@@ -36,8 +36,24 @@ function menuIssue(issue: ProfilesIssue): { code: string; field?: string } {
   return { code, ...(isSafeDiagnosticField(field) ? { field } : {}) };
 }
 
-export function SessionScope({ state, actions, t, compact = false }: PropsLocale<"settings.dsmm-profiles"> & {
-  state: ProfilesViewSnapshot; actions: ProfilesActions; compact?: boolean;
+export function SessionScopeFeedback({ state, t }: PropsLocale<"settings.dsmm-profiles"> & { state: ProfilesViewSnapshot }) {
+  const session = state.session;
+  const status = state.sessionNotice === null ? "" : t(state.sessionNotice === "mode-on" ? "headerModeOn" : state.sessionNotice === "mode-off" ? "headerModeOff" : state.sessionNotice === "applied-with-model" ? "sessionAppliedWithModel" : state.sessionNotice === "applied" ? "sessionApplied" : "sessionResetDone");
+  return <div data-dsmm-session-feedback>
+    {session?.warnings?.length ? <div><p>{t("admissionWarnings")}</p><ProfileWarnings warnings={session.warnings} t={t} /></div> : null}
+    {state.dirty && <p className="dsmm-hint">{t("sessionDirty")}</p>}
+    {(session?.refreshRequired || session?.selection.refreshRequired) && <p role="status">{t("sessionCommittedRefresh")}</p>}
+    {state.sessionUnconfirmed && <p role="status">{t("sessionUnconfirmedRefresh")}</p>}
+    {state.sessionIssue !== null && <><p role="alert">{state.sessionIssue.source === "profile-model" ? t(state.sessionIssue.code === "model-unconfigured" ? "headerNoProfileModel" : state.sessionIssue.code === "model-choice-changed" ? "headerModelChoiceChanged" : "headerModelUnconfirmed")
+      : state.sessionIssue.code === "conflict" ? t("sessionConflict")
+      : ["busy", "maintenance", "disposed", "not-owned"].includes(state.sessionIssue.code) ? t("sessionBusy", { reason: state.sessionIssue.code })
+        : t(state.sessionIssue.code === "validation" ? "validation" : "sessionUnavailable")}</p><IssueDetails issue={state.sessionIssue} t={t} /></>}
+    <p className="dsmm-status" role="status" aria-live="polite" aria-atomic="true">{state.sessionBusy === "read" ? t("reading") : status}</p>
+  </div>;
+}
+
+export function SessionScope({ state, actions, t, compact = false, showFeedback = true }: PropsLocale<"settings.dsmm-profiles"> & {
+  state: ProfilesViewSnapshot; actions: ProfilesActions; compact?: boolean; showFeedback?: boolean;
 }) {
   const prefix = useId();
   const session = state.session;
@@ -48,7 +64,6 @@ export function SessionScope({ state, actions, t, compact = false }: PropsLocale
   const ready = session !== null && !state.sessionUnconfirmed && !session.refreshRequired && !session.selection.refreshRequired && writableSelectionVersion(session.selection.selectionRevision);
   const allowed = ready && session.canApplyOverlay === true && session.applyOverlayUnavailableReason !== "new-session-required";
   const modelAllowed = ready && session.canSelectModel === true && session.profileModel !== undefined;
-  const status = state.sessionNotice === null ? "" : t(state.sessionNotice === "mode-on" ? "headerModeOn" : state.sessionNotice === "mode-off" ? "headerModeOff" : state.sessionNotice === "applied-with-model" ? "sessionAppliedWithModel" : state.sessionNotice === "applied" ? "sessionApplied" : "sessionResetDone");
   let binding = session?.subagentRuntime;
   try { if (binding !== undefined) binding = parseSubagentRuntimeAdmissionView(binding); } catch { binding = undefined; }
   return <div className="dsmm-session-scope" aria-busy={state.sessionBusy !== null} data-dsmm-session-scope>
@@ -57,7 +72,6 @@ export function SessionScope({ state, actions, t, compact = false }: PropsLocale
       {labels !== null && <p data-dsmm-session-state>{labels.admitted}</p>}
       {labels !== null && !compact && <p className="dsmm-hint" data-dsmm-session-future-default>{labels.futureDefault}</p>}
       {session === null && <p className="dsmm-hint" id={`${prefix}-overlay-reason`}>{t("sessionUnavailable")}</p>}
-      {session?.warnings?.length ? <div><p>{t("admissionWarnings")}</p><ProfileWarnings warnings={session.warnings} t={t} /></div> : null}
       {session !== null && !allowed && <p className="dsmm-hint" id={`${prefix}-overlay-reason`}>{capabilityReason(session.applyOverlayUnavailableReason, t)}</p>}
       <div className="dsmm-field"><label htmlFor={`${prefix}-choice`}>{t("sessionSelect")}</label>
         <select id={`${prefix}-choice`} value={state.sessionChoice ?? ""} disabled={disabled || !allowed} aria-describedby={!allowed ? `${prefix}-overlay-reason` : undefined} onChange={(event) => { if (current()) actions.chooseSessionProfile(event.currentTarget.value || null); }}>
@@ -66,8 +80,8 @@ export function SessionScope({ state, actions, t, compact = false }: PropsLocale
           {state.snapshot?.profiles.map((profile) => <option key={profile.id} value={profile.id} disabled={!isConfigRevision(profile.revision) || profile.error !== undefined}>{profile.label?.trim() || profile.id}{profileWarnings(profile.warnings).length ? ` — ${t("warningProfile")}` : ""}</option>)}
         </select>
       </div>
-      {!compact && <><p className="dsmm-hint">{t("sessionModelHint")}</p>
-        <Button type="button" variant="outline" disabled={disabled || !modelAllowed} aria-describedby={!modelAllowed ? `${prefix}-model-reason` : undefined} onClick={() => { if (current()) void actions.useSessionProfileModel(); }}>{t("headerUseCurrentModel")}</Button>
+      {!compact && <><p className="dsmm-hint" id={`${prefix}-model-hint`}>{t("useSessionProfileModelDesc")}</p>
+        <Button type="button" variant="outline" disabled={disabled || !modelAllowed} aria-describedby={`${prefix}-model-hint${!modelAllowed ? ` ${prefix}-model-reason` : ""}`} onClick={() => { if (current()) void actions.useSessionProfileModel(); }}>{t("headerUseCurrentModel")}</Button>
         {!modelAllowed && <p className="dsmm-hint" id={`${prefix}-model-reason`}>{capabilityReason(session?.selectModelUnavailableReason, t)}</p>}
         {session !== null && <details><summary>{t("technicalDetails")}</summary><div className="dsmm-availability">
           <p>{binding === undefined ? t("bindingUnknown") : t("bindingState", { binding: binding.binding, ready: t(binding.deliveryFenceReady ? "enabled" : "disabled"), restart: t(binding.restartRequired ? "enabled" : "disabled") })}</p>
@@ -77,20 +91,12 @@ export function SessionScope({ state, actions, t, compact = false }: PropsLocale
         {session.rolePolicy !== undefined && <p data-dsmm-session-policy>{t("roleState", { route: session.rolePolicy.route === undefined ? t("inheritRoute") : `${session.rolePolicy.route.provider}/${session.rolePolicy.route.model}${session.rolePolicy.route.reasoningEffort === undefined ? "" : ` (${session.rolePolicy.route.reasoningEffort})`}`, strategy: session.rolePolicy.strategy, retries: session.rolePolicy.retries, failures: session.rolePolicy.rateLimitFailures, switches: session.rolePolicy.switches, delay: session.rolePolicy.totalDelayMs })}</p>}
         </details>}
       </>}
-      {state.dirty && <p className="dsmm-hint">{t("sessionDirty")}</p>}
-      {(session?.refreshRequired || session?.selection.refreshRequired) && <p role="status">{t("sessionCommittedRefresh")}</p>}
-      {state.sessionUnconfirmed && <p role="status">{t("sessionUnconfirmedRefresh")}</p>}
       <div className="dsmm-actions"><Button type="button" variant="outline" disabled={disabled || !allowed || (state.sessionChoice !== null && !isConfigRevision(selected?.revision))} aria-describedby={!allowed ? `${prefix}-overlay-reason` : undefined} onClick={() => { if (current()) void actions.applySession(); }}>{t(state.sessionBusy === "apply" ? "sessionApplying" : "sessionApply")}</Button>
         {!compact && <Button type="button" variant="outline" disabled={disabled || !allowed} aria-describedby={!allowed ? `${prefix}-overlay-reason` : undefined} onClick={() => { if (current()) void actions.resetSession(); }}>{t(state.sessionBusy === "reset" ? "sessionResetting" : "sessionReset")}</Button>}
         <Button type="button" variant="outline" disabled={state.sessionBusy !== null || state.busy !== null || state.pendingEditor !== null} onClick={() => { if (current()) void actions.refreshSession(); }}>{t("sessionRefresh")}</Button>
       </div>
     </>}
-    {state.sessionIssue !== null && <p role="alert">{state.sessionIssue.source === "profile-model" ? t(state.sessionIssue.code === "model-unconfigured" ? "headerNoProfileModel" : state.sessionIssue.code === "model-choice-changed" ? "headerModelChoiceChanged" : "headerModelUnconfirmed")
-      : state.sessionIssue.code === "conflict" ? t("sessionConflict")
-      : ["busy", "maintenance", "disposed", "not-owned"].includes(state.sessionIssue.code) ? t("sessionBusy", { reason: state.sessionIssue.code })
-       : t(state.sessionIssue.code === "validation" ? "validation" : "sessionUnavailable")}</p>}
-    {state.sessionIssue !== null && <IssueDetails issue={state.sessionIssue} t={t} />}
-    <p className="dsmm-status" role="status" aria-live="polite" aria-atomic="true">{state.sessionBusy === "read" ? t("reading") : status}</p>
+    {showFeedback && <SessionScopeFeedback state={state} t={t} />}
   </div>;
 }
 

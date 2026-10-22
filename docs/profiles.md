@@ -19,6 +19,37 @@ Browsing doesn't activate anything. **Save profile** doesn't select or apply it,
 
 The compact Conversation header menu shows the current admission separately from the future default. **Use profile model** asks native model selection to use the admitted immutable configuration's declared main model, not a later saved draft. It doesn't write an overlay pointer or increment the admission epoch. Native model-default persistence follows the Models tab; newer manual model or effort intent, including same-value reselection, wins. `canSelectModel`, `canToggleMode` and `canApplyOverlay` have independent reasons: unavailable live Apply doesn't disable ordinary model selection or mode switching. Sessionless controls never create a session.
 
+## Named profiles interface layout
+
+The redesigned Named Profiles page (`.dsmm-profiles.dsmm-named-profiles`) organizes editing into a scannable single-column layout:
+
+1. **Header browse row** — Select profile, New draft, and Refresh inventory buttons alongside a real-time status badge (`data-dsmm-editor-state`) tracking dirty, saved, refresh-required, and applied states.
+2. **Effective summary card** — Visible summary of future default (with inline Set as future default button) and current session admission (with a quick-locate button targeting the session settings section).
+3. **Secondary actions** — Collapsed disclosure containing future default reset ("新会话使用插件默认" / "Use baseline for future sessions") and current-session scope controls.
+4. **Basic settings** — Flat, uncollapsed section in normal flow:
+   - Profile name (`label`) with optional omit action.
+   - Profile ID (`id`), locked for saved revisions.
+   - Orchestrator primary model (`roleRouting.dsmm-orchestrator.primary` only), with provider/model/effort selection and a clear notice that this primary model governs the main coordinating agent.
+   - Business output language (`settings.locale`).
+   - Deepwork default active (`settings.defaultActive`).
+   - If raw JSONC syntax is invalid, a clear notice is shown here with a button to expand and focus the JSONC source.
+5. **Advanced settings** — Collapsed `<details>` disclosure:
+   - Role models & availability: Per-role primary route, invocation levels (`low`, `high`, `max`), and ordered fallbacks with add/remove/move actions. For `dsmm-orchestrator`, explains that the primary model is configured in Basic settings with a jump button. Switching roles preserves invalid numeric drafts and keeps saving blocked until those fields are corrected or explicitly discarded.
+   - Retry policy: Strategy selection and rate-limit numeric overrides.
+   - Profile defaults: Default strategy and rate-limit bounds.
+   - Git write protection: Sparse `settings.guards.gitWriteGuard` (`ask` | `deny` | `off`) and `settings.guards.gitWriteScope` (`all-writes` | `high-risk`). When guard is `off`, the scope control is disabled with an explanatory note ("保护已关闭，检查范围暂不生效"), while Unset/inherit remains accessible.
+   - Subagent tools: Per-role tool topology configuration.
+6. **Advanced JSONC source editor** — Collapsed `<details className="dsmm-advanced">` disclosure:
+   - Full JSONC source editor preserving comments, whitespace, and unprojected parameters.
+   - User-triggered validation refusals expand disclosures and select the exact UTF-16 character range with reduced-motion support.
+7. **Save bar** — In normal document flow at the bottom:
+   - Status message and blocking issues.
+   - Save button (enabled only when dirty and valid).
+   - Discard button (triggers confirmation when dirty or when invalid fields exist).
+   - Reload button (available when clean).
+
+Discard confirmation tracks the initiating control and restores focus to that control (falling back to the profile selector) on cancellation or Escape. Blocking validation errors, read-only notices, and unavailable service reasons always remain visible in normal flow outside collapsed disclosures. Save increments the editor epoch without resetting user disclosure open/close states.
+
 ## Document format
 
 A document contains exactly `version: 1`, a filename-matching `id`, optional `label`, and `settings`. IDs contain 1 to 64 lowercase ASCII letters, digits, hyphens or underscores, start with a letter or digit, and can't be Windows reserved names. Labels are bounded text without control characters.

@@ -361,17 +361,36 @@ Native `SettingsFormModel`/`configForms` manage the host plugin-config document,
 
 ### Implemented Reusable Patterns
 
-#### Profiles: four independent zones
+#### Named profiles: scannable single-column layout
 
-Browse lists saved labels, IDs, immutable revisions and persistent warnings/errors. Opening changes only the editor; dirty changes require explicit discard confirmation with Escape cancellation and focus return. Edit shows draft and saved revision separately, with Save/Reload at the top. Structured routes, invocation levels, output locale (`settings.locale`), optional roles and topology share the original JSONC draft. Structured edits change only their addressed path; comments and unrelated bytes remain untouched. Blank labels retain their original bytes and use the ID as display fallback.
+The named profiles editor is scoped under `.dsmm-profiles.dsmm-named-profiles` to prevent leaking layout or style overrides to deployment pages or permissions panels. The surface is organized into a clear single-column flow:
 
-Future default displays the selected profile and known source-version relationship. Immutable references and selection/admission tokens remain internal identities. Only a usable saved version can be selected; Save neither selects a future default nor applies to the current session. Reset in this zone affects only future sessions. Missing admission/source metadata is unknown/captured, never inferred from a newer default or compared across unlike identities. Accepted-but-refresh-required responses remain committed and block replay until reread. Choosing a profile for a blank session is separate from this zone; Use profile model remains an explicit native action with its own capability.
+1. **Header browse row** — Lists saved labels, IDs, and immutable revisions alongside New draft and Refresh inventory buttons. A live status badge (`data-dsmm-editor-state`) reflects dirty, saved, refresh-required, and applied states. Opening another profile or refreshing checks `dirty || invalidFields.length > 0`; unsaved edits trigger explicit discard confirmation with focus restoration to the initiating trigger upon cancellation or Escape.
+2. **Effective summary** — Compact card displaying future default selection (with inline "Set as future default" action) and current session admission (with a quick-locate action targeting session settings).
+3. **Secondary actions** — Collapsed disclosure containing future default reset ("新会话使用插件默认" / "Use baseline for future sessions") and current-session scope controls (`SessionScope`).
+4. **Basic settings** — Flat, uncollapsed section in normal flow:
+   - Profile name (`label`) with optional omit action.
+   - Profile ID (`id`), locked on saved revisions.
+   - Orchestrator primary model (`settings.roleRouting["dsmm-orchestrator"].primary` only), configured directly here with provider, model, and reasoning effort controls.
+   - Business output language (`settings.locale`).
+   - Deepwork default active toggle (`settings.defaultActive`).
+   - When raw JSONC syntax is malformed, displays a prominent syntax notice and a direct jump action to the JSONC editor.
+5. **Advanced settings** — Collapsed `<details>` disclosure:
+   - Role models & availability: Per-role primary route, invocation levels (`low`, `high`, `max`), and ordered fallbacks with add/remove/move actions. For `dsmm-orchestrator`, points back to Basic settings to avoid duplicate inputs. Switching roles preserves invalid numeric drafts and keeps saving blocked until those fields are corrected or explicitly discarded.
+   - Retry policy: Strategy selection and rate-limit numeric overrides.
+   - Profile defaults: Default strategy and rate-limit bounds.
+   - Git write protection: Sparse `settings.guards.gitWriteGuard` (`ask` | `deny` | `off`) and `settings.guards.gitWriteScope` (`all-writes` | `high-risk`). When the guard is `off`, the scope control is disabled with an explanatory hint ("保护已关闭，检查范围暂不生效"), while Unset/inherit remains accessible.
+   - Subagent tools: Per-role tool topology configuration.
+6. **Advanced JSONC source editor** — Collapsed `<details className="dsmm-advanced">` disclosure:
+   - Direct JSONC text editing preserving original comments, formatting, and unprojected parameters.
+   - Validation failures expand necessary disclosures, scroll into view with `prefers-reduced-motion: reduce` support, focus the input, and select the precise UTF-16 character range.
+7. **Save bar** — In normal document flow at the bottom:
+   - Status message and blocking issues.
+   - Save button (enabled only when dirty and valid).
+   - Discard button (triggers confirmation when dirty or when invalid fields exist).
+   - Reload button (available when clean).
 
-Advanced JSONC is initially collapsed. A user-triggered validation refusal opens it and focuses/selects the Host's UTF-16 location; background refresh never steals focus. Persistent warning rows expose code, field and a nonblocking marker outside any disclosure; optional explanations may collapse. Draft, saved, future-pin and current-admission warnings remain separate. Unknown fields and exceptions never echo raw diagnostic values. Error code, safe field and location remain actionable; all errors other than blank-label warnings still block their operation.
-
-Invocation `normal` is a read-only default-route alias; only low/high/max overrides are editable, and orchestrator has no levels. Each override is inherit, exact effort-only, or a complete provider/model route; changing mode replaces that override, and an explicit model change clears only its stale effort. Catalog refresh/unavailability preserves manual values. Output locale is inherited when omitted and does not change the en/zh interface locale. Named profiles expose only subagent topology, never deployment-only permissions/background/depth. Role required/ceiling state comes from server metadata, with reasons adjacent to controls; absent metadata stays unknown and cannot justify lifting a ceiling. Current-session startup-binding readiness uses only the server admission DTO, never desired settings as actual state.
-
-Each zone is a one-column, borders-only semantic section using the existing spacing and type tokens. No session means an explicit unavailable current zone. Profiles contains no child-control panel. Child DTO/RPC availability alone doesn't establish an exposed UI: the current client registers no separate Conversation child/configuration tabs.
+Save increments `editorEpoch` without resetting user-controlled disclosure open/closed states. Essential warnings, validation errors, conflict notices, read-only notices, and unavailable service reasons always remain visible in normal flow outside collapsed disclosures. Invocation `normal` remains a read-only default-route alias; orchestrator has no level overrides. Each level override is inherit, exact effort-only, or a complete route. Output locale is inherited when omitted and affects only agent output. Named profiles expose only subagent topology, never deployment permissions, background execution, or recursion depth. Current-session startup-binding readiness relies strictly on server admission DTOs.
 
 #### Delegation call presentation
 

@@ -1256,3 +1256,276 @@ test("committed profile save with unavailable version requires explicit reread a
     await f.controller.apply(); assert.equal(f.calls.includes("select"), true); assert.equal(writes, 1);
   } finally { f.controller.dispose(); }
 });
+
+test("open, reload and discard protect unsaved state when dirty is false but invalidFields is non-empty", async () => {
+  const f = fixture();
+  try {
+    await f.controller.refresh();
+    await f.controller.open("p");
+    const originalContent = f.controller.store.getSnapshot().editor!.content;
+    assert.equal(f.controller.store.getSnapshot().dirty, false);
+    assert.equal(f.controller.store.getSnapshot().invalidFields.length, 0);
+
+    // Staging an invalid field marks field invalid
+    f.controller.actions.setFieldInvalid("rateLimit:reviewer:maxRetries", true);
+    // Even if content is edited back to equal the accepted content making dirty false:
+    f.controller.actions.editContent(originalContent);
+    assert.equal(f.controller.store.getSnapshot().dirty, false);
+    assert.deepEqual(f.controller.store.getSnapshot().invalidFields, ["rateLimit:reviewer:maxRetries"]);
+
+    // Attempting to open another profile must not silently discard the invalid draft
+    await f.controller.open("p2");
+    assert.equal(f.controller.store.getSnapshot().pendingEditor, "p2");
+    assert.equal(f.controller.store.getSnapshot().editor?.id, "p");
+
+    // Cancelling discard clears pendingEditor
+    f.controller.actions.cancelDiscard();
+    assert.equal(f.controller.store.getSnapshot().pendingEditor, null);
+
+    // Reload also prompts when invalidFields is non-empty
+    await f.controller.reload();
+    assert.equal(f.controller.store.getSnapshot().pendingEditor, "p");
+    f.controller.actions.cancelDiscard();
+    assert.equal(f.controller.store.getSnapshot().pendingEditor, null);
+
+    // Discard action directly prompts
+    f.controller.actions.discard();
+    assert.equal(f.controller.store.getSnapshot().pendingEditor, "p");
+
+    // Discard and open clears invalidFields and resets
+    await f.controller.actions.discardAndOpen();
+    assert.equal(f.controller.store.getSnapshot().pendingEditor, null);
+    assert.equal(f.controller.store.getSnapshot().invalidFields.length, 0);
+  } finally { f.controller.dispose(); }
+});
+
+test("sparse git write protection validates guard and scope while off state disables scope", async () => {
+  const f = fixture();
+  try {
+    await f.controller.refresh();
+    await f.controller.open("p");
+
+    f.controller.actions.editPath(["settings", "guards", "gitWriteGuard"], "deny");
+    let doc = structuredDocument(f.controller.store.getSnapshot().editor!.content);
+    assert.equal(doc?.guards?.gitWriteGuard, "deny");
+
+    f.controller.actions.editPath(["settings", "guards", "gitWriteScope"], "high-risk");
+    doc = structuredDocument(f.controller.store.getSnapshot().editor!.content);
+    assert.equal(doc?.guards?.gitWriteScope, "high-risk");
+
+    f.controller.actions.editPath(["settings", "guards", "gitWriteGuard"], "off");
+    doc = structuredDocument(f.controller.store.getSnapshot().editor!.content);
+    assert.equal(doc?.guards?.gitWriteGuard, "off");
+    assert.equal(doc?.guards?.gitWriteScope, "high-risk");
+
+    f.controller.actions.editPath(["settings", "guards", "gitWriteScope"], undefined);
+    doc = structuredDocument(f.controller.store.getSnapshot().editor!.content);
+    assert.equal(doc?.guards?.gitWriteScope, undefined);
+  } finally { f.controller.dispose(); }
+});
+
+test("saving a profile increments editorEpoch for key renewal while preserving state", async () => {
+  const f = fixture();
+  try {
+    await f.controller.refresh();
+    await f.controller.open("p");
+    const initialEpoch = f.controller.store.getSnapshot().editorEpoch;
+
+    f.controller.actions.editPath(["label"], "Updated Epoch Label");
+    assert.equal(f.controller.store.getSnapshot().dirty, true);
+
+    await f.controller.save();
+    const afterSnapshot = f.controller.store.getSnapshot();
+    assert.equal(afterSnapshot.dirty, false);
+    assert.equal(afterSnapshot.editorEpoch, initialEpoch + 1);
+  } finally { f.controller.dispose(); }
+});
+
+test("discardAndOpen preserves invalidFields and dirty draft when read fails", async () => {
+  let shouldFail = false;
+  const f = fixture({
+    read: async (id) => {
+      if (shouldFail) {
+        return { ok: false, error: new RemoteError("gateway/bad-request", "Network failure", {}) };
+      }
+      return { ok: true, value: { id, content, revision: "rev-1", warnings: [] } };
+    },
+  });
+  try {
+    await f.controller.refresh();
+    await f.controller.open("p");
+    f.controller.actions.setFieldInvalid("rateLimit:reviewer:maxRetries", true);
+    assert.deepEqual(f.controller.store.getSnapshot().invalidFields, ["rateLimit:reviewer:maxRetries"]);
+    const dirtyContent = f.controller.store.getSnapshot().editor!.content + "// my dirty edit";
+    f.controller.actions.editContent(dirtyContent);
+    assert.equal(f.controller.store.getSnapshot().dirty, true);
+
+    // Trigger discard prompt
+    f.controller.actions.discard();
+    assert.equal(f.controller.store.getSnapshot().pendingEditor, "p");
+
+    // Make read fail
+    shouldFail = true;
+    await f.controller.actions.discardAndOpen();
+
+    // After failed read, pendingEditor is cleared, but invalidFields is NOT cleared
+    assert.equal(f.controller.store.getSnapshot().pendingEditor, null);
+    assert.deepEqual(f.controller.store.getSnapshot().invalidFields, ["rateLimit:reviewer:maxRetries"]);
+    // Draft content and dirty flag are preserved
+    assert.equal(f.controller.store.getSnapshot().editor?.content, dirtyContent);
+    assert.equal(f.controller.store.getSnapshot().dirty, true);
+    // Issue is reported from failed read
+    assert.equal(f.controller.store.getSnapshot().issue?.kind, "transport");
+  } finally { f.controller.dispose(); }
+});
+
+test("stale in-flight discard read cannot overwrite newer draft after connection reset", async () => {
+  let finishOldRead!: (value: unknown) => void;
+  const oldReadPromise = new Promise((resolve) => { finishOldRead = resolve; });
+  let readCount = 0;
+
+  const f = fixture({
+    read: async (id) => {
+      readCount++;
+      if (readCount === 1) {
+        return { ok: true, value: { id: "p", content, revision: "rev-p", warnings: [] } };
+      }
+      // Second read (from discard) hangs until we release it
+      return oldReadPromise as Promise<any>;
+    },
+    save: async (request) => {
+      if (request.id === "INVALID") {
+        return {
+          ok: false,
+          error: new RemoteError("dsmm-profiles/refused", "Validation failed", {
+            code: "validation",
+            message: "Invalid ID",
+            field: "id",
+          }),
+        };
+      }
+      return { ok: true, value: { id: request.id, content: request.content, revision: "rev-new", warnings: [] } };
+    },
+  });
+
+  try {
+    const connection = createSnapshotStore<ConnectionGeneration | undefined>({ id: 1, host: { home: "isolated" } });
+    f.controller.bindConnection(connection);
+    await f.controller.refresh();
+    await f.controller.open("p");
+    f.controller.actions.editContent(content + "// draft for p\n");
+    assert.equal(f.controller.store.getSnapshot().dirty, true);
+
+    // Trigger discard of p
+    f.controller.actions.discard();
+    assert.equal(f.controller.store.getSnapshot().pendingEditor, "p");
+
+    // Start discardAndOpen - its read will hang in oldReadPromise
+    const discardPromise = f.controller.actions.discardAndOpen();
+
+    // Now connection resets/replaces, invalidating the in-flight read's generation and freeing busy
+    connection.set({ id: 2, host: { home: "isolated" } });
+    while (f.controller.store.getSnapshot().busy !== null) await setImmediate();
+
+    // User creates a new profile with an invalid ID and saves it
+    await f.controller.actions.create();
+    await f.controller.actions.discardAndOpen();
+    f.controller.actions.editId("INVALID");
+    await f.controller.actions.save();
+
+    // Verify current state is the new draft with validation issue on id
+    assert.equal(f.controller.store.getSnapshot().editor?.id, "INVALID");
+    assert.equal(f.controller.store.getSnapshot().issue?.field, "id");
+    assert.equal(f.controller.store.getSnapshot().issue?.code, "validation");
+
+    // NOW release the old discard read
+    finishOldRead({ ok: true, value: { id: "p", content: content + "// old accepted\n", revision: "rev-old", warnings: [] } });
+    await discardPromise;
+
+    // The new editor, its content, and its issue must NOT be overwritten by the old read response
+    assert.equal(f.controller.store.getSnapshot().editor?.id, "INVALID");
+    assert.equal(f.controller.store.getSnapshot().issue?.field, "id");
+    assert.equal(f.controller.store.getSnapshot().issue?.code, "validation");
+  } finally { f.controller.dispose(); }
+});
+
+test("two controller instances isolate numberDrafts and invalidFields (clean B does not clear A)", async () => {
+  const fA = fixture();
+  const fB = fixture();
+  try {
+    await fA.controller.refresh();
+    await fA.controller.open("p");
+    await fB.controller.refresh();
+    await fB.controller.open("p");
+
+    const key = "settings.roleRouting.dsmm-builder.rateLimit.maxRetries";
+    // Controller A records invalid draft
+    fA.controller.actions.setNumberDraft(key, { draft: "999", invalid: true, sourceValue: 0 });
+    fA.controller.actions.setFieldInvalid(key, true);
+
+    assert.deepEqual(fA.controller.store.getSnapshot().invalidFields, [key]);
+    assert.deepEqual(fA.controller.actions.getNumberDraft(key), { draft: "999", invalid: true, sourceValue: 0 });
+
+    // Controller B is clean and has no drafts or invalidFields
+    assert.deepEqual(fB.controller.store.getSnapshot().invalidFields, []);
+    assert.equal(fB.controller.actions.getNumberDraft(key), undefined);
+
+    // Controller B performing actions does not clear Controller A's state
+    fB.controller.actions.setFieldInvalid(key, false);
+    fB.controller.actions.setNumberDraft(key, null);
+
+    assert.deepEqual(fA.controller.store.getSnapshot().invalidFields, [key]);
+    assert.deepEqual(fA.controller.actions.getNumberDraft(key), { draft: "999", invalid: true, sourceValue: 0 });
+
+    // When Controller A successfully accepts, its drafts are cleared
+    await fA.controller.actions.discard();
+    await fA.controller.actions.discardAndOpen();
+    assert.equal(fA.controller.store.getSnapshot().invalidFields.length, 0);
+    assert.equal(fA.controller.actions.getNumberDraft(key), undefined);
+  } finally {
+    fA.controller.dispose();
+    fB.controller.dispose();
+  }
+});
+
+test("unmounted numeric drafts synchronize changed source paths and preserve unrelated invalid fields", async () => {
+  const f = fixture();
+  try {
+    await f.controller.refresh();
+    await f.controller.open("p");
+    const key = "settings.roleRouting.dsmm-builder.rateLimit.maxRetries";
+    const otherKey = "settings.runtimePolicy.rateLimit.maxRetries";
+    f.controller.actions.editPath(["settings", "roleRouting", "dsmm-builder", "rateLimit", "maxRetries"], 0);
+    const validContent = f.controller.store.getSnapshot().editor!.content;
+    f.controller.actions.setNumberDraft(key, { draft: "999", invalid: true, sourceValue: 0 });
+    f.controller.actions.setFieldInvalid(key, true);
+    f.controller.actions.setNumberDraft(otherKey, { draft: "999", invalid: true, sourceValue: undefined });
+    f.controller.actions.setFieldInvalid(otherKey, true);
+    f.controller.actions.setFieldInvalid("unrelated-route", true);
+    assert.equal(f.controller.actions.getNumberDraft(key)?.draft, "999");
+    f.controller.actions.editContent(validContent + "{ invalid");
+    f.controller.actions.editContent(validContent);
+    assert.equal(f.controller.actions.getNumberDraft(key)?.draft, "999");
+    assert.deepEqual(f.controller.store.getSnapshot().invalidFields, [key, otherKey, "unrelated-route"]);
+    await f.controller.save();
+    assert.equal(f.calls.includes("save"), false);
+
+    const newContent = editCurrentPath(validContent, ["settings", "roleRouting", "dsmm-builder", "rateLimit", "maxRetries"], 3);
+    assert.ok(newContent);
+    f.controller.actions.editContent(newContent);
+
+    assert.equal(f.controller.actions.getNumberDraft(key), undefined);
+    assert.equal(f.controller.actions.getNumberDraft(otherKey)?.draft, "999");
+    assert.deepEqual(f.controller.store.getSnapshot().invalidFields, [otherKey, "unrelated-route"]);
+    await f.controller.save();
+    assert.equal(f.calls.includes("save"), false);
+
+    f.controller.actions.setFieldInvalid("unrelated-route", false);
+    f.controller.actions.editPath(["settings", "runtimePolicy", "rateLimit", "maxRetries"], 2);
+    assert.equal(f.controller.store.getSnapshot().invalidFields.length, 0);
+    await f.controller.save();
+    assert.equal(f.calls.filter(call => call === "save").length, 1);
+  } finally {
+    f.controller.dispose();
+  }
+});

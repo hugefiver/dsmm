@@ -12,6 +12,9 @@ export function sessionProfileLabels(session: SessionProfileSnapshot, t: PropsLo
   const future = session.globalDefault;
   return {
     admitted: t("sessionState", { profile, scope: session.scope }),
-    futureDefault: t("sessionFutureDefault", { profile: future.selectedId === null ? t("sessionBaseline") : t("sessionAdmittedProfile", { id: future.selectedId, revision: t(configurationVersionState(future.sourceRevision)) }) }),
+    futureDefault: t("sessionFutureDefault", {
+      profile: !future || future.selectedId === null ? t("sessionBaseline")
+        : t("sessionAdmittedProfile", { id: future.selectedId, revision: t(configurationVersionState(future.sourceRevision)) }),
+    }),
   };
 }

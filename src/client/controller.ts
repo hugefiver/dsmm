@@ -14,7 +14,7 @@ import { isConfigRevision } from "../config-revision.js";
 import { writableSelectionVersion } from "./configuration-display.js";
 import type { SessionProfileSnapshot } from "../profile-types.js";
 import type { ModelCatalog, SessionSelectModelRequest, SessionSelectModelValue } from "@deepseek-ai/dsh-api-session-controller";
-import { editStructuredPath, moveFallback } from "./structured.js";
+import { editStructuredPath, moveFallback, structuredDocument } from "./structured.js";
 import type { JsonPath } from "./structured.js";
 
 export interface ProfileEditor { id: string; content: string; revision: string | null; warnings?: ProfileDiagnostic[]; refreshRequired?: true }
@@ -55,6 +55,7 @@ export interface ProfilesActions {
   save(): Promise<void>;
   apply(): Promise<void>;
   reset(): Promise<void>;
+  discard(): void;
   discardAndOpen(): Promise<void>;
   cancelDiscard(): void;
   editPath(path: JsonPath, value: unknown): void;
@@ -68,6 +69,13 @@ export interface ProfilesActions {
   setDeepwork(active: boolean): Promise<void>;
   useSessionProfileModel(): Promise<void>;
   setFieldInvalid(field: string, invalid: boolean): void;
+  setNumberDraft(key: string, entry: NumberDraftState | null): void;
+  getNumberDraft(key: string): NumberDraftState | undefined;
+}
+export interface NumberDraftState {
+  draft: string;
+  invalid: boolean;
+  sourceValue: number | undefined;
 }
 export interface ModelCatalogRemote { modelCatalog(): Promise<RemoteResult<ModelCatalog>> }
 export interface ProfileModelSelectorRemote { selectModel(request: SessionSelectModelRequest): Promise<RemoteResult<SessionSelectModelValue>> }
@@ -140,6 +148,7 @@ export class ProfilesController {
     refresh: () => this.refresh(), open: (id) => this.open(id), create: () => this.open(NEW_EDITOR), reload: () => this.reload(),
     editId: (id) => this.editId(id), editContent: (content) => this.editContent(content),
     save: () => this.save(), apply: () => this.apply(), reset: () => this.reset(),
+    discard: () => this.discard(),
     discardAndOpen: () => this.discardAndOpen(), cancelDiscard: () => this.publish({ pendingEditor: null }),
     editPath: (path, value) => this.editPath(path, value), moveFallback: (role, from, to) => this.editFallbackOrder(role, from, to),
     editRoute: (path, provider, model) => this.editRoute(path, provider, model),
@@ -153,9 +162,19 @@ export class ProfilesController {
       if (invalid) invalidFields.push(field);
       if (invalidFields.join("\n") !== this.current.invalidFields.join("\n")) this.publish({ invalidFields, ...(invalid ? { dirty: true } : {}) });
     },
+    setNumberDraft: (key, entry) => {
+      if (this.disposed) return;
+      if (entry === null) {
+        this.numberDrafts.delete(key);
+      } else {
+        this.numberDrafts.set(key, entry);
+      }
+    },
+    getNumberDraft: (key) => this.numberDrafts.get(key),
   };
+  private numberDrafts = new Map<string, NumberDraftState>();
   constructor(private readonly remote: DsmmProfilesRemote) {}
-  dispose(): void { this.releaseComposerBlock(); this.stopConnection?.(); this.disposed = true; this.generation += 1; this.sessionGeneration += 1; this.catalogGeneration += 1; this.modelSelectorGeneration += 1; this.modelSelectionGeneration += 1; this.stopModelSelection?.(); this.stopModelEvents?.(); this.stopModelInteraction?.(); this.stopModelSelection = null; this.stopModelEvents = null; this.stopModelInteraction = null; this.modelSelectionSource = null; this.modelEvents = null; this.modelInteraction = null; this.catalogRemote = null; this.modelSelector = null; this.listeners.clear(); }
+  dispose(): void { this.releaseComposerBlock(); this.numberDrafts.clear(); this.stopConnection?.(); this.disposed = true; this.generation += 1; this.sessionGeneration += 1; this.catalogGeneration += 1; this.modelSelectorGeneration += 1; this.modelSelectionGeneration += 1; this.stopModelSelection?.(); this.stopModelEvents?.(); this.stopModelInteraction?.(); this.stopModelSelection = null; this.stopModelEvents = null; this.stopModelInteraction = null; this.modelSelectionSource = null; this.modelEvents = null; this.modelInteraction = null; this.catalogRemote = null; this.modelSelector = null; this.listeners.clear(); }
   bindConnection(source: ConnectionGenerationState | null): void {
     if (this.disposed) return;
     const replacement = this.connectionBound && (source !== this.connection || source?.getSnapshot() !== this.connectionBaseline);
@@ -412,6 +431,7 @@ export class ProfilesController {
     for (const listener of this.listeners) listener();
   }
   private accept(document: ProfileEditor): void {
+    this.numberDrafts.clear();
     this.accepted = { ...document };
     this.publish({ editor: { ...document }, dirty: false, pendingEditor: null, invalidFields: [], editorEpoch: this.current.editorEpoch + 1 });
   }
@@ -451,17 +471,24 @@ export class ProfilesController {
   async open(id: string): Promise<void> {
     if (this.disposed || this.current.busy !== null || this.current.pendingEditor !== null) return;
     if (id !== NEW_EDITOR && this.current.editor?.id === id) return;
-    if (this.current.dirty) { this.publish({ pendingEditor: id }); return; }
+    if (this.current.dirty || this.current.invalidFields.length > 0) { this.publish({ pendingEditor: id }); return; }
     await this.loadEditor(id);
   }
   async reload(): Promise<void> {
     const editor = this.current.editor;
     if (editor === null || editor.revision === null || this.current.busy !== null || this.current.pendingEditor !== null) return;
-    if (this.current.dirty) { this.publish({ pendingEditor: editor.id }); return; }
+    if (this.current.dirty || this.current.invalidFields.length > 0) { this.publish({ pendingEditor: editor.id }); return; }
     await this.loadEditor(editor.id);
+  }
+  discard(): void {
+    const editor = this.current.editor;
+    if (this.disposed || editor === null || this.current.busy !== null || this.current.pendingEditor !== null) return;
+    if (!this.current.dirty && this.current.invalidFields.length === 0) return;
+    this.publish({ pendingEditor: editor.revision === null ? NEW_EDITOR : editor.id });
   }
   private async loadEditor(id: string): Promise<void> {
     if (id === NEW_EDITOR) {
+      this.numberDrafts.clear();
       this.accepted = null;
       this.publish({ editor: { id: "new-profile", content: NEW_PROFILE_CONTENT, revision: null }, dirty: true, issue: null, notice: null, pendingEditor: null, invalidFields: [], editorEpoch: this.current.editorEpoch + 1 });
       return;
@@ -475,14 +502,7 @@ export class ProfilesController {
     const wanted = this.current.pendingEditor;
     if (wanted === null || this.current.busy !== null) return;
     this.publish({ pendingEditor: null });
-    // Only explicit confirmation clears a draft; a failed read restores it.
-    const previous = this.current.editor;
-    const accepted = this.accepted;
     await this.loadEditor(wanted);
-    if (this.current.issue !== null && previous !== null) {
-      this.accepted = accepted;
-      this.publish({ editor: previous, dirty: true });
-    }
   }
   private editId(id: string): void {
     const editor = this.current.editor;
@@ -494,7 +514,21 @@ export class ProfilesController {
   private editContent(content: string): void {
     const editor = this.current.editor;
     if (editor === null || editor.refreshRequired || this.current.busy !== null || this.current.pendingEditor !== null) return;
-    this.publish({ editor: { ...editor, content }, dirty: this.accepted === null || this.accepted.content !== content || this.accepted.id !== editor.id, issue: null, notice: null });
+    const document = structuredDocument(content);
+    let invalidFields = this.current.invalidFields;
+    if (document !== null) {
+      for (const [key, draft] of this.numberDrafts) {
+        let value: unknown = document;
+        for (const segment of key.split(".")) {
+          value = value !== null && typeof value === "object" && Object.hasOwn(value, segment) ? (value as Record<string, unknown>)[segment] : undefined;
+        }
+        if (value !== draft.sourceValue) {
+          this.numberDrafts.delete(key);
+          invalidFields = invalidFields.filter(field => field !== key);
+        }
+      }
+    }
+    this.publish({ editor: { ...editor, content }, invalidFields, dirty: this.accepted === null || this.accepted.content !== content || this.accepted.id !== editor.id, issue: null, notice: null });
   }
   private editPath(path: JsonPath, value: unknown): void {
     const editor = this.current.editor;

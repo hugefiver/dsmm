@@ -10,6 +10,7 @@ export interface StructuredDocument {
   settings: Record<string, unknown>;
   roleRouting: Record<string, DsmmRoleRoutingConfig>;
   runtimePolicy: { strategy?: DsmmRuntimePolicySettings["strategy"]; rateLimit?: Partial<DsmmRateLimitPolicy> };
+  guards?: { gitWriteGuard?: "ask" | "deny" | "off"; gitWriteScope?: "all-writes" | "high-risk" };
 }
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -52,6 +53,18 @@ export function structuredDocument(content: string): StructuredDocument | null {
       || !["per-role", "parameterized"].includes(settings.subagents.toolTopology)))) return null;
   if (settings.roleRouting !== undefined && !record(settings.roleRouting)) return null;
   if (settings.runtimePolicy !== undefined && !record(settings.runtimePolicy)) return null;
+  let guards: { gitWriteGuard?: "ask" | "deny" | "off"; gitWriteScope?: "all-writes" | "high-risk" } | undefined;
+  if (settings.guards !== undefined) {
+    if (!record(settings.guards)) return null;
+    const rawGitWriteGuard = settings.guards.gitWriteGuard;
+    const rawGitWriteScope = settings.guards.gitWriteScope;
+    if (rawGitWriteGuard !== undefined && (typeof rawGitWriteGuard !== "string" || !["ask", "deny", "off"].includes(rawGitWriteGuard))) return null;
+    if (rawGitWriteScope !== undefined && (typeof rawGitWriteScope !== "string" || !["all-writes", "high-risk"].includes(rawGitWriteScope))) return null;
+    guards = {
+      gitWriteGuard: rawGitWriteGuard as "ask" | "deny" | "off" | undefined,
+      gitWriteScope: rawGitWriteScope as "all-writes" | "high-risk" | undefined,
+    };
+  }
   const runtimePolicy = settings.runtimePolicy ?? {};
   const policies = settings.roleRouting ?? {};
   try {
@@ -68,7 +81,7 @@ export function structuredDocument(content: string): StructuredDocument | null {
       if (raw.rateLimit !== undefined) normalizeRateLimitOverrides(raw.rateLimit);
     }
   } catch { return null; }
-  return { label: document.label as string | undefined, settings, roleRouting: policies as Record<string, DsmmRoleRoutingConfig>, runtimePolicy };
+  return { label: document.label as string | undefined, settings, roleRouting: policies as Record<string, DsmmRoleRoutingConfig>, runtimePolicy, guards };
 }
 
 /** Only the named path changes; comments/unrelated raw JSONC remain untouched. */
