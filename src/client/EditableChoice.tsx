@@ -36,6 +36,7 @@ export function EditableChoice({ id, label, value, options, disabled, placeholde
     <Input ref={input} id={id} className="dsmm-input" role="combobox" aria-autocomplete="list" aria-expanded={visible}
       aria-controls={visible ? `${id}-choices` : undefined} aria-activedescendant={visible && activeIndex >= 0 ? `${id}-choice-${activeIndex}` : undefined}
       value={value} disabled={disabled} placeholder={placeholder} autoComplete="off" onBlur={close}
+      onClick={() => { if (!disabled && choices.length > 0 && !visible) { setOpen(true); setActiveId(null); } }}
       onChange={event => { onChange(event.currentTarget.value); setOpen(true); setActiveId(null); }} onKeyDown={event => {
         if (event.nativeEvent.isComposing) return;
         if ((event.key === "ArrowDown" || event.key === "ArrowUp") && choices.length > 0) {
@@ -48,7 +49,7 @@ export function EditableChoice({ id, label, value, options, disabled, placeholde
           if (event.key === "Enter" && activeIndex >= 0) choose(choices[activeIndex]!.id); else close();
         }
       }} />
-    <Button type="button" size="sm" variant="toolbar" tabIndex={-1} className="dsmm-choice-toggle" aria-label={label} aria-haspopup="listbox" aria-expanded={visible}
+    <Button type="button" size="sm" variant="ghost" tabIndex={-1} className="dsmm-choice-toggle" aria-label={label} aria-haspopup="listbox" aria-expanded={visible}
       disabled={disabled || choices.length === 0} icon={<IconChevronDownOutlineRegular />} onMouseDown={event => event.preventDefault()}
       onClick={() => { input.current?.focus(); setOpen(!visible); setActiveId(null); }} />
     {visible && <ul className="dsmm-choice-list" id={`${id}-choices`} role="listbox" aria-label={label}>

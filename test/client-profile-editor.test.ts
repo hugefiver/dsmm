@@ -187,6 +187,131 @@ test("one editable choice stores suggestion IDs and exact custom effort through 
   } finally { f.controller.dispose(); }
 });
 
+test("EditableChoice opens on input click, stays open on second click, closes on selection, and preserves keyboard/disabled contracts", async () => {
+  function NativeChoiceInput(props: Record<string, unknown>) { return createElement("input", props); }
+  function NativeChoiceButton(props: Record<string, unknown>) { return createElement("button", props); }
+  const require = createRequire(import.meta.url);
+  const compiled = await build({ entryPoints: [fileURLToPath(new URL("../src/client/EditableChoice.tsx", import.meta.url))], bundle: true, write: false,
+    platform: "node", format: "cjs", external: ["react", "react/jsx-runtime", "@deepseek-ai/dsh-client-ui-primitives"] });
+  const module = { exports: {} as { EditableChoice(props: EditableChoiceProps): unknown } };
+
+  let openState = false;
+  let activeIdState: string | null = null;
+  const setOpenCalls: boolean[] = [];
+  const setActiveIdCalls: (string | null)[] = [];
+
+  runInContext(compiled.outputFiles![0]!.text, createContext({ module, exports: module.exports,
+    require: (id: string) => id === "@deepseek-ai/dsh-client-ui-primitives" ? { Input: NativeChoiceInput, Button: NativeChoiceButton, IconChevronDownOutlineRegular: NativeProfileIcon }
+      : id === "react" ? {
+        ...require(id),
+        useRef: () => ({ current: { focus() {} } }),
+        useState: (initial: unknown) => {
+          if (typeof initial === "boolean") {
+            return [openState, (val: boolean | ((p: boolean) => boolean)) => {
+              const next = typeof val === "function" ? val(openState) : val;
+              setOpenCalls.push(next);
+              openState = next;
+            }];
+          }
+          return [activeIdState, (val: string | null | ((p: string | null) => string | null)) => {
+            const next = typeof val === "function" ? val(activeIdState) : val;
+            setActiveIdCalls.push(next);
+            activeIdState = next;
+          }];
+        },
+        useEffect: () => {}
+      } : require(id) }));
+
+  const renderChoice = (props: Partial<EditableChoiceProps> = {}) => elements(module.exports.EditableChoice({
+    id: "provider",
+    label: "Provider",
+    value: "apai",
+    options: [{ id: "apai", name: "Apai" }, { id: "openai", name: "OpenAI" }],
+    disabled: false,
+    onChange() {},
+    ...props,
+  }));
+
+  // 1. Initial closed state: clicking input body opens the dropdown
+  openState = false;
+  setOpenCalls.length = 0;
+  setActiveIdCalls.length = 0;
+  const initialNodes = renderChoice();
+  const inputEl = initialNodes.find(node => node.type === NativeChoiceInput)!;
+  assert.ok(typeof inputEl.props.onClick === "function", "input must receive onClick handler");
+
+  (inputEl.props.onClick as () => void)();
+  assert.deepEqual(setOpenCalls, [true], "clicking input body when closed must call setOpen(true)");
+  assert.deepEqual(setActiveIdCalls, [null], "clicking input body resets activeId");
+
+  // 2. Already open state: clicking input body does not toggle closed (stays open, no duplicate calls)
+  openState = true;
+  setOpenCalls.length = 0;
+  const openNodes = renderChoice();
+  const openInputEl = openNodes.find(node => node.type === NativeChoiceInput)!;
+  (openInputEl.props.onClick as () => void)();
+  assert.equal(setOpenCalls.length, 0, "clicking input body when already open must not toggle or re-trigger setOpen");
+
+  // 3. Selecting an option closes dropdown and does not trigger re-opening
+  openState = true;
+  setOpenCalls.length = 0;
+  let selectedValue = "";
+  const choiceNodes = renderChoice({ onSelect: (v) => { selectedValue = v; } });
+  const optionEl = choiceNodes.find(node => node.props.role === "option" && node.props["data-value"] === "openai");
+  assert.ok(optionEl, "option element must exist in open dropdown");
+  (optionEl.props.onClick as () => void)();
+  assert.equal(selectedValue, "openai", "selecting option must dispatch selection");
+  assert.deepEqual(setOpenCalls, [false], "selecting option must close dropdown");
+
+  // 4. Arrow down key opens dropdown and selects first option
+  openState = false;
+  setOpenCalls.length = 0;
+  setActiveIdCalls.length = 0;
+  let prevented = false;
+  let stopped = false;
+  (inputEl.props.onKeyDown as (e: unknown) => void)({
+    key: "ArrowDown",
+    nativeEvent: { isComposing: false },
+    preventDefault() { prevented = true; },
+    stopPropagation() { stopped = true; },
+  });
+  assert.equal(prevented, true);
+  assert.equal(stopped, true);
+  assert.deepEqual(setOpenCalls, [true], "ArrowDown key opens dropdown");
+  assert.deepEqual(setActiveIdCalls, ["apai"], "ArrowDown key moves activeId");
+
+  // 5. Toggle button click toggles open state
+  openState = false;
+  setOpenCalls.length = 0;
+  const toggleBtn = initialNodes.find(node => node.type === NativeChoiceButton)!;
+  (toggleBtn.props.onClick as () => void)();
+  assert.deepEqual(setOpenCalls, [true], "toggle button click opens when closed");
+
+  openState = true;
+  setOpenCalls.length = 0;
+  const toggleBtnWhenOpen = renderChoice().find(node => node.type === NativeChoiceButton)!;
+  (toggleBtnWhenOpen.props.onClick as () => void)();
+  assert.deepEqual(setOpenCalls, [false], "toggle button click closes when open");
+
+  // 6. Disabled state: clicking input body does not open dropdown
+  openState = false;
+  setOpenCalls.length = 0;
+  const disabledNodes = renderChoice({ disabled: true });
+  const disabledInput = disabledNodes.find(node => node.type === NativeChoiceInput)!;
+  (disabledInput.props.onClick as () => void)();
+  assert.equal(setOpenCalls.length, 0, "clicking disabled input body must not open dropdown");
+});
+
+test("displayRoleLabel strips DW prefix from Agent display names and preserves plain labels", async () => {
+  const { displayRoleLabel } = await import("../src/client/session-labels.js");
+  assert.equal(displayRoleLabel("DW Orchestrator"), "Orchestrator");
+  assert.equal(displayRoleLabel("DW Reviewer"), "Reviewer");
+  assert.equal(displayRoleLabel("DW Builder"), "Builder");
+  assert.equal(displayRoleLabel("DW Planner"), "Planner");
+  assert.equal(displayRoleLabel("Orchestrator"), "Orchestrator");
+  assert.equal(displayRoleLabel("dsmm-custom"), "dsmm-custom");
+});
+
 test("known route edits and fallback moves retain opaque JSONC parameters without interpreting them", () => {
   const raw = `{
     "version": 1, "id": "opaque", "settings": {"roleRouting": {"dsmm-builder": {

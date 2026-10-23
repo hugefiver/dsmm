@@ -81,6 +81,8 @@ export function Field({ schema, path, controller, initiallyOpen = false, disclos
   };
   const explicit = at(state.draft, path), inherited = controller.layer === "global" ? at(snapshot.defaults, path) : at(mergeLayer(mergeLayer(snapshot.defaults, snapshot.global), snapshot.nativeForm?.base ?? {}), path);
   const choices = enumValues(schema), disabled = !controller.canEdit();
+  const choiceLabel = (value: unknown) => name === "guards.gitWriteScope" && (value === "all-writes" || value === "high-risk")
+    ? t(value === "all-writes" ? "gitWriteAllWrites" : "gitWriteHighRisk") : displayValue(value, t);
   if (name === "permissionControl.nativeCommands.entries") return <div data-field={name}><NativeCommandEntries controller={controller} value={explicit as readonly NativeCommandRule[] | undefined} inherited={(inherited ?? []) as readonly NativeCommandRule[]} disabled={disabled} onChange={value => controller.edit(path, value)} setInvalid={(key, bad) => controller.setInvalid(key, bad)} t={permissionText(t)} /></div>;
   if (name === "permissionControl.rules") return <div data-field={name}><PermissionRuleEntries controller={controller} value={explicit as readonly PermissionRule[] | undefined} inherited={(inherited ?? []) as readonly PermissionRule[]} disabled={disabled} onChange={value => controller.edit(path, value)} expanded={open} onExpandedChange={expand} t={permissionText(t)} /></div>;
   if (schema.type === "object" && schema.fields !== undefined && path[0] !== "roleRouting") return <details className="dsmm-deployment-group" data-field={name} open={open} onToggle={event => expand(event.currentTarget.open)}><summary className="dsmm-group-summary-row"><span className="dsmm-group-summary"><span className="dsmm-group-summary-label">{fieldLabel(path, t)}</span>
@@ -92,7 +94,7 @@ export function Field({ schema, path, controller, initiallyOpen = false, disclos
   if (!["boolean", "string", "number"].includes(schema.type) && choices === null) return <AdvancedField schema={schema} path={path} controller={controller} inherited={inherited} upper={controller.layer === "global" ? at(snapshot.profile, path) : undefined} expanded={open} onExpandedChange={expand} t={t} />;
   return <div className="dsmm-field dsmm-deployment-field" data-field={name}>
     {schema.type === "boolean" || choices !== null ? <><label htmlFor={id}>{fieldLabel(path, t)}</label><select id={id} disabled={disabled} value={explicit === undefined ? "inherit" : JSON.stringify(explicit)} onChange={event => controller.edit(path, event.currentTarget.value === "inherit" ? undefined : JSON.parse(event.currentTarget.value))}>
-      <option value="inherit">{`${unsetLabel} · ${displayValue(inherited, t)}`}</option>{(choices ?? [true, false]).map(choice => <option key={String(choice)} value={JSON.stringify(choice)}>{displayValue(choice, t)}</option>)}
+      <option value="inherit">{`${unsetLabel} · ${choiceLabel(inherited)}`}</option>{(choices ?? [true, false]).map(choice => <option key={String(choice)} value={JSON.stringify(choice)}>{choiceLabel(choice)}</option>)}
     </select></> : <ScalarField schema={schema} path={path} controller={controller} inherited={inherited} t={t} />}
     {name === "modelParameters.passthrough" && <p className="dsmm-hint">{t("modelParametersHint")}</p>}
     {name === "permissionControl.enabled" && <p className="dsmm-hint">{permissionText(t)("coldHint")}</p>}

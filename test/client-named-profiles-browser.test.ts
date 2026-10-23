@@ -653,6 +653,18 @@ test("Named profiles redesigned UI page-level browser QA and interactive flows",
     const builderDialogModel = builderCard.locator(".dsmm-role-primary-route input[id$='-model']");
     assert.equal(await builderDialogModel.inputValue(), "deepseek-reasoner");
 
+    // Verify geometric alignment: search input and checkbox toggle baseline
+    const searchBox = await page.locator(".dsmm-filter-search input").boundingBox();
+    const toggleBox = await page.locator(".dsmm-filter-override-toggle").boundingBox();
+    assert.ok(searchBox && toggleBox);
+    assert.ok(Math.abs((searchBox.y + searchBox.height / 2) - (toggleBox.y + toggleBox.height / 2)) <= 2, "Search input and override toggle must be vertically center-aligned");
+
+    // Verify left boundary alignment of primary route fields across role cards
+    const orchRouteBox = await orchCard.locator(".dsmm-role-primary-route").boundingBox();
+    const builderRouteBox = await builderCard.locator(".dsmm-role-primary-route").boundingBox();
+    assert.ok(orchRouteBox && builderRouteBox);
+    assert.ok(Math.abs(orchRouteBox.x - builderRouteBox.x) <= 2, "Role card primary route fields must share the same left boundary");
+
     // 12. Dual Orchestrator Model Synchronization & Dialog Save Eligibility
     await orchDialogModel.fill("deepseek-reasoner");
     assert.equal(await dialogTopSaveBtn.isEnabled(), true, "Dialog save button must be enabled when dirty and valid");

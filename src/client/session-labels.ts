@@ -3,6 +3,10 @@ import type { SessionProfileSnapshot } from "../profile-types.js";
 import type {} from "./locales.js";
 import { configurationVersionState } from "./configuration-display.js";
 
+export function displayRoleLabel(label: string): string {
+  return label.replace(/^DW\s+/u, "");
+}
+
 /** Presentation only: admitted identity never substitutes for sidecar CAS. */
 export function sessionProfileLabels(session: SessionProfileSnapshot, t: PropsLocale<"settings.dsmm-profiles">["t"]): { admitted: string; futureDefault: string } {
   const admitted = session.admittedSelection;

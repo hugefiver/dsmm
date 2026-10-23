@@ -7,7 +7,7 @@ export const roleToolEn = {
   background: "Background", error: "Failed", stopped: "Interrupted",
   technicalDetails: "Technical details",
   args: "Original arguments", preparingArgs: "Arguments received so far", output: "Complete result content", failure: "Error details", metadata: "Invocation metadata",
-  inspect: "Inspect tool call", copy: "Copy", copied: "Copied", emptyArgs: "Arguments not available yet",
+  inspect: "View call details", copy: "Copy", copied: "Copied", emptyArgs: "Arguments not available yet",
   unavailable: "Actual identity unavailable; requested identity only", level: "Level", route: "Reported route", routeSource: "Route source",
   table: "Table", json: "JSON", viewMode: "View mode", property: "Property", value: "Value",
 } as const;
@@ -19,7 +19,7 @@ export const roleToolZh: Record<keyof typeof roleToolEn, string> = {
   background: "后台调用", error: "失败", stopped: "已中断",
   technicalDetails: "技术详情",
   args: "原始参数", preparingArgs: "目前已收到的参数", output: "完整结果内容", failure: "错误详情", metadata: "调用元数据",
-  inspect: "检查工具调用", copy: "复制", copied: "已复制", emptyArgs: "参数尚不可用",
+  inspect: "查看调用详情", copy: "复制", copied: "已复制", emptyArgs: "参数尚不可用",
   unavailable: "实际身份不可用，仅显示请求身份", level: "等级", route: "报告的路由", routeSource: "路由来源",
   table: "表格", json: "JSON", viewMode: "视图模式", property: "属性", value: "值",
 };

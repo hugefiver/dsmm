@@ -60,15 +60,19 @@ export function ScopeSave({ controller, workspace, refreshOnly = false, t }: Loc
     };
   }, []);
 
+  const status = refreshOnly
+    ? (state.busy ? t("loading") : "")
+    : (state.busy ? t("saving") : state.refreshRequired ? t("savedRefreshRequired") : state.saved ? t("saved") : state.dirty ? t("dirty") : "");
+
   return <section ref={ref} className="dsmm-scope-save" aria-label={t("saveScope")}>
-    <p className="dsmm-status" role="status" aria-live="polite">{refreshOnly ? state.busy ? t("loading") : "" : state.busy ? t("saving") : state.refreshRequired ? t("savedRefreshRequired") : state.saved ? t("saved") : state.dirty ? t("dirty") : ""}</p>
-    {!refreshOnly && pending.length > 0 && <p>{t("pendingModules")}: {pending.map(module => t(moduleTitle(module))).join(" · ")}</p>}
+    <div className="dsmm-actions">{!refreshOnly && <Button type="button" variant="primary" disabled={!controller.canSave()} onClick={() => void (workspace?.save() ?? controller.save())}>{t(controller.layer === "global" ? "saveGlobal" : "saveProfile")}</Button>}
+      <Button type="button" variant="outline" disabled={state.busy} onClick={() => void controller.refresh()}>{t("refresh")}</Button>
+      {!refreshOnly && <Button type="button" variant="outline" disabled={state.busy || !state.dirty && state.issue === null && !state.refreshRequired} onClick={() => void controller.refresh(true)}>{t("discard")}</Button>}
+      {status !== "" && <p className="dsmm-status" role="status" aria-live="polite">{status}</p>}</div>
+    {!refreshOnly && pending.length > 0 && <p className="dsmm-hint">{t("pendingModules")}: {pending.map(module => t(moduleTitle(module))).join(" · ")}</p>}
     {state.issue !== null && <p className="dsmm-issue" role="alert">{t(state.issue)}</p>}
     {!refreshOnly && state.invalidFields.length > 0 && <p className="dsmm-issue" role="alert">{t("invalid")}</p>}
     {controller.layer === "profile" && !controller.canWriteProfile() && <p className="dsmm-hint">{t("unavailableForm")}</p>}
-    <div className="dsmm-actions">{!refreshOnly && <Button type="button" variant="primary" disabled={!controller.canSave()} onClick={() => void (workspace?.save() ?? controller.save())}>{t(controller.layer === "global" ? "saveGlobal" : "saveProfile")}</Button>}
-      <Button type="button" variant="outline" disabled={state.busy} onClick={() => void controller.refresh()}>{t("refresh")}</Button>
-      {!refreshOnly && <Button type="button" variant="outline" disabled={state.busy || !state.dirty && state.issue === null && !state.refreshRequired} onClick={() => void controller.refresh(true)}>{t("discard")}</Button>}</div>
   </section>;
 }
 export function NativeRuntimeState({ value, t }: Locale & { value?: SubagentRuntimeAdmissionView }) {

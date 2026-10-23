@@ -104,22 +104,30 @@ function text(tree: unknown): string {
 
 test("one flat section tablist keeps the user's group collapse through save, locale and reopening", async () => {
   const f = fixture(), page = await compiledNativePage(f.remote);
+  const saveStatus = () => {
+    const section = elements(page.tree()).find(node => node.props["aria-label"] === deploymentEn.saveScope);
+    assert.ok(section);
+    return elements(section).filter(node => node.props.role === "status");
+  };
   const group = (path: string, translate?: DeploymentPageProps["t"]) => {
     const node = elements(page.tree(translate)).find(node => node.type === "details" && node.props["data-field"] === path);
     assert.ok(node, path); return node;
   };
   try {
     page.open(deploymentEn["module:workflow"]);
+    assert.equal(saveStatus().length, 0, "an idle save bar has no empty status row");
     assert.equal(group("subagents").props.open ?? false, false, "multi-field sections keep nested groups collapsed");
     (group("subagents").props.onToggle as (event: unknown) => void)({ currentTarget: { open: true } });
     const field = elements(group("subagents")).find(node => node.props["data-field"] === "subagents.maxDepth");
     assert.ok(field);
     const input = elements(field).find(node => node.type === "input"); assert.ok(input);
     (input.props.onChange as (event: unknown) => void)({ currentTarget: { value: "2" } });
+    assert.equal(text(saveStatus()), deploymentEn.dirty);
     (group("subagents").props.onToggle as (event: unknown) => void)({ currentTarget: { open: false } });
     assert.equal(group("subagents").props.open, false);
     await page.workspace.save();
     assert.equal(f.writes.length, 1);
+    assert.equal(text(saveStatus()), deploymentEn.saved);
     assert.equal(group("subagents").props.open, false);
     assert.equal(group("subagents", key => deploymentZh[key as keyof typeof deploymentZh] ?? key).props.open, false);
     page.workspace.request({ scope: "global", module: null });
@@ -294,6 +302,9 @@ test("schema-driven Git scope selector saves and reloads Global values and resto
       const control = elements(field).find(node => node.type === "select"); assert.ok(control); return control;
     };
     assert.deepEqual(elements(select()).filter(node => node.type === "option").map(node => node.props.value), ["inherit", '"all-writes"', '"high-risk"']);
+    assert.deepEqual(elements(select()).filter(node => node.type === "option").map(text), [
+      `${deploymentEn.useDefaults} · ${deploymentEn.gitWriteAllWrites}`, deploymentEn.gitWriteAllWrites, deploymentEn.gitWriteHighRisk,
+    ]);
     assert.equal(select().props.value, "inherit");
     (select().props.onChange as (event: unknown) => void)({ currentTarget: { value: '"high-risk"' } });
     await page.workspace.save();

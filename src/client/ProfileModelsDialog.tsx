@@ -10,6 +10,8 @@ import type { JsonPath, StructuredDocument } from "./structured.js";
 import { LevelFields, PolicyFields, RouteFields } from "./StructuredEditor.js";
 import { RoleAvailability, roleAvailability } from "./RoleAvailability.js";
 import { IssueDetails, issueKey } from "./diagnostics.js";
+import { displayRoleLabel } from "./session-labels.js";
+export { displayRoleLabel };
 
 type Locale = PropsLocale<"settings.dsmm-profiles">;
 
@@ -286,7 +288,8 @@ export function ProfileModelsDialog({
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
       const matchesId = role.id.toLowerCase().includes(q);
-      const matchesLabel = role.label.toLowerCase().includes(q);
+      const displayLabel = displayRoleLabel(role.label);
+      const matchesLabel = role.label.toLowerCase().includes(q) || displayLabel.toLowerCase().includes(q);
       if (!matchesId && !matchesLabel) return false;
     }
     if (filterExplicitOnly) {
@@ -441,6 +444,7 @@ export function ProfileModelsDialog({
           )}
 
           {filteredRoles.map((role) => {
+            const roleName = displayRoleLabel(role.label);
             const policy = doc.roleRouting[role.id] ?? {};
             const rolePath: JsonPath = ["settings", "roleRouting", role.id];
             const isOrchestrator = role.id === "dsmm-orchestrator";
@@ -504,7 +508,7 @@ export function ProfileModelsDialog({
                 <div className="dsmm-role-main-row">
                   <div className="dsmm-dialog-role-header">
                     <div className="dsmm-role-title-group">
-                      <span className="dsmm-role-title">{role.label}</span>
+                      <span className="dsmm-role-title">{roleName}</span>
                       <code className="dsmm-role-id-badge">{role.id}</code>
                       {explicitOverride && (
                         <span className="dsmm-override-badge">{t("roleSettingsOverridden")}</span>
@@ -516,7 +520,7 @@ export function ProfileModelsDialog({
                   <div className="dsmm-role-primary-route">
                     <div className="dsmm-field dsmm-primary-mode-field">
                       <label htmlFor={`${prefix}-${role.id}-primary-mode`}>
-                        {t("primaryMode", { name: role.label })}
+                        {t("primaryMode", { name: roleName })}
                       </label>
                       <select
                         id={`${prefix}-${role.id}-primary-mode`}
@@ -538,7 +542,7 @@ export function ProfileModelsDialog({
                         t={t}
                         value={policy.primary}
                         path={[...rolePath, "primary"]}
-                        name={t("primaryName", { name: role.label })}
+                        name={t("primaryName", { name: roleName })}
                         catalog={state.catalog}
                         disabled={effectiveDisabled}
                         edit={actions.editPath}
@@ -592,7 +596,7 @@ export function ProfileModelsDialog({
                     <div className="dsmm-details-content">
                       <div className="dsmm-field">
                         <label htmlFor={`${prefix}-${role.id}-fallback-mode`}>
-                          {t("fallbackMode", { name: role.label })}
+                          {t("fallbackMode", { name: roleName })}
                         </label>
                         <select
                           id={`${prefix}-${role.id}-fallback-mode`}
@@ -615,7 +619,7 @@ export function ProfileModelsDialog({
                       )}
 
                       {policy.fallbackRoutes?.map((candidate: DsmmModelRoute, index: number) => {
-                        const name = t("fallbackName", { name: role.label, index: index + 1 });
+                        const name = t("fallbackName", { name: roleName, index: index + 1 });
                         return (
                           <fieldset
                             key={index}
@@ -695,7 +699,7 @@ export function ProfileModelsDialog({
                           }
                         }}
                       >
-                        {t("addFallback", { name: role.label })}
+                        {t("addFallback", { name: roleName })}
                       </Button>
                     </div>
                   </details>
@@ -710,7 +714,7 @@ export function ProfileModelsDialog({
                       <RoleAvailability value={role.availability} t={t} />
                       <div className="dsmm-field">
                         <label htmlFor={`${prefix}-${role.id}-role-enabled`}>
-                          {t("namedRole", { name: role.label })}
+                          {t("namedRole", { name: roleName })}
                         </label>
                         <select
                           id={`${prefix}-${role.id}-role-enabled`}
@@ -750,7 +754,7 @@ export function ProfileModelsDialog({
                         value={policy}
                         inherited={inherited}
                         path={rolePath}
-                        name={role.label}
+                        name={roleName}
                         disabled={effectiveDisabled}
                         actions={actions}
                       />
