@@ -98,7 +98,6 @@ export async function apply(ctx: Context): Promise<void> {
     void profileCtx.inject(["connection"], connectionCtx => {
       controller.bindConnection((connectionCtx.connection as unknown as ConnectionHandle).generation);
       void controller.refresh();
-      void controller.refreshSession();
       connectionCtx.effect(() => () => controller.bindConnection(null), "dsmm: profile connection withdrawal");
     });
     profiles = controller;
@@ -140,21 +139,39 @@ export async function apply(ctx: Context): Promise<void> {
       controller.attachModelSelector(catalogCtx.remote.session);
       catalogCtx.effect(() => () => { controller.attachModelSelector(null); controller.attachCatalog(null); }, "dsmm: native catalog/selector lifetime");
     });
-    void profileCtx.inject(["uiSession", "sessions"], (sessionCtx) => {
+    void profileCtx.inject(["uiSession", "sessions", "connection"], (sessionCtx) => {
       const source = sessionCtx.uiSession.adapter.current;
       // This adapter compiles with both Host and Client Cordis declarations;
       // the injected browser service has the public Client Sessions face.
       const nativeSessions = sessionCtx.sessions as unknown as ISessions;
+      const connection = (sessionCtx.connection as unknown as ConnectionHandle).generation;
+      let attached: ReturnType<ISessions["binding"]>;
+      sessionCtx.effect(() => {
+        let stopReady: (() => void) | undefined;
+        const subscribe = () => {
+          stopReady?.();
+          const generation = connection.getSnapshot();
+          stopReady = generation === undefined ? undefined : sessionCtx.remote.$on("api-session/added", summary => {
+            const binding = source.getSnapshot();
+            if (connection.getSnapshot() !== generation || binding.key !== summary.sessionId || attached === undefined || nativeSessions.binding(summary.sessionId) !== attached) return;
+            controller.observeSessionAvailability(summary.sessionId, attached.session, summary.agentAvailable);
+          });
+        };
+        subscribe();
+        const stopConnection = connection.subscribe(subscribe);
+        return () => { stopConnection(); stopReady?.(); };
+      }, "dsmm: native Agent readiness");
       const update = () => {
         const binding = source.getSnapshot();
         const nativeBinding = binding.key === undefined ? undefined : nativeSessions.binding(binding.key as SessionId);
-        controller.attachSessionSource(binding.key ?? null, nativeBinding?.session ?? null);
+        attached = nativeBinding;
+        controller.attachSessionSource(binding.key ?? null, nativeBinding?.session ?? null, nativeBinding ?? null);
         controller.setSession(binding.key ?? null);
         controller.attachModelSelectionSource(binding.key ?? null, binding.key === undefined ? null : binding.keyedHooks.projection?.("modelSelection") ?? null);
         controller.attachModelEventSource(binding.key ?? null, nativeBinding?.eventSource ?? null);
       };
-      update();
       sessionCtx.effect(() => source.subscribe(update), "dsmm: current native session");
+      update();
       sessionCtx.effect(() => () => { controller.attachModelSelectionSource(null, null); controller.attachModelEventSource(null, null); controller.attachModelInteractionSource(null, null); controller.setSession(null); controller.attachSessionSource(null, null); }, "dsmm: native session withdrawal");
       void sessionCtx.inject(["modelDirectories", "remote.session"], (modelCtx) => {
         const updateInteraction = () => {

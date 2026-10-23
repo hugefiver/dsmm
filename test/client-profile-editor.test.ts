@@ -25,6 +25,7 @@ import type { ModelCatalog } from "@deepseek-ai/dsh-api-session-controller";
 import type { SessionSelectModelRequest } from "@deepseek-ai/dsh-api-session-controller";
 import type { SessionEventSource } from "@deepseek-ai/dsh-api-session-controller/client";
 import type { SessionEventWindow } from "@deepseek-ai/dsh-api-session-controller/client";
+import type { SessionSnapshot } from "@deepseek-ai/dsh-api-session-controller/client";
 import { Session, SessionId } from "@deepseek-ai/dsh-session";
 import { isProfileId } from "../src/profile-remote.ts";
 import { build } from "esbuild";
@@ -472,7 +473,7 @@ test("the same root menu enables on an owned blank binding and rejects a retaine
 });
 function headerMenu(tree: unknown) {
   const menu = elements(tree).find((element) => element.type === NativeProfileMenu); assert.ok(menu);
-  return menu as ReactElement<{ selectedId: string; items: MenuEntry[]; onSelect(id: string): void; onClose(): void }>;
+  return menu as ReactElement<{ selectedId: string; items: MenuEntry[]; footer: { id: string; disabled?: boolean }[]; onSelect(id: string): void; onClose(): void }>;
 }
 function menuRowDisabled(tree: unknown, id = "p"): boolean {
   const entry = headerMenu(tree).props.items.find((entry) => entry.id === id && !("type" in entry)); assert.ok(entry);
@@ -730,6 +731,27 @@ function appliedWithModel(id: string, model = "profile-main"): SessionProfileSna
     admittedSelection: { selectedId: "p", appliedRevision: revision, selectionRevision: otherRevision },
     profileModel: { provider: "manual-provider", model, reasoningEffort: "exact-profile-effort" } };
 }
+
+test("the menu presents native readiness as status until its display deadline, then exposes diagnostic and Refresh", async t => {
+  const component = await nativeHeaderComponent();
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const f = fixture({ describeSession: async () => ({ ok: false, error: new RemoteError("dsmm-profiles/refused", "waiting", { code: "unavailable", message: "waiting", field: "sessionId" }) }) });
+  const id = SessionId("history-opening");
+  const source = createSnapshotStore<SessionSnapshot>({ sessionId: id, running: false, pendingSubmissions: [], subagent: null, removed: false, openState: "open", openError: null,
+    hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null, promptAttempted: false, awaitingFirstTurn: false });
+  try {
+    await f.controller.refresh(); f.controller.attachSessionSource(id, source); f.controller.setSession(id); await settle(f.controller);
+    const waiting = headerMenu(headerTree(component, f.controller));
+    assert.ok(waiting.props.items.some(entry => entry.id === "@status"));
+    assert.equal(waiting.props.items.some(entry => entry.id === "@diagnostic"), false);
+    assert.ok(elements(headerTree(component, f.controller)).some(element => element.props.role === "status"));
+    t.mock.timers.tick(10_000);
+    const expired = headerMenu(headerTree(component, f.controller));
+    assert.ok(expired.props.items.some(entry => entry.id === "@diagnostic"));
+    assert.ok(expired.props.footer.some(entry => entry.id === "@refresh" && !entry.disabled));
+    assert.ok(elements(headerTree(component, f.controller)).some(element => element.props.role === "alert"));
+  } finally { f.controller.dispose(); }
+});
 
 test("running native model selection stays available while overlay requires a new session and mode is busy", async () => {
   const component = await nativeHeaderComponent(), scope = await nativeHeaderComponent("SessionScope");

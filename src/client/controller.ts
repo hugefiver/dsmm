@@ -36,6 +36,7 @@ export interface ProfilesViewSnapshot {
   currentSessionId: string | null;
   sessionViewEpoch: number;
   sessionUnconfirmed: boolean;
+  sessionReadinessPending: boolean;
   session: SessionProfileSnapshot | null;
   sessionChoice: string | null;
   sessionWorkspaces: readonly ProfileWorkspace[];
@@ -122,7 +123,7 @@ export function canReconcileSelection(snapshot: ProfileSnapshot | null): boolean
 /** Stable native Store seat, with no filesystem or transport authority. */
 export class ProfilesController {
   private current: ProfilesViewSnapshot = { snapshot: null, editor: null, dirty: false, busy: null, issue: null, notice: null, pendingEditor: null,
-    catalog: null, catalogBusy: false, catalogUnavailable: true, currentSessionId: null, sessionViewEpoch: 0, sessionUnconfirmed: false, session: null, sessionChoice: null, sessionWorkspaces: [], sessionWorkspaceId: null, sessionPreparationAvailable: false, sessionPreparationPending: false, sessionBusy: null, sessionIssue: null, sessionNotice: null, invalidFields: [], editorEpoch: 0, validationEpoch: 0 };
+    catalog: null, catalogBusy: false, catalogUnavailable: true, currentSessionId: null, sessionViewEpoch: 0, sessionUnconfirmed: false, sessionReadinessPending: false, session: null, sessionChoice: null, sessionWorkspaces: [], sessionWorkspaceId: null, sessionPreparationAvailable: false, sessionPreparationPending: false, sessionBusy: null, sessionIssue: null, sessionNotice: null, invalidFields: [], editorEpoch: 0, validationEpoch: 0 };
   private accepted: ProfileEditor | null = null;
   private listeners = new Set<() => void>();
   private generation = 0;
@@ -155,6 +156,13 @@ export class ProfilesController {
   private modeRefreshPending = false;
   private sessionSource: HostObservable<SessionSnapshot> | null = null;
   private sessionSourceId: string | null = null;
+  private sessionBinding: object | null = null;
+  private agentAvailable: boolean | undefined;
+  private availabilityEpoch = 0;
+  private availabilityReadSucceeded = false;
+  private initialSessionRead = true;
+  private sessionReadIssue: ProfilesIssue | null = null;
+  private readinessTimer: ReturnType<typeof setTimeout> | null = null;
   private stopSessionSource: (() => void) | null = null;
   private stopModelEvents: (() => void) | null = null;
   private modelInteraction: ModelInteractionSource | null = null;
@@ -200,7 +208,7 @@ export class ProfilesController {
   };
   private numberDrafts = new Map<string, NumberDraftState>();
   constructor(private readonly remote: DsmmProfilesRemote) {}
-  dispose(): void { this.releasePreparation(); this.stopWorkspaces?.(); this.releaseComposerBlock(); this.numberDrafts.clear(); this.stopConnection?.(); this.stopSessionSource?.(); this.sessionSource = null; this.disposed = true; this.generation += 1; this.sessionGeneration += 1; this.catalogGeneration += 1; this.modelSelectorGeneration += 1; this.modelSelectionGeneration += 1; this.stopModelSelection?.(); this.stopModelEvents?.(); this.stopModelInteraction?.(); this.stopModelSelection = null; this.stopModelEvents = null; this.stopModelInteraction = null; this.modelSelectionSource = null; this.modelEvents = null; this.modelInteraction = null; this.catalogRemote = null; this.modelSelector = null; this.listeners.clear(); }
+  dispose(): void { this.endReadiness(); this.releasePreparation(); this.stopWorkspaces?.(); this.releaseComposerBlock(); this.numberDrafts.clear(); this.stopConnection?.(); this.stopSessionSource?.(); this.sessionSource = null; this.disposed = true; this.generation += 1; this.sessionGeneration += 1; this.catalogGeneration += 1; this.modelSelectorGeneration += 1; this.modelSelectionGeneration += 1; this.stopModelSelection?.(); this.stopModelEvents?.(); this.stopModelInteraction?.(); this.stopModelSelection = null; this.stopModelEvents = null; this.stopModelInteraction = null; this.modelSelectionSource = null; this.modelEvents = null; this.modelInteraction = null; this.catalogRemote = null; this.modelSelector = null; this.listeners.clear(); }
   bindConnection(source: ConnectionGenerationState | null): void {
     if (this.disposed) return;
     const replacement = this.connectionBound && (source !== this.connection || source?.getSnapshot() !== this.connectionBaseline);
@@ -209,6 +217,7 @@ export class ProfilesController {
     this.connectionBound = true;
     this.connectionBaseline = source?.getSnapshot();
     const invalidate = () => {
+      this.resetReadiness();
       this.releasePreparation();
       this.connectionBaseline = source?.getSnapshot();
       this.generation += 1;
@@ -218,13 +227,13 @@ export class ProfilesController {
       // A replaced connection only discards what it observed. It never records a
       // durable refusal for the session: an unread configuration is read again
       // by the next refresh, and typing stays available in the meantime.
-      this.publish({ session: null, sessionBusy: null, sessionNotice: null, sessionUnconfirmed: false,
+      this.publish({ session: null, sessionBusy: null, sessionIssue: null, sessionNotice: null, sessionUnconfirmed: false,
         sessionViewEpoch: this.current.sessionViewEpoch + 1, sessionWorkspaceId: null, sessionPreparationPending: false, busy: null, issue: { kind: "transport", code: "unavailable" } });
     };
     if (replacement || source === null || this.connectionBaseline === undefined) invalidate();
     this.stopConnection = source?.subscribe(() => {
       invalidate();
-      if (this.connectionCurrent()) { void this.refresh(); void this.refreshSession(); }
+      if (this.connectionCurrent()) void this.refresh();
     }) ?? null;
   }
   private connectionCurrent(): boolean {
@@ -431,18 +440,22 @@ export class ProfilesController {
     this.modelSelectionSource = source;
     this.stopModelSelection = source?.subscribe(() => { this.modelSelectionGeneration += 1; }) ?? null;
   }
-  attachSessionSource(sessionId: string | null, source: HostObservable<SessionSnapshot> | null): void {
-    if (this.disposed || sessionId === this.sessionSourceId && source === this.sessionSource) return;
+  attachSessionSource(sessionId: string | null, source: HostObservable<SessionSnapshot> | null, binding: object | null = source): void {
+    if (this.disposed || sessionId === this.sessionSourceId && source === this.sessionSource && binding === this.sessionBinding) return;
+    this.resetReadiness();
     this.stopSessionSource?.();
     this.sessionSourceId = sessionId;
     this.sessionSource = source;
+    this.sessionBinding = binding;
     let running = source?.getSnapshot().running;
-    const current = () => !this.disposed && sessionId !== null && sessionId === this.current.currentSessionId && source === this.sessionSource;
+    const current = () => !this.disposed && sessionId !== null && sessionId === this.current.currentSessionId && source === this.sessionSource && binding === this.sessionBinding;
     this.stopSessionSource = source?.subscribe(() => {
       if (!current()) return;
+      if (this.connectionCurrent() && this.sessionSourceFailed()) return;
       const next = source.getSnapshot().running;
       if (next === running) return;
       running = next;
+      if (!this.connectionCurrent()) return;
       // Running is an invalidation signal, never permission to apply an overlay.
       this.modeRefreshPending = true;
       this.refreshObservedMode();
@@ -450,8 +463,53 @@ export class ProfilesController {
     if (current()) {
       this.sessionGeneration += 1;
       this.modeRefreshPending = source !== null;
-      this.publish({ session: null, sessionBusy: null, sessionNotice: null, sessionViewEpoch: this.current.sessionViewEpoch + 1,
+      this.publish({ session: null, sessionBusy: null, sessionIssue: null, sessionNotice: null, sessionViewEpoch: this.current.sessionViewEpoch + 1,
         sessionUnconfirmed: this.pendingSessionSelections.has(sessionId!) });
+      this.refreshObservedMode();
+    }
+  }
+  private endReadiness(): void {
+    if (this.readinessTimer !== null) clearTimeout(this.readinessTimer);
+    this.readinessTimer = null;
+    if (this.current.sessionReadinessPending) this.publish({ sessionReadinessPending: false });
+  }
+  private resetReadiness(): void {
+    this.endReadiness();
+    this.agentAvailable = undefined;
+    this.availabilityEpoch += 1;
+    this.availabilityReadSucceeded = false;
+    this.initialSessionRead = true;
+    this.sessionReadIssue = null;
+  }
+  private sessionSourceFailed(): boolean {
+    const source = this.sessionSource?.getSnapshot();
+    if (source === undefined || !source.removed && source.openError === null) return false;
+    this.endReadiness();
+    this.initialSessionRead = false;
+    this.availabilityEpoch += 1;
+    this.availabilityReadSucceeded = false;
+    this.sessionGeneration += 1;
+    this.modeRefreshPending = false;
+    const issue: ProfilesIssue = source.removed ? { kind: "domain", code: "disposed", field: "sessionId" }
+      : { kind: "transport", code: source.openError!.code };
+    this.sessionReadIssue = issue;
+    const { currentSessionId: id, session, sessionUnconfirmed } = this.current;
+    this.publish({ session: null, sessionBusy: null, sessionIssue: issue,
+      sessionUnconfirmed: sessionUnconfirmed || id !== null && this.pendingSessionSelections.has(id)
+        || session?.refreshRequired === true || session?.selection.refreshRequired === true });
+    return true;
+  }
+  observeSessionAvailability(id: string, source: HostObservable<SessionSnapshot>, available: boolean): void {
+    if (this.disposed || !this.connectionCurrent() || id !== this.current.currentSessionId || id !== this.sessionSourceId || source !== this.sessionSource || this.sessionSourceFailed()) return;
+    const changed = available !== this.agentAvailable;
+    this.agentAvailable = available;
+    if (!available) {
+      this.availabilityEpoch += 1;
+      this.availabilityReadSucceeded = false;
+      return;
+    }
+    if (changed || !this.availabilityReadSucceeded) {
+      this.modeRefreshPending = true;
       this.refreshObservedMode();
     }
   }
@@ -494,6 +552,7 @@ export class ProfilesController {
   }
   setSession(id: string | null): void {
     if (this.disposed || id === this.current.currentSessionId) return;
+    this.resetReadiness();
     const task = this.preparation;
     const preparationUnconfirmed = task?.id === id && this.current.sessionUnconfirmed;
     if (task?.id === id && task.held !== null && id !== null) {
@@ -530,15 +589,43 @@ export class ProfilesController {
     const id = this.current.currentSessionId;
     if (id === null && this.preparation !== null) { await this.prepareSession(true); return; }
     if (this.disposed || !this.connectionCurrent() || id === null || this.current.sessionBusy !== null || this.sessionSourceId === id && this.sessionSource === null) return;
+    if (this.sessionSourceFailed()) return;
+    const initial = this.initialSessionRead;
+    const availabilityEpoch = this.availabilityEpoch;
+    this.initialSessionRead = false;
     this.modeRefreshPending = false;
     const generation = ++this.sessionGeneration;
     const live = () => !this.disposed && this.connectionCurrent() && generation === this.sessionGeneration && id === this.current.currentSessionId;
-    this.publish({ sessionBusy: "read", ...(preserveFeedback ? {} : { sessionIssue: null, sessionNotice: null }) });
+    this.publish({ sessionBusy: "read" });
     try {
       const session = await this.unwrap(this.remote.describeSession(id));
       if (session.sessionId !== id) throw { kind: "assembly", code: "unavailable" };
-      if (live()) this.publish({ session, sessionChoice: (session.admittedSelection ?? session.selection).selectedId, sessionUnconfirmed: this.pendingSessionSelections.has(id) });
-    } catch (error) { if (live()) this.publish({ sessionIssue: this.issue(error) }); }
+      if (live()) {
+        if (availabilityEpoch === this.availabilityEpoch && this.agentAvailable !== false) this.availabilityReadSucceeded = true;
+        this.endReadiness();
+        this.publish({ session, sessionChoice: (session.admittedSelection ?? session.selection).selectedId, sessionUnconfirmed: this.pendingSessionSelections.has(id),
+          ...(this.current.sessionIssue === this.sessionReadIssue ? { sessionIssue: null } : {}) });
+        this.sessionReadIssue = null;
+      }
+    } catch (error) { if (live()) {
+      const issue = this.issue(error);
+      const waiting = (initial || this.current.sessionReadinessPending) && this.sessionSourceId === id && this.sessionSource !== null && this.current.session === null
+        && this.sessionSource.getSnapshot().sessionId === id
+        && issue.kind === "domain" && issue.code === "unavailable" && issue.field === "sessionId";
+      if (!waiting) this.endReadiness();
+      if (!preserveFeedback || this.current.sessionIssue === null || this.current.sessionIssue === this.sessionReadIssue) this.publish({ sessionIssue: issue });
+      this.sessionReadIssue = issue;
+      if (waiting && this.readinessTimer === null) {
+        const source = this.sessionSource, connection = this.connectionBaseline;
+        const timer = setTimeout(() => {
+          if (this.readinessTimer !== timer || this.disposed || source !== this.sessionSource || id !== this.current.currentSessionId || connection !== this.connectionBaseline) return;
+          this.readinessTimer = null;
+          this.publish({ sessionReadinessPending: false });
+        }, 10_000);
+        this.readinessTimer = timer;
+        this.publish({ sessionReadinessPending: true });
+      }
+    } }
     finally { if (live()) { this.publish({ sessionBusy: null }); this.refreshObservedMode(); } }
   }
   private async setDeepwork(active: boolean): Promise<void> {
@@ -700,10 +787,11 @@ export class ProfilesController {
     finally { if (live()) this.publish({ busy: null }); }
   }
   async refresh(): Promise<void> {
-    await this.perform("refresh", async (live) => {
+    const session = this.refreshSession();
+    await Promise.all([session, this.perform("refresh", async (live) => {
       const snapshot = await this.unwrap(this.remote.describe());
       if (live()) this.publish({ snapshot });
-    });
+    })]);
   }
   async open(id: string): Promise<void> {
     if (this.disposed || this.current.busy !== null || this.current.pendingEditor !== null) return;

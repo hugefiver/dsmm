@@ -44,7 +44,8 @@ export function SessionScopeFeedback({ state, t }: PropsLocale<"settings.dsmm-pr
     {state.dirty && <p className="dsmm-hint">{t("sessionDirty")}</p>}
     {(session?.refreshRequired || session?.selection.refreshRequired) && <p role="status">{t("sessionCommittedRefresh")}</p>}
     {state.sessionUnconfirmed && <p role="status">{t(state.sessionIssue?.code === "blank-identity-unconfirmed" ? "sessionPreparationUnknown" : "sessionUnconfirmedRefresh")}</p>}
-    {state.sessionIssue !== null && <><p role="alert">{state.sessionIssue.source === "profile-model" ? t(state.sessionIssue.code === "model-unconfigured" ? "headerNoProfileModel" : state.sessionIssue.code === "model-choice-changed" ? "headerModelChoiceChanged" : "headerModelUnconfirmed")
+    {state.sessionReadinessPending && <p role="status">{t("sessionWaitingReady")}</p>}
+    {state.sessionIssue !== null && !state.sessionReadinessPending && <><p role="alert">{state.sessionIssue.source === "profile-model" ? t(state.sessionIssue.code === "model-unconfigured" ? "headerNoProfileModel" : state.sessionIssue.code === "model-choice-changed" ? "headerModelChoiceChanged" : "headerModelUnconfirmed")
       : state.sessionIssue.code === "conflict" ? t("sessionConflict")
       : ["busy", "maintenance", "disposed", "not-owned"].includes(state.sessionIssue.code) ? t("sessionBusy", { reason: state.sessionIssue.code })
         : t(state.sessionIssue.code === "validation" ? "validation" : "sessionUnavailable")}</p><IssueDetails issue={state.sessionIssue} t={t} /></>}
@@ -88,7 +89,7 @@ export function SessionScope({ state, actions, t, compact = false, showFeedback 
     </> : <>
       {labels !== null && <p data-dsmm-session-state>{labels.admitted}</p>}
       {labels !== null && !compact && <p className="dsmm-hint" data-dsmm-session-future-default>{labels.futureDefault}</p>}
-      {session === null && <p className="dsmm-hint" id={`${prefix}-overlay-reason`}>{t("sessionUnavailable")}</p>}
+      {session === null && <p className="dsmm-hint" id={`${prefix}-overlay-reason`}>{t(state.sessionReadinessPending ? "sessionWaitingReady" : "sessionUnavailable")}</p>}
       {session !== null && !allowed && <p className="dsmm-hint" id={`${prefix}-overlay-reason`}>{capabilityReason(session.applyOverlayUnavailableReason, t)}</p>}
       <div className="dsmm-field"><label htmlFor={`${prefix}-choice`}>{t("sessionSelect")}</label>
         <select id={`${prefix}-choice`} value={state.sessionChoice ?? ""} disabled={disabled || !allowed} aria-describedby={!allowed ? `${prefix}-overlay-reason` : undefined} onChange={(event) => { if (current()) actions.chooseSessionProfile(event.currentTarget.value || null); }}>
@@ -141,7 +142,8 @@ export function SessionProfiles(props: SessionProfilesProps) {
   let feedback = "";
    if (state.sessionUnconfirmed) feedback = t(state.sessionIssue?.code === "blank-identity-unconfirmed" ? "sessionPreparationUnknown" : "sessionUnconfirmedRefresh");
   else if (session?.refreshRequired || session?.selection.refreshRequired) feedback = t("sessionCommittedRefresh");
-  else if (state.sessionIssue !== null) feedback = t(state.sessionIssue.source === "profile-model" ? state.sessionIssue.code === "model-unconfigured" ? "headerNoProfileModel" : state.sessionIssue.code === "model-choice-changed" ? "headerModelChoiceChanged" : "headerModelUnconfirmed"
+   else if (state.sessionReadinessPending) feedback = t("sessionWaitingReady");
+   else if (state.sessionIssue !== null) feedback = t(state.sessionIssue.source === "profile-model" ? state.sessionIssue.code === "model-unconfigured" ? "headerNoProfileModel" : state.sessionIssue.code === "model-choice-changed" ? "headerModelChoiceChanged" : "headerModelUnconfirmed"
     : state.sessionIssue.code === "conflict" ? "headerConflict" : state.sessionIssue.code === "activation" ? "headerActivationRefused"
     : state.sessionIssue.code === "maintenance" ? "headerMaintenanceRefused" : state.sessionIssue.code === "busy" ? "headerBusyRefused"
     : state.sessionIssue.code === "cancelled" ? "headerCancelledRefused" : state.sessionIssue.code === "unavailable" || state.sessionIssue.kind === "assembly" ? "headerUnavailableRefused" : "headerSelectionRefused");
@@ -151,7 +153,7 @@ export function SessionProfiles(props: SessionProfilesProps) {
   else if (session === null || state.snapshot === null) feedback = t("headerUnavailable");
   else if (state.sessionNotice !== null) feedback = t(state.sessionNotice === "mode-on" ? "headerModeOn" : state.sessionNotice === "mode-off" ? "headerModeOff" : state.sessionNotice === "applied-with-model" ? "headerAppliedWithModel" : "headerApplied");
   const profileName = unknownCaptured ? t("headerCaptured") : admission !== undefined && sourceRelationship(admission, currentSaved?.revision) === "current" && currentSaved?.label?.trim() ? currentSaved.label : admission?.selectedId ?? t("sessionBaseline");
-  const currentLabel = t("headerCurrentProfile", { profile: session === null ? t("headerUnavailable") : profileName });
+   const currentLabel = t("headerCurrentProfile", { profile: session === null ? t(state.sessionReadinessPending ? "sessionWaitingReady" : "headerUnavailable") : profileName });
   const entries: MenuEntry[] = [{ type: "label", id: "@current", text: currentLabel }];
   for (const warning of profileWarnings(session?.warnings)) entries.push({ type: "label", id: `@warning:${warning.code}`, text: t("warningMarker", { code: warning.code, field: warning.field }) });
   if ((id === null || session?.canApplyOverlay === true) && state.snapshot !== null) entries.push({ type: "label", id: "@future", text: t("sessionFutureDefault", { profile: state.snapshot.profiles.find((profile) => profile.id === state.snapshot!.selectedId)?.label?.trim() || state.snapshot.selectedId || t("sessionBaseline") }) });
@@ -160,7 +162,7 @@ export function SessionProfiles(props: SessionProfilesProps) {
   entries.push({ id: "@mode", label: t(mode === undefined ? "headerModeUnavailable" : mode.locked ? "headerModePreset" : mode.active ? "headerModeDisable" : "headerModeEnable"),
      disabled: unavailable || session?.canToggleMode !== true || mode === undefined || mode.locked });
   if (session !== null && session.canToggleMode !== true) entries.push({ type: "label", id: "@mode-reason", text: capabilityReason(session.toggleModeUnavailableReason, t) });
-  const diagnostic = state.sessionIssue === null ? null : menuIssue(state.sessionIssue);
+   const diagnostic = state.sessionIssue === null || state.sessionReadinessPending ? null : menuIssue(state.sessionIssue);
   const diagnosticText = diagnostic === null ? "" : t("headerIssueCode", { code: diagnostic.code }) + (diagnostic.field === undefined ? "" : ` ${t("headerIssueField", { field: diagnostic.field })}`);
   const retryHint = t(state.sessionUnconfirmed ? "sessionUnconfirmedRefresh" : diagnostic?.code === "maintenance" || diagnostic?.code === "busy" ? "headerWaitRetryHint" : "headerRetryHint");
   if (diagnostic !== null) entries.push({ type: "label", id: "@diagnostic", text: diagnosticText }, { type: "label", id: "@retry", text: retryHint });
@@ -186,7 +188,7 @@ export function SessionProfiles(props: SessionProfilesProps) {
          if (live.currentSessionId !== id || live.sessionViewEpoch !== state.sessionViewEpoch || live.session !== session) return;
         if (value === "@refresh") {
           if (committing || state.busy !== null) return;
-            void (async () => { await props.refresh(); if (props.readProfileView().currentSessionId === id && props.readProfileView().sessionViewEpoch === state.sessionViewEpoch) await props.refreshSession(); })();
+           void props.refresh();
         } else {
           const row = entries.find((entry) => entry.id === value && !("type" in entry));
           if (row === undefined || !("disabled" in row) || row.disabled) return;
@@ -197,6 +199,6 @@ export function SessionProfiles(props: SessionProfilesProps) {
         }
         setOpenFor(undefined);
       }} />
-    <span className="dsmm-profile-announcement" id={`${prefix}-feedback`} role={state.sessionIssue === null ? "status" : "alert"} aria-live="polite" aria-atomic="true">{feedback || currentLabel}{diagnostic === null ? "" : ` ${diagnosticText} ${retryHint}`}</span>
+    <span className="dsmm-profile-announcement" id={`${prefix}-feedback`} role={state.sessionIssue === null || state.sessionReadinessPending ? "status" : "alert"} aria-live="polite" aria-atomic="true">{feedback || currentLabel}{diagnostic === null ? "" : ` ${diagnosticText} ${retryHint}`}</span>
   </div>;
 }

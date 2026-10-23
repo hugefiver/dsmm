@@ -13,7 +13,7 @@ import { SessionId } from "@deepseek-ai/dsh-session";
 import type { ComposerBlock, ComposerBlocks } from "@deepseek-ai/dsh-client-ui-conversation/client";
 import type { ConnectionGeneration } from "@deepseek-ai/dsh-client-connection/client";
 import type { DsmmProfilesRemote } from "../src/profile-remote.js";
-import type { SessionProfileSnapshot, SessionProfileSelectRequest } from "../src/profile-types.js";
+import type { ProfileSnapshot, SessionProfileSnapshot, SessionProfileSelectRequest } from "../src/profile-types.js";
 import type { ProfilesController as Controller } from "../src/client/controller.js";
 import type { ProfileBlankNative, ProfileBlankServices, ProfileWorkspace, profileBlankNative as nativeAdapter } from "../src/client/profile-blank.js";
 import type { SessionSnapshot } from "@deepseek-ai/dsh-api-session-controller/client";
@@ -319,6 +319,56 @@ test("running transitions during Profile CAS queue only a read and preserve acce
   } finally { f.controller.dispose(); }
 });
 
+test("same-binding open failure retains the exact session block across a delayed Profile CAS until a safe reread", async () => {
+  const mutation = deferred<RemoteResult<SessionProfileSnapshot>>(), confirmation = deferred<RemoteResult<SessionProfileSnapshot>>();
+  let writes = 0, reads = 0, confirming = false;
+  const f = await fixture({ describeSession: async id => { reads++; return confirming ? confirmation.promise : success(baseline(id)); },
+    selectSession: async () => { writes++; return mutation.promise; } });
+  const source = sessionSource(f.id, false);
+  try {
+    f.controller.attachSessionSource(f.id, source); f.controller.setSession(f.id); await settle(f.controller);
+    f.controller.actions.chooseSessionProfile("p"); const applying = f.controller.actions.applySession();
+    const block = f.blocks.storeFor(f.id).getSnapshot(); assert.ok(block);
+    source.set({ ...source.getSnapshot(), openState: "error", openError: new RemoteError("gateway/cancelled", "history stream failed", {}) });
+    assert.equal(f.controller.store.getSnapshot().session, null);
+    assert.equal(f.controller.store.getSnapshot().sessionIssue?.code, "gateway/cancelled");
+    assert.equal(f.blocks.storeFor(f.id).getSnapshot(), block, "read failure must not release an in-flight session CAS block");
+    assert.equal(f.controller.store.getSnapshot().sessionUnconfirmed, true);
+    mutation.resolve(success(selected(f.id))); await applying;
+    assert.equal(f.blocks.storeFor(f.id).getSnapshot(), block, "a fenced late result is not safe confirmation");
+    assert.equal(f.controller.store.getSnapshot().session, null);
+    await f.controller.actions.applySession(); assert.equal(writes, 1); assert.equal(reads, 1);
+    source.set({ ...source.getSnapshot(), openState: "open", openError: null });
+    confirming = true; const refreshing = f.controller.actions.refreshSession();
+    assert.equal(f.blocks.storeFor(f.id).getSnapshot(), block);
+    confirmation.resolve(success(selected(f.id))); await refreshing;
+    assert.equal(f.blocks.storeFor(f.id).getSnapshot(), undefined);
+    assert.equal(f.controller.store.getSnapshot().sessionUnconfirmed, false);
+    assert.equal(f.controller.store.getSnapshot().sessionIssue, null);
+    assert.equal(writes, 1); assert.equal(reads, 2);
+  } finally { mutation.resolve(success(selected(f.id))); confirmation.resolve(success(selected(f.id))); f.controller.dispose(); }
+});
+
+test("same-binding open failure retains an accepted refresh-required selection block until safe confirmation", async t => {
+  for (const pending of ["session", "selection"] as const) await t.test(pending, async () => {
+    const accepted = selected("actual-host-blank");
+    const f = await fixture({ describeSession: async id => success(baseline(id)), selectSession: async () => success(pending === "session"
+      ? { ...accepted, refreshRequired: true } : { ...accepted, selection: { ...accepted.selection, refreshRequired: true } }) });
+    const source = sessionSource(f.id, false);
+    try {
+      f.controller.attachSessionSource(f.id, source); f.controller.setSession(f.id); await settle(f.controller);
+      f.controller.actions.chooseSessionProfile("p"); await f.controller.actions.applySession();
+      const block = f.blocks.storeFor(f.id).getSnapshot(); assert.ok(block);
+      source.set({ ...source.getSnapshot(), openState: "error", openError: new RemoteError("gateway/cancelled", "history stream failed", {}) });
+      assert.equal(f.blocks.storeFor(f.id).getSnapshot(), block);
+      assert.equal(f.controller.store.getSnapshot().sessionUnconfirmed, true);
+      source.set({ ...source.getSnapshot(), openState: "open", openError: null });
+      await f.controller.actions.refreshSession();
+      assert.equal(f.blocks.storeFor(f.id).getSnapshot(), undefined);
+    } finally { f.controller.dispose(); }
+  });
+});
+
 test("late describe and detached running notifications cannot cross native session, binding or connection lifetime", async t => {
   for (const boundary of ["navigation", "binding", "withdraw", "connection", "dispose"] as const) await t.test(boundary, async () => {
     const reading = deferred<RemoteResult<SessionProfileSnapshot>>(); let hold = false, reads = 0;
@@ -407,4 +457,286 @@ test("busy, maintenance and CAS conflict refresh capabilities without retrying P
       assert.equal(f.controller.store.getSnapshot().sessionUnconfirmed, false);
     } finally { f.controller.dispose(); }
   });
+});
+
+function unavailableSession(): RemoteResult<SessionProfileSnapshot> {
+  return { ok: false, error: new RemoteError("dsmm-profiles/refused", "not yet admitted", { code: "unavailable", message: "not yet admitted", field: "sessionId" }) };
+}
+
+function activationFailure(): RemoteResult<SessionProfileSnapshot> {
+  return { ok: false, error: new RemoteError("dsmm-profiles/refused", "admission incomplete", { code: "activation", message: "admission incomplete" }) };
+}
+
+test("unready native true bursts coalesce one pending read and permanent activation never retries without another event", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const reading = deferred<RemoteResult<SessionProfileSnapshot>>(); let reads = 0, available = false;
+  const f = await fixture({ describeSession: async id => {
+    reads++;
+    if (reads === 1) return unavailableSession();
+    if (reads === 2) return reading.promise;
+    return available ? success(baseline(id)) : activationFailure();
+  } });
+  const source = sessionSource(f.id, false);
+  try {
+    f.controller.attachSessionSource(f.id, source); f.controller.setSession(f.id); await settle(f.controller);
+    for (let i = 0; i < 10; i++) f.controller.observeSessionAvailability(f.id, source, true);
+    assert.equal(reads, 2, "a burst cannot start parallel reads");
+    reading.resolve(activationFailure()); await settle(f.controller);
+    assert.equal(reads, 3, "one pending tail read survives the in-flight failure");
+    assert.equal(f.controller.store.getSnapshot().sessionIssue?.code, "activation");
+    assert.equal(f.controller.store.getSnapshot().sessionReadinessPending, false);
+    t.mock.timers.tick(60_000); await setImmediate();
+    assert.equal(reads, 3, "neither failure nor a timer schedules another read");
+    available = true;
+    f.controller.observeSessionAvailability(f.id, source, true); await settle(f.controller);
+    assert.equal(reads, 4); assert.equal(f.controller.store.getSnapshot().sessionIssue, null);
+    for (let i = 0; i < 10; i++) f.controller.observeSessionAvailability(f.id, source, true);
+    await setImmediate(); assert.equal(reads, 4, "successful current-cycle reads deduplicate identical true");
+  } finally { f.controller.dispose(); }
+});
+
+test("a false availability edge fences older successful reads even while their snapshots remain visible", async () => {
+  const reading = deferred<RemoteResult<SessionProfileSnapshot>>(); let reads = 0, available = true;
+  const f = await fixture({ describeSession: async id => {
+    reads++;
+    if (reads === 3) return reading.promise;
+    return available ? success(baseline(id)) : activationFailure();
+  } });
+  const source = sessionSource(f.id, false);
+  try {
+    f.controller.attachSessionSource(f.id, source); f.controller.setSession(f.id); await settle(f.controller);
+    f.controller.observeSessionAvailability(f.id, source, true); await settle(f.controller);
+    assert.equal(reads, 2);
+    const refreshing = f.controller.actions.refreshSession();
+    f.controller.observeSessionAvailability(f.id, source, false);
+    f.controller.observeSessionAvailability(f.id, source, true);
+    available = false;
+    reading.resolve(success(baseline(f.id))); await refreshing; await settle(f.controller);
+    assert.equal(reads, 4); assert.notEqual(f.controller.store.getSnapshot().session, null);
+    assert.equal(f.controller.store.getSnapshot().sessionIssue?.code, "activation");
+    available = true;
+    f.controller.observeSessionAvailability(f.id, source, true); await settle(f.controller);
+    assert.equal(reads, 5, "the old successful response cannot acknowledge this availability cycle");
+    assert.equal(f.controller.store.getSnapshot().sessionIssue, null);
+  } finally { f.controller.dispose(); }
+});
+
+test("a successful readiness read retains a queued running invalidation for the pending tail read", async () => {
+  const reading = deferred<RemoteResult<SessionProfileSnapshot>>(); let reads = 0;
+  const f = await fixture({ describeSession: async id => {
+    reads++;
+    if (reads === 1) return unavailableSession();
+    return reads === 2 ? reading.promise : success(baseline(id));
+  } });
+  const source = sessionSource(f.id, false);
+  try {
+    f.controller.attachSessionSource(f.id, source); f.controller.setSession(f.id); await settle(f.controller);
+    f.controller.observeSessionAvailability(f.id, source, true);
+    source.set({ ...source.getSnapshot(), running: true }); source.set({ ...source.getSnapshot(), running: false });
+    f.controller.observeSessionAvailability(f.id, source, true);
+    reading.resolve(success({ ...baseline(f.id), canApplyOverlay: false, applyOverlayUnavailableReason: "busy" }));
+    await settle(f.controller);
+    assert.equal(reads, 3); assert.equal(f.controller.store.getSnapshot().session?.canApplyOverlay, true);
+    f.controller.observeSessionAvailability(f.id, source, true); await setImmediate(); assert.equal(reads, 3);
+  } finally { f.controller.dispose(); }
+});
+
+test("false availability invalidates readiness success without restarting its one display deadline", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const f = await fixture({ describeSession: async () => unavailableSession() }), source = sessionSource(f.id, false);
+  try {
+    f.controller.attachSessionSource(f.id, source); f.controller.setSession(f.id); await settle(f.controller);
+    t.mock.timers.tick(9000);
+    f.controller.observeSessionAvailability(f.id, source, false);
+    f.controller.observeSessionAvailability(f.id, source, true); await settle(f.controller);
+    assert.equal(f.controller.store.getSnapshot().sessionReadinessPending, true);
+    t.mock.timers.tick(1000);
+    assert.equal(f.controller.store.getSnapshot().sessionReadinessPending, false);
+    f.controller.observeSessionAvailability(f.id, source, false);
+    f.controller.observeSessionAvailability(f.id, source, true); await settle(f.controller);
+    assert.equal(f.controller.store.getSnapshot().sessionReadinessPending, false);
+  } finally { f.controller.dispose(); }
+});
+
+test("replacing an exact binding with the same source fences old read success and readiness deduplication", async () => {
+  const reading = deferred<RemoteResult<SessionProfileSnapshot>>(); let reads = 0, available = true;
+  const f = await fixture({ describeSession: async id => {
+    reads++;
+    return reads === 3 ? reading.promise : available ? success(baseline(id)) : activationFailure();
+  } });
+  const source = sessionSource(f.id, false);
+  try {
+    f.controller.attachSessionSource(f.id, source, {}); f.controller.setSession(f.id); await settle(f.controller);
+    f.controller.observeSessionAvailability(f.id, source, true); await settle(f.controller);
+    const refreshing = f.controller.actions.refreshSession();
+    available = false;
+    f.controller.attachSessionSource(f.id, source, {}); await settle(f.controller);
+    assert.equal(reads, 4);
+    const replacement = f.controller.store.getSnapshot();
+    reading.resolve(success(baseline(f.id))); await refreshing;
+    assert.equal(f.controller.store.getSnapshot(), replacement);
+    available = true;
+    f.controller.observeSessionAvailability(f.id, source, true); await settle(f.controller);
+    assert.equal(reads, 5); assert.equal(f.controller.store.getSnapshot().sessionIssue, null);
+  } finally { f.controller.dispose(); }
+});
+
+test("initial native unavailability has one display deadline, no retry, and late readiness clears the read issue", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let available = false, reads = 0;
+  const f = await fixture({ describeSession: async id => { reads++; return available ? success(baseline(id)) : unavailableSession(); } });
+  const source = sessionSource(f.id, false), foreign = { reason: "native owner" };
+  try {
+    f.blocks.set(f.id, foreign);
+    await f.controller.actions.create();
+    f.controller.actions.editContent('{"version":1,"id":"draft","settings":{}}');
+    f.controller.actions.setNumberDraft("workflow.reviewCap", { draft: "-", invalid: true, sourceValue: 2 });
+    f.controller.actions.setFieldInvalid("workflow.reviewCap", true);
+    const editor = f.controller.store.getSnapshot().editor, number = f.controller.actions.getNumberDraft("workflow.reviewCap");
+    f.controller.attachSessionSource(f.id, source); f.controller.setSession(f.id); await settle(f.controller);
+    assert.equal(f.controller.store.getSnapshot().sessionReadinessPending, true);
+    assert.equal(f.controller.store.getSnapshot().sessionUnconfirmed, false);
+    t.mock.timers.tick(9000);
+    await f.controller.actions.refreshSession();
+    source.set({ ...source.getSnapshot() });
+    assert.equal(f.controller.store.getSnapshot().sessionReadinessPending, true);
+    t.mock.timers.tick(1000);
+    assert.equal(f.controller.store.getSnapshot().sessionReadinessPending, false);
+    assert.equal(f.controller.store.getSnapshot().sessionIssue?.field, "sessionId");
+    assert.equal(reads, 2, "expiry only changes presentation");
+    await f.controller.actions.refreshSession();
+    assert.equal(f.controller.store.getSnapshot().sessionReadinessPending, false, "Refresh cannot restart the display deadline");
+    available = true;
+    f.controller.observeSessionAvailability(f.id, source, true); await settle(f.controller);
+    assert.equal(reads, 4); assert.equal(f.controller.store.getSnapshot().session?.sessionId, f.id);
+    assert.equal(f.controller.store.getSnapshot().sessionIssue, null);
+    for (let i = 0; i < 5; i++) f.controller.observeSessionAvailability(f.id, source, true);
+    assert.equal(reads, 4, "duplicate ready summaries do not storm");
+    f.controller.observeSessionAvailability(f.id, source, false);
+    f.controller.observeSessionAvailability(f.id, source, true); await settle(f.controller); assert.equal(reads, 5);
+    assert.equal(f.controller.store.getSnapshot().editor, editor); assert.equal(f.controller.store.getSnapshot().dirty, true);
+    assert.equal(f.controller.actions.getNumberDraft("workflow.reviewCap"), number);
+    assert.deepEqual(f.controller.store.getSnapshot().invalidFields, ["workflow.reviewCap"]);
+    assert.equal(f.blocks.storeFor(f.id).getSnapshot(), foreign);
+  } finally { f.controller.dispose(); }
+});
+
+test("readiness never masks other errors or unavailable reads without an exact native binding", async t => {
+  for (const failure of [
+    new RemoteError("dsmm-profiles/refused", "other unavailable", { code: "unavailable", message: "other" }),
+    new RemoteError("dsmm-profiles/refused", "validation", { code: "validation", message: "invalid", field: "sessionId" }),
+    new RemoteError("dsmm-profiles/refused", "activation", { code: "activation", message: "activation" }),
+    new RemoteError("dsmm-profiles/refused", "not-owned", { code: "not-owned", message: "not-owned", field: "sessionId" }),
+    new RemoteError("dsmm-profiles/peer-required", "auth", {}), new RemoteError("gateway/cancelled", "transport", {}),
+  ]) await t.test(failure.code + failure.message, async () => {
+    const f = await fixture({ describeSession: async () => ({ ok: false, error: failure }) });
+    try {
+      f.controller.attachSessionSource(f.id, sessionSource(f.id, false)); f.controller.setSession(f.id); await settle(f.controller);
+      assert.equal(f.controller.store.getSnapshot().sessionReadinessPending, false);
+      assert.notEqual(f.controller.store.getSnapshot().sessionIssue, null);
+    } finally { f.controller.dispose(); }
+  });
+  const f = await fixture({ describeSession: async () => unavailableSession() });
+  try { f.controller.setSession(f.id); await settle(f.controller); assert.equal(f.controller.store.getSnapshot().sessionReadinessPending, false); }
+  finally { f.controller.dispose(); }
+});
+
+test("removed and open-error snapshots terminate readiness even when running stays idle", async t => {
+  for (const failure of ["removed", "openError"] as const) await t.test(failure, async () => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    let reads = 0;
+    const f = await fixture({ describeSession: async () => { reads++; return unavailableSession(); } }), source = sessionSource(f.id, false);
+    try {
+      f.controller.attachSessionSource(f.id, source); f.controller.setSession(f.id); await settle(f.controller);
+      assert.equal(f.controller.store.getSnapshot().sessionReadinessPending, true);
+      source.set({ ...source.getSnapshot(), ...(failure === "removed" ? { removed: true } : { openState: "error" as const, openError: new RemoteError("dsmm-profiles/peer-required", "denied", {}) }) });
+      assert.equal(f.controller.store.getSnapshot().sessionReadinessPending, false);
+      assert.equal(f.controller.store.getSnapshot().sessionIssue?.code, failure === "removed" ? "disposed" : "dsmm-profiles/peer-required");
+      const snapshot = f.controller.store.getSnapshot(); t.mock.timers.tick(10_000);
+      assert.equal(f.controller.store.getSnapshot(), snapshot); assert.equal(reads, 1);
+    } finally { f.controller.dispose(); t.mock.timers.reset(); }
+  });
+});
+
+test("pending readiness and old notifications are fenced by binding, navigation, connection and disposal", async t => {
+  for (const boundary of ["binding", "withdraw", "navigation", "connection", "dispose"] as const) await t.test(boundary, async () => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    let reads = 0;
+    const f = await fixture({ describeSession: async () => { reads++; return unavailableSession(); } }), source = sessionSource(f.id, false);
+    const connection = createSnapshotStore<ConnectionGeneration | undefined>({ id: 1, host: { home: "isolated" } });
+    try {
+      f.controller.bindConnection(connection); f.controller.attachSessionSource(f.id, source); f.controller.setSession(f.id); await settle(f.controller);
+      t.mock.timers.tick(5000);
+      if (boundary === "binding") f.controller.attachSessionSource(f.id, sessionSource(f.id, false));
+      if (boundary === "withdraw") f.controller.attachSessionSource(f.id, null);
+      if (boundary === "navigation") f.controller.setSession(null);
+      if (boundary === "connection") { connection.set(undefined); connection.set({ id: 2, host: { home: "replacement" } }); }
+      if (boundary === "dispose") f.controller.dispose();
+      await settle(f.controller);
+      const snapshot = f.controller.store.getSnapshot(), count = reads;
+      if (boundary !== "connection") f.controller.observeSessionAvailability(f.id, source, true);
+      t.mock.timers.tick(5000);
+      assert.equal(f.controller.store.getSnapshot(), snapshot); assert.equal(reads, count);
+      assert.equal(snapshot.sessionReadinessPending, boundary === "binding" || boundary === "connection");
+    } finally { f.controller.dispose(); t.mock.timers.reset(); }
+  });
+});
+
+test("successful readiness cancels its timer and an open failure fences an older unavailable response", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let available = false;
+  const pending = deferred<RemoteResult<SessionProfileSnapshot>>();
+  let hold = false;
+  const f = await fixture({ describeSession: async id => hold ? pending.promise : available ? success(baseline(id)) : unavailableSession() });
+  const source = sessionSource(f.id, false);
+  try {
+    f.controller.attachSessionSource(f.id, source); f.controller.setSession(f.id); await settle(f.controller);
+    available = true; f.controller.observeSessionAvailability(f.id, source, true); await settle(f.controller);
+    const accepted = f.controller.store.getSnapshot(); t.mock.timers.tick(10_000);
+    assert.equal(f.controller.store.getSnapshot(), accepted); assert.equal(accepted.sessionIssue, null);
+    hold = true; const reading = f.controller.actions.refreshSession();
+    source.set({ ...source.getSnapshot(), openState: "error", openError: new RemoteError("gateway/cancelled", "open failed", {}) });
+    const failed = f.controller.store.getSnapshot();
+    pending.resolve(unavailableSession()); await reading;
+    assert.equal(f.controller.store.getSnapshot(), failed);
+    assert.equal(failed.sessionReadinessPending, false); assert.equal(failed.sessionIssue?.code, "gateway/cancelled");
+  } finally { f.controller.dispose(); }
+});
+
+test("readiness during a Profile CAS coalesces one read without clearing independent refusal feedback", async () => {
+  const mutation = deferred<RemoteResult<SessionProfileSnapshot>>(); let reads = 0;
+  const f = await fixture({ describeSession: async id => { reads++; return success(baseline(id)); }, selectSession: async () => mutation.promise });
+  const source = sessionSource(f.id, false);
+  try {
+    f.controller.attachSessionSource(f.id, source); f.controller.setSession(f.id); await settle(f.controller);
+    f.controller.actions.chooseSessionProfile("p"); const applying = f.controller.actions.applySession();
+    for (let i = 0; i < 5; i++) f.controller.observeSessionAvailability(f.id, source, true);
+    assert.equal(reads, 1);
+    mutation.resolve({ ok: false, error: new RemoteError("dsmm-profiles/refused", "conflict", { code: "conflict", message: "conflict" }) });
+    await applying; await settle(f.controller);
+    assert.equal(reads, 2); assert.equal(f.controller.store.getSnapshot().sessionIssue?.code, "conflict");
+    await f.controller.actions.refreshSession(); assert.equal(f.controller.store.getSnapshot().sessionIssue?.code, "conflict");
+  } finally { f.controller.dispose(); }
+});
+
+test("Refresh reads the captured session in parallel with inventory failure and preserves draft CAS state", async () => {
+  const global = deferred<RemoteResult<ProfileSnapshot>>();
+  let hold = false, reads: string[] = [];
+  const f = await fixture({ describe: async () => hold ? global.promise : success({ profiles: [], selectedId: null, appliedRevision: null, selectionRevision: "absent" }),
+    describeSession: async id => { reads.push(id); return success(baseline(id)); } });
+  try {
+    f.controller.attachSessionSource(f.id, sessionSource(f.id, false)); f.controller.setSession(f.id); await settle(f.controller);
+    await f.controller.actions.create(); f.controller.actions.editContent('{"version":1,"id":"draft","settings":{}}');
+    f.controller.actions.setNumberDraft("workflow.reviewCap", { draft: "-", invalid: true, sourceValue: 2 }); f.controller.actions.setFieldInvalid("workflow.reviewCap", true);
+    const draft = f.controller.store.getSnapshot().editor, number = f.controller.actions.getNumberDraft("workflow.reviewCap");
+    hold = true; const refreshing = f.controller.actions.refresh();
+    assert.deepEqual(reads, [f.id, f.id], "session refresh starts before inventory resolves");
+    f.controller.setSession("new-session"); await settle(f.controller);
+    global.resolve({ ok: false, error: new RemoteError("gateway/cancelled", "offline", {}) }); await refreshing;
+    assert.deepEqual(reads, [f.id, f.id, "new-session"], "inventory completion never redirects its session refresh");
+    assert.equal(f.controller.store.getSnapshot().issue?.kind, "transport");
+    assert.equal(f.controller.store.getSnapshot().session?.sessionId, "new-session");
+    assert.equal(f.controller.store.getSnapshot().editor, draft); assert.equal(f.controller.store.getSnapshot().dirty, true);
+    assert.equal(f.controller.actions.getNumberDraft("workflow.reviewCap"), number); assert.deepEqual(f.controller.store.getSnapshot().invalidFields, ["workflow.reviewCap"]);
+  } finally { f.controller.dispose(); }
 });

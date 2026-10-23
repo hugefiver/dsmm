@@ -270,7 +270,7 @@ export function ProfilesSection(props: ProfilesSectionProps) {
       {snapshot?.selectionError !== undefined && <div className="dsmm-issue"><p>{t(selectionConflict ? "selectionConflict" : "retry")}</p><IssueDetails issue={snapshot.selectionError} t={t} /></div>}
 
       <div className="dsmm-summary-row">
-        <div><span className="dsmm-summary-label">{t("currentSessionSummary")}</span> <span className="dsmm-summary-val">{state.session === null ? t("sessionUnavailable") : sessionProfileLabels(state.session, t).admitted}</span></div>
+        <div><span className="dsmm-summary-label">{t("currentSessionSummary")}</span> <span className="dsmm-summary-val">{state.session === null ? t(state.sessionReadinessPending ? "sessionWaitingReady" : "sessionUnavailable") : sessionProfileLabels(state.session, t).admitted}</span></div>
         <Button type="button" variant="outline" size="sm" onClick={() => {
           if (moreActionsRef.current !== null) {
             moreActionsRef.current.open = true;

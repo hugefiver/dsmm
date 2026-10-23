@@ -28,13 +28,14 @@ import { registerProfilesRpc } from "../src/profile-rpc.js";
 import { ProfileStore } from "../src/profile-store.js";
 import { DsmmProfileRuntime } from "../src/profile-runtime.js";
 import { resolveConfig } from "../src/settings.js";
-import type { DshContext } from "../src/dsh-types.js";
+import type { DshAgent, DshContext } from "../src/dsh-types.js";
 import { createSnapshotStore } from "@deepseek-ai/dsh-client-store";
 import type { SessionSnapshot, SessionEventWindow } from "@deepseek-ai/dsh-api-session-controller/client";
 import type { StandardSourceBinding } from "@deepseek-ai/dsh-client-ui-slots";
 import { Session, SessionId } from "@deepseek-ai/dsh-session";
 import { LlmAttemptId } from "@deepseek-ai/dsh-llm";
 import type { SessionProfileSnapshot, SessionProfileSelectRequest } from "../src/profile-types.js";
+import { nativeRoutingFixture } from "./native-routing-fixture.ts";
 
 const require = createRequire(import.meta.url);
 const sdk = createRequire(process.env.DSMM_TEST_DSH_ENTRY ?? new URL("../package.json", import.meta.url));
@@ -76,7 +77,7 @@ function surfaceStyles(styles: Set<StyleNode>) {
   return { core, profiles, roleTool };
 }
 
-async function nativeClient<T>(packageName: string, document: ReturnType<typeof startupDocument>["document"], sourceOverride?: string): Promise<T> {
+async function nativeClient<T>(packageName: string, document: ReturnType<typeof startupDocument>["document"], sourceOverride?: string, wireRealm?: (parse: (text: string) => unknown) => void): Promise<T> {
   const loadBrowser = async () => {
     const manifestPath = require.resolve(`${packageName}/package.json`);
     const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
@@ -90,6 +91,7 @@ async function nativeClient<T>(packageName: string, document: ReturnType<typeof 
     window: { __ModuleLoader__: { load(row: { factory: typeof factory }) { factory = row.factory; } } },
   });
   runInContext(source, realm);
+  wireRealm?.(runInContext('(text) => JSON.parse(text, (_key, value) => value !== null && typeof value === "object" && !Array.isArray(value) ? Object.assign(Object.create(null), value) : value)', realm));
   delete realm.window;
   assert.ok(factory, `${packageName} must register its actual lazy-CJS factory`);
   const notRendering = () => { throw new Error("Startup regression must not pretend to render a browser UI"); };
@@ -116,26 +118,42 @@ function currentClientSource(): Promise<string> {
 }
 
 type FixtureRpc = (endpoint: string, args: Record<string, unknown>, signal?: AbortSignal) => Promise<Awaited<ReturnType<ConnectionClient.ConnectionHandle["rpc"]["call"]>>> | undefined;
-async function fixture(deferUi = false, fixtureRpc?: FixtureRpc) {
+async function fixture(deferUi = false, fixtureRpc?: FixtureRpc, nativeHost?: Context) {
   const root = await mkdtemp(join(tmpdir(), "dsmm-client-startup-"));
-  const host = new Context();
+  const host = nativeHost ?? new Context();
   const client = new Context();
   const dom = startupDocument();
   try {
-    const { RemoteAccessService } = sdk("@deepseek-ai/dsh-api-remote-access");
-    await host.plugin(RemoteAccessService).await();
-    await host.plugin(MemoryCredentials).await(); await host.plugin(ConnectionHost).await();
-    // Operator carrier seams; native Connection peer and Gateway still enforce writes.
-    host.provide("webServer", { host: "127.0.0.1" });
-    host.provide("settings", { writable: true });
-    await Promise.all([host.plugin(TypertRegistry).await(), host.plugin(TypertGatewayService, {}).await(), client.plugin(TypertRegistry).await()]);
-    const store = new ProfileStore(join(root, "dsmm-profiles"));
-    const runtime = new DsmmProfileRuntime(host as unknown as DshContext, resolveConfig(), store);
-    await runtime.initialize();
-    await host.plugin({ name: "native-profile-host", inject: ["typert"], apply(ctx: Context) { registerProfilesRpc(ctx, runtime); } }).await();
+    if (nativeHost === undefined) {
+      const { RemoteAccessService } = sdk("@deepseek-ai/dsh-api-remote-access");
+      await host.plugin(RemoteAccessService).await();
+      await host.plugin(MemoryCredentials).await(); await host.plugin(ConnectionHost).await();
+      // Operator carrier seams; native Connection peer and Gateway still enforce writes.
+      host.provide("webServer", { host: "127.0.0.1" });
+      host.provide("settings", { writable: true });
+      await Promise.all([host.plugin(TypertRegistry).await(), host.plugin(TypertGatewayService, {}).await()]);
+      const store = new ProfileStore(join(root, "dsmm-profiles"));
+      const runtime = new DsmmProfileRuntime(host as unknown as DshContext, resolveConfig(), store);
+      await runtime.initialize();
+      await host.plugin({ name: "native-profile-host", inject: ["typert"], apply(ctx: Context) { registerProfilesRpc(ctx, runtime); } }).await();
+    }
+    await client.plugin(TypertRegistry).await();
     const gateway = host.typertGateway;
-    gateway.registerRemoteEvents(async function* (signal) { await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true })); }, { home: "isolated-startup-test" });
+    gateway.registerRemoteEvents(signal => {
+      const queue: { event: string; args: unknown[] }[] = [];
+      let wake: (() => void) | undefined;
+      const stop = host.on("api-session/added", summary => { queue.push({ event: "api-session/added", args: JSON.parse(JSON.stringify([summary])) }); wake?.(); }, { global: true });
+      signal.addEventListener("abort", () => { stop(); wake?.(); }, { once: true });
+      return (async function* () {
+        while (!signal.aborted) {
+          const item = queue.shift();
+          if (item !== undefined) yield item;
+          else await new Promise<void>(resolve => { wake = resolve; });
+        }
+      })();
+    }, { home: "isolated-startup-test" });
     const calls: string[] = [], requests: string[] = [];
+    let parseClientJson: (text: string) => unknown = JSON.parse;
     const connection = await nativeClient<typeof ConnectionClient>("@deepseek-ai/dsh-client-connection", dom.document);
     connection.installConnection(client, { interactions: "answer", transport: { ownsHost: true, rpc: {
       async call(channel, endpoint, payload, signal) {
@@ -147,24 +165,25 @@ async function fixture(deferUi = false, fixtureRpc?: FixtureRpc) {
         // and Host codecs; VM-prototype request objects are not Host inputs.
         const args = (JSON.parse(JSON.stringify(payload)) as { args: Record<string, unknown> }).args;
         const response = fixtureRpc?.(endpoint, args, signal);
-        if (response !== undefined) return response.then(result => result.ok ? { ...result, value: JSON.parse(JSON.stringify(result.value), (_key, value: unknown) => value !== null && typeof value === "object" && !Array.isArray(value) ? Object.assign(Object.create(null), value) : value) } : result);
-        try { return { ok: true, value: await gateway.invoke({ namespace, method, args, signal, peer: host.connection.browserPeer }) }; }
+        const wire = <T,>(value: T): T => parseClientJson(JSON.stringify(value)) as T;
+        if (response !== undefined) return response.then(wire);
+        try { return wire({ ok: true, value: await gateway.invoke({ namespace, method, args, signal, peer: host.connection.browserPeer }) }); }
         catch (error) {
           const failure = remoteErrorOf(error);
           if (failure === undefined) throw error;
-          return { ok: false, error: { code: failure.code, message: failure.message, details: failure.details } };
+          return wire({ ok: false, error: { code: failure.code, message: failure.message, details: failure.details } });
         }
       },
       async *open(channel, endpoint, payload, signal, uplink) {
         assert.equal(channel, "/api");
         for await (const frame of await gateway.wireStream.open(endpoint, JSON.parse(JSON.stringify(payload)), uplink ?? (async function* () {})(), host.connection.browserPeer, signal)) {
-          // Native strict record codecs accept null-prototype wire records in
-          // both realms; no Host object prototype crosses the JSON boundary.
-          yield JSON.parse(JSON.stringify(frame), (_key, value: unknown) => value !== null && typeof value === "object" && !Array.isArray(value) ? Object.assign(Object.create(null), value) : value);
+          // Decode arrays in the consuming Gateway realm; strict record values
+          // use null prototypes shared by the Gateway and contribution codecs.
+          yield parseClientJson(JSON.stringify(frame));
         }
       },
     } } });
-    const remoteModule = await nativeClient<ClientPlugin>("@deepseek-ai/dsh-api-gateway", dom.document);
+    const remoteModule = await nativeClient<ClientPlugin>("@deepseek-ai/dsh-api-gateway", dom.document, undefined, parse => { parseClientJson = parse; });
     const remoteFiber = client.plugin(remoteModule);
     await remoteFiber.await();
     const generation = (client.connection as unknown as ConnectionClient.ConnectionHandle).generation;
@@ -183,10 +202,10 @@ async function fixture(deferUi = false, fixtureRpc?: FixtureRpc) {
     return { host, client, production, entry, remoteFiber, calls, requests, styles: dom.styles, installUi,
       declareSettings: () => client.slots.register({ name: "root", children: { "settings.section": { kind: "list", scope: "root" }, "conversation.header.leading": { kind: "single", scope: "root" } } }, SettingsShell),
       declarePlugins: () => client.slots.register({ name: "root", priority: 1, children: { "plugins.bundle.config": { kind: "keyed", scope: "root" } } }, PluginsShell),
-      async dispose() { await client.fiber.dispose(); await host.fiber.dispose(); await rm(root, { recursive: true, force: true }); },
+      async dispose() { await client.fiber.dispose(); if (nativeHost === undefined) await host.fiber.dispose(); await rm(root, { recursive: true, force: true }); },
     };
   } catch (error) {
-    await client.fiber.dispose(); await host.fiber.dispose(); await rm(root, { recursive: true, force: true });
+    await client.fiber.dispose(); if (nativeHost === undefined) await host.fiber.dispose(); await rm(root, { recursive: true, force: true });
     throw error;
   }
 }
@@ -485,4 +504,85 @@ test("current native Session running transition rereads stale busy capability be
     await face.resetSession();
     assert.deepEqual(writes, [{ sessionId: id, id: null, expectedSelectionRevision: "absent", expectedAdmissionEpoch: "live-epoch" }]);
   } finally { await f.dispose(); }
+});
+
+test("historical open idle binding recovers after native Agent admission through the Remote added channel", async t => {
+ for (const timing of ["after-error", "before-error"] as const) await t.test(timing, async child => {
+  const native = await nativeRoutingFixture({}, { headless: true, controller: true, nativePermissionSettings: true });
+  native.ctx.provide("webServer", { host: "127.0.0.1" });
+   let admit!: () => void;
+   const admission = new Promise<void>(resolve => { admit = resolve; });
+   if (timing === "after-error") {
+     const runtime = native.ctx.get("dsmmProfileRuntime") as unknown as DsmmProfileRuntime;
+     const prepare = runtime.prepareRoot.bind(runtime);
+     child.mock.method(runtime, "prepareRoot", async (...args: Parameters<DsmmProfileRuntime["prepareRoot"]>) => { await admission; return prepare(...args); });
+   }
+  let releaseError!: () => void, captured!: () => void, first = true;
+  const errorDelivery = new Promise<void>(resolve => { releaseError = resolve; });
+  const errorCaptured = new Promise<void>(resolve => { captured = resolve; });
+  const f = await fixture(false, (endpoint, args) => {
+    if (timing !== "before-error" || endpoint !== "dsmmProfiles/describeSession" || !first) return;
+    first = false;
+    return (async () => {
+      try { await native.ctx.typertGateway.invoke({ namespace: "dsmmProfiles", method: "describeSession", args, peer: native.ctx.connection.browserPeer }); }
+      catch (error) {
+        const failure = remoteErrorOf(error); assert.ok(failure);
+        captured(); await errorDelivery;
+        return { ok: false as const, error: { code: failure.code, message: failure.message, details: failure.details } };
+      }
+      throw new Error("The historical Agent must not be ready at the first read");
+    })();
+   }, native.ctx);
+  const id = SessionId("history-before-native-agent");
+  const session = createSnapshotStore<SessionSnapshot>({ sessionId: id, running: false, pendingSubmissions: [], subagent: null, removed: false,
+    openState: "open", openError: null, hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null, promptAttempted: false, awaitingFirstTurn: false });
+  const current = createSnapshotStore<StandardSourceBinding>({ key: id, hooks: {}, keyedHooks: {}, props: {} });
+   const binding = { sessionId: id, session };
+   let creating: ReturnType<typeof native.create> | undefined;
+   let statuses = 0;
+   const summaries: { available: boolean; admitted: boolean }[] = [];
+   native.ctx.on("api-session/status", () => { statuses++; }, { global: true });
+  try {
+    f.client.provide("sessions", { binding: (key: string) => key === id ? binding : undefined } as unknown as Context["sessions"]);
+    f.client.provide("uiSession", { adapter: { current } } as unknown as Context["uiSession"]);
+    f.declareSettings(); await f.entry.await(); await namespaceChild(f).await();
+    const face = profilesFace(f);
+    if (timing === "before-error") await errorCaptured;
+    else {
+      for (let i = 0; i < 1000 && (f.calls.filter(call => call.endsWith("/describeSession")).length === 0 || face.hooks.profiles.getSnapshot().sessionBusy !== null); i++) await setImmediate();
+      assert.equal(face.hooks.profiles.getSnapshot().sessionIssue?.kind, "domain");
+      assert.equal(face.hooks.profiles.getSnapshot().sessionIssue?.field, "sessionId");
+    }
+    const waiting = face.hooks.profiles.getSnapshot().sessionReadinessPending;
+     const runtime = native.ctx.get("dsmmProfileRuntime") as unknown as DsmmProfileRuntime;
+     f.client.remote.$on("api-session/added", summary => {
+       const agent = native.agents.get(id);
+       if (summary.sessionId === id) summaries.push({ available: summary.agentAvailable, admitted: agent !== undefined && runtime.hasAdmission(agent as unknown as DshAgent) });
+     });
+     creating = native.create({}, undefined, { sessionId: id });
+     if (timing === "after-error") {
+       for (let i = 0; i < 1000 && face.hooks.profiles.getSnapshot().sessionIssue?.code !== "activation"; i++) await setImmediate();
+       assert.equal(face.hooks.profiles.getSnapshot().sessionIssue?.code, "activation", "the first native true must query immediately, before admission completes");
+       assert.equal(face.hooks.profiles.getSnapshot().sessionReadinessPending, false, "activation is immediately visible");
+       assert.equal(f.calls.filter(call => call.endsWith("/describeSession")).length, 2);
+     }
+     admit();
+     const agent = await creating;
+     for (let i = 0; i < 1000 && summaries.length < 2; i++) await setImmediate();
+     assert.deepEqual(summaries.map(summary => summary.available), [true, true]);
+     assert.equal(summaries[1].admitted, true);
+     if (timing === "after-error") assert.equal(summaries[0].admitted, false);
+     releaseError();
+    for (let i = 0; i < 1000 && face.hooks.profiles.getSnapshot().session === null; i++) await setImmediate();
+    assert.equal(face.hooks.profiles.getSnapshot().session?.sessionId, agent.id, "same idle binding must recover without navigation or prompt");
+    if (timing === "after-error") assert.equal(waiting, true);
+    assert.equal(face.hooks.profiles.getSnapshot().sessionIssue, null);
+    assert.equal(face.hooks.profiles.getSnapshot().sessionReadinessPending, false);
+    assert.equal(session.getSnapshot().running, false);
+     assert.equal(f.calls.filter(call => call.endsWith("/describeSession")).length, timing === "after-error" ? 3 : 2);
+     assert.equal(statuses, 0);
+    assert.ok(f.calls.every(call => ["dsmmProfiles/describe", "dsmmProfiles/describeSession"].includes(call)));
+    assert.equal(native.adapter.calls.length, 0);
+   } finally { admit(); releaseError(); await creating?.catch(() => {}); await f.dispose(); await native.dispose(); }
+ });
 });
