@@ -1,6 +1,14 @@
 # Native permissions
 
-DSMM 0.3.13 targets exactly DSH `0.2.1-rc.2`. DSH owns approval; DSMM composes policy into the native tool pipeline without a second approval queue or UI. DSMM command-rule approval memory is limited to the exact live Agent and is distinct from native once grants.
+DSMM 0.3.13 targets exactly DSH `0.2.1-rc.2`. In the current runtime, DSH owns approval; DSMM composes policy into the native tool pipeline without a second approval queue or UI. DSMM command-rule approval memory is limited to the exact live Agent and is distinct from native once grants.
+
+## Permission architecture and extension target
+
+Permission control has two separately configured lanes: **additional protection**, where DSMM detects an operation DSH would otherwise permit and requests native approval according to its guard configuration; and **native-request authorization**, where DSMM answers an intercepted DSH operation according to applicable authorization rules. Git-write guards illustrate the first; the exact-request command allowlist answerer illustrates the second.
+
+The extension target is primarily the second lane: explicit operator-created live-session grants, including model-proposed command/subcommand, tool, path or full-access requests. Models propose scopes but never grant authority. Both lanes share rule representation, matching and presentation while keeping configuration and policy effects separate. A grant in one lane does not implicitly satisfy an independent requirement in the other.
+
+See the [unified permission-control design](superpowers/specs/2026-10-23-unified-permission-control.md) for target interactions, scope enforcement and grant lifetime. The sections below describe current implementation behavior, not completion of that extension. Live-session answering would issue a fresh decision for each matched native request; it would not reuse a previous native once grant or make full access equivalent to a path grant.
 
 ## Full access and approval
 
