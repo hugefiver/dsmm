@@ -1,6 +1,6 @@
 # Native permissions
 
-DSMM 0.3.14 targets exactly DSH `0.2.1-rc.2`. In the current runtime, DSH owns approval; DSMM composes policy into the native tool pipeline without a second approval queue or UI. DSMM command-rule approval memory is limited to the exact live Agent and is distinct from native once grants.
+DSMM 0.3.15 targets exactly DSH `0.2.1-rc.2`. In the current runtime, DSH owns approval; DSMM composes policy into the native tool pipeline without a second approval queue or UI. DSMM command-rule approval memory is limited to the exact live Agent and is distinct from native once grants.
 
 ## Permission architecture and extension target
 

@@ -97,9 +97,6 @@ test("README local documentation links are shipped by the package", () => {
   const readme = readFileSync(join(packageRoot, "README.md"), "utf8");
   const localDocs = [...new Set([...readme.matchAll(/\[[^\]]+\]\((docs\/[^)#]+)\)/gu)].map((match) => match[1]))];
 
-  for (const required of ["docs/maintenance.md", "docs/settings-status.md", "docs/agent-presets.md", "docs/compatibility.md", "docs/releasing.md", "docs/profiles.md"]) {
-    assert.ok(localDocs.includes(required), `${required} is linked from README`);
-  }
   for (const path of localDocs) {
     assert.ok(pkg.files.includes(path), `${path} is included in package files`);
     assert.equal(existsSync(join(packageRoot, path)), true, `${path} exists`);

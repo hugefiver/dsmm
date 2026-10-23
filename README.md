@@ -1,66 +1,107 @@
-# DSMM for DeepSeek Harness
+# DSMM
 
-DSMM (`@dsmm/dsmm`) adds native configuration, role delegation and child controls to DeepSeek Harness. **DSMM** is the Plugins page and package title; **Deepwork** is its optional workflow module. It isn't an OpenCode compatibility layer.
+DSMM 是 DeepSeek Harness（DSH）的插件。它让不同 Agent 分工处理任务，给各个角色配置模型和备用模型，把常用设置保存成方案，也提供 Git 写操作等命令防护规则。
 
-**DSMM 0.3.14 targets exactly DSH `0.2.1-rc.2`** and Node.js 22 or later. The maintained source repository is [hugefiver/dsmm](https://github.com/hugefiver/dsmm).
+比如，让 Planner 拆解任务、Coding 写代码、Reviewer 检查结果，再由 Orchestrator 协调。各个角色可以用不同的模型，不必共用一套配置。
 
-## Configuration and profiles
+当前发布版本为 `@dsmm/dsmm@0.3.15`，支持 DSH `0.2.1-rc.2`。安装前请确认客户端版本；其他 DSH 版本暂不在支持范围内。Desktop 使用自带运行时，独立命令行环境需要 Node.js 22 或更高版本。
 
-**Plugins → DSMM bundle config** is the deployment editor. Choose sparse Global settings or the current native profile override, then open a module drawer. Each scope has independent Save, Refresh and Discard actions. Profile writes require the exact authorized native form and revision; unavailable forms never fall back to Global writes. Core configuration and permissions remain available without a session and with Deepwork off.
+- 源码仓库：[hugefiver/dsmm](https://github.com/hugefiver/dsmm)
+- 发布地址：[GitHub Releases (v0.3.15)](https://github.com/hugefiver/dsmm/releases/tag/v0.3.15) 与 [npm (@dsmm/dsmm)](https://www.npmjs.com/package/@dsmm/dsmm)
 
-Resolution is **defaults → sparse Global deployment → explicit native entry/profile → admitted named overlay**. Objects merge, arrays replace, and explicit false, empty and same-default values remain pins. Unset removes only the current layer's key. Global storage is `<resolvedDshHome>/plugins/dsmm`; home resolution uses explicit `profileContext.home`, then `DSH_HOME`, then the native `~/.dsh` default.
+---
 
-**Settings → Deepwork Profiles** separates editor draft, saved revision, future-default pin and current-session admission. Save doesn't activate a revision. Future-default selection affects new sessions, not existing Agents or their children. Live overlay **Apply is unavailable** in rc.2: save and select a default for a new session instead. There is no queued Apply or implicit restart.
+## 安装与升级
 
-The Conversation menu's **Use profile model** is an independent native selection action using the admitted immutable configuration, not a later draft. The **Deepwork** toggle records explicit intent, including a same-default choice; DW presets default on, but explicit off wins without removing persona or permission boundaries. Model selection, mode switching and overlay Apply each have their own capability and refusal reason. Disabling Apply doesn't disable the other two. Sessionless controls don't create a session. See [Profiles](docs/profiles.md) and [settings/status](docs/settings-status.md).
+### 初次安装
 
-Desired configuration, mounted startup capability and actual Agent admission are separate states. Saves don't remount services or update running task policy. Global and named stores use their own CAS/atomic-write boundaries; native profile forms use native revision CAS, not a cross-layer transaction. A committed save with failed observation remains saved with refresh required. An unconfirmed native mutation requires reread, not blind retry. Writes require the actual operator and valid connection/owner lifetime through precommit.
+1. 打开 DeepSeek Harness Desktop，进入 **插件（Plugins）** 页面。
+2. 点击 **添加插件（Add plugin）**，输入 `@dsmm/dsmm@0.3.15` 并确认。
+3. 安装完成后，检查插件是否处于启用状态。如果界面提示需要重启，请按提示重启客户端。
 
-## Roles and execution
+Desktop 的插件由客户端自己管理。全局 npm 安装和独立 npm 版 `dsh` 命令不能替代这一步。
 
-The inventory contains 11 base roles, 11 categories and fourteen configurable lazy skills. Only the Orchestrator is a selectable standing root and the only registered native preset; every other role is an internal delegation target whose children share the parent's standing composition. Cross-cutting defaults off. Preset discovery, root eligibility and model availability are separate checks. A role name doesn't prove a different model or grant authority.
+### 已有版本升级（Windows）
 
-Official **AgentRegistry, SubagentRuntime and JSONL namespace plugins own execution and storage**. DSMM binds immutable per-Agent configuration and per-call role policy through native preset/provider composition and awaited creation. There is no custom execution owner, manual-runtime selector or persistence companion to install. `preset-skills` is an internal Agent-scoped handle, not a public Loader plugin.
+DSH Desktop 当前不支持在界面中用同名版本原位覆盖更新插件。受支持的升级方式如下：
 
-Role calls wait for the official activation result by default. Only native `stopReason: completed` is normal completion; failure, interruption and partial output remain distinct. After publication, cancellation uses the activation receipt's `dispose()` and waits for cleanup. If background execution is enabled, choose `run_in_background:true` **before starting**; delivery is then owned by the native parent notification path. An accepted child/message receipt isn't a completed task. A running waiting call can't be transferred to background.
+1. 保存好正在进行的任务，**正常退出并完全关闭 DSH Desktop**。
+2. 使用 Desktop 安装自带的命令行工具更新配置。以下示例适用于 Windows 默认安装路径（`%LOCALAPPDATA%\Programs\DeepSeek Harness\`）：
+   ```powershell
+   & "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add @dsmm/dsmm@0.3.15 --save-exact --ignore-scripts --registry=https://registry.npmjs.org
+   ```
+   *若安装在自定义路径，请替换为对应的实际位置；非 Windows 系统请参考 Desktop 自身菜单或官方指引，不要混用非 Desktop 的独立 CLI 命令。*
+3. 重新打开 DSH Desktop 即可加载新版本。
 
-Supported live direct-child controls use native Queue, Steer and interrupt under exact-parent and operator authority. Descendant inspection is read-only. Availability follows actual native capabilities, not a visible button or catalog row. Unknown send outcomes must not trigger automatic resend. **Resuming a persisted DSMM session builds a fresh admission from the current deployment**: history stays readable user intent, while delegation authority and child residency are never reconstructed from logs, labels or current settings. See [Agent presets and child control](docs/agent-presets.md).
+不要在任务还在运行时升级，也不要为升级手动删除配置。插件更新不保证正在运行的任务能继续执行。
 
-Collapsed call rows show **Call Coding** / **调用 Coding** when the target is known; child labels use **Coding: task description**. Requested identity is distinct from validated actual execution identity. Partial arguments, failures, interruptions and current-format replay retain that distinction, including nested PTC calls. Native safety refusal views take precedence.
+---
 
-## Models and resources
+## 启用 Deepwork
 
-Ordinary roots retain native provider/model/effort selection. Role calls default to `level:"normal"`; eligible targets may configure exact `low`, `high` and `max`. `subagents.toolTopology` chooses per-role or parameterized tools. Per-call `route` is absent unless deployment explicitly grants it; named profiles can't grant that permission. Child routes are initial defaults, not every-turn overrides of later native intent.
+Deepwork 是 DSMM 提供的角色委派与模型路由工作流模块。
 
-Standard supported requests use native prepared calls. Raw/custom parameters and Pi-AI stop-only requests use the minimal public Pi-AI `openai-completions` payload seam for self-contained literal or explicit model-mapping configurations. Catalog-backed raw combinations that can't be reliably reproduced are rejected regardless of native or DSMM parameter source. Standard Coding remains available, and native effort encoding and advertised capabilities remain unchanged. See [model routing](docs/model-routing.md) and [bounded recovery](docs/runtime-recovery.md).
+插件安装后，Deepwork 模块总开关默认开启，但新创建的普通会话默认不开启 Deepwork 模式。
 
-Skills expose metadata first and read bodies on demand within the admitted Agent scope. Deepwork off hides DSMM skills, not Host/project resources or role restrictions. Non-DSMM ancestor resource winners remain authoritative. [Maintenance](docs/maintenance.md) covers source ownership, generation, packaged resources, licenses and attribution.
+- **在当前会话中开启**：点击会话菜单中的「启用 Deepwork」（英文界面为 Enable Deepwork）。开启后当前会话即可使用角色调度；再次点击「关闭 Deepwork」即可停用。
+- **让新会话默认开启**：在预设方案配置中，将「默认 Deepwork 模式」（`defaultActive`）设置为启用。
+- **模块总开关限制**：如果在插件部署配置中关闭了 Deepwork 模块总开关，会话菜单中将无法开启该模式；若界面提示需要重启，需重启客户端生效。
 
-DSMM-managed external LSP remains disabled, including with `lsp.enabled:true`. It isn't automatically remounted by Save, restart or Deepwork activation. The retained external MCP configuration calls the `ocmm-lsp` executable from the published `ocmm` npm package; DSMM carries no LSP source, native build or LSP publication lane. DSH's own LSP and independently configured MCP are unaffected. See [LSP boundary](docs/lsp.md).
+---
 
-## Use a local artifact
+## 配置与方案
 
-Use an explicitly authorized locally packed artifact for evaluation. For a disposable CLI evaluation:
+### 两种配置范围
 
-```powershell
-$env:DSH_HOME = "<disposable-test-home>"
-dsh --profile <test-profile> --from-default-profile headless --dump-config
-dsh plugin --profile <test-profile> add <absolute-path-to-local-candidate.tgz>
-dsh --profile <test-profile> --dump-config
-```
+DSMM 包含两处相互独立的配置区域：
 
-Use an empty test home and a fresh profile. These examples aren't authorization to install software or change a real Desktop/TUI profile. Headless task execution requires a separately configured native provider and effective `defaultActive:true`; it doesn't select Agent presets. `/deepwork [off|message]` and inspection-only `/dsmm-status [json]` belong to the Host command adapter, not headless task text. `--dump-config` shows Loader composition, not full Global-aware admission.
+- **插件部署配置（Plugins → DSMM bundle config）**：用于管理全局部署或当前原生 profile 的覆盖项，包括模块开关、全局执行策略与防护设置。
+- **具名预设方案（Settings → Deepwork Profiles）**：用于保存不同的工作流配置（如日常编码、深度审查等），每个方案拥有独立的角色模型路由与参数。
 
-Real installation must preserve providers/accounts, credentials, unrelated Loader rows and history. No old-profile or cold-history migration is supplied. Desktop plugin installation follows publication and requires the exact rc.2 Host; it doesn't upgrade the Host. See [compatibility](docs/compatibility.md) and [release policy](docs/releasing.md).
+### 方案保存、设为默认与会话切换
 
-## Safety and network limits
+在 **Settings → Deepwork Profiles** 中编辑方案时，请注意以下操作的区别：
 
-DSH owns approval, sandboxing, depth and cancellation. DSMM narrows authority through role, tool and exact-call checks; it doesn't create a second approval queue or reusable grants. Native once approval applies only to that call and scope. See [native permissions](docs/native-permissions.md) and [safety guards](docs/safety-guards.md).
+- **保存方案（Save profile）**：仅将当前修改写入文件保存，不会自动改变正在运行的会话，也不会自动变成新建会话的默认方案。
+- **设为未来默认（Set as future default）**：将当前选中的方案设为后续新建会话使用的默认配置。
+- **在当前会话中应用方案（Apply profile to current session）**：在已有对话历史的原生会话中直接更换预设方案。
+  - 会话必须处于真正空闲状态：无正在生成的回复、无排队输入、无待处理审批且无运行中的子任务。界面单独显示 `idle` 状态并不代表没有后台活动，需等待所有操作完全结束。
+  - 切换成功后，已存在的旧子任务继续保留启动时的原配置与限制，后续新委派的子任务才会使用新方案。
+- **使用方案模型（Use profile model）**：把当前会话的模型切换为方案中配置的主模型。保存或切换方案本身不会自动改模型；要一起换模型，需要明确点击这个操作。操作期间如果又手动选择了模型，以较新的选择为准。
 
-Search/Fetch remain explicitly selected native providers. The optional Fake-IP fetch adapter, its exact `/16` policy and network limits are documented in [Fake-IP fetch](docs/web-fetch-fakeip.md). The shell rejection source remains unknown; neither tool Allow nor disabling sandbox is a network fix.
+### 配置角色模型与参数
 
-Retired brand-specific routing fields reject rather than migrate. Unsupported configuration and history stay untouched.
+在方案编辑页点击「配置全部 Agent 模型」（Configure all Agent models），可以为各个角色配置：
 
-## Development and release
+- **主模型（Primary）**：该角色优先调用的服务商与模型。
+- **推理强度与参数**：按模型支持的选项填写，例如 medium 或 high。不同模型接受的值可能不同，不能把同一组档位套在所有模型上。
+- **备用路由（Fallback Routes）**：当主模型不可用时依次尝试的候选通道（最多支持 32 个备用路由）。
 
-The checked-in `src/`, `prompts/`, and `skills/` trees are the standalone maintenance sources. Build, test, role generation, frontend provenance, and package checks do not read a sibling repository. Development and final acceptance use the affected module and interface suites rather than a full test run; see [testing](docs/testing.md), [maintenance](docs/maintenance.md), and [release policy](docs/releasing.md).
+---
+
+## 权限和后台任务
+
+- **Git 保护范围不是执行许可**：“所有写操作”和“仅高风险写操作”决定保护规则检查哪些 Git 操作；检查后是询问、禁止还是关闭保护，由对应设置决定。选择范围不代表自动执行或批准命令。
+- **子任务不继承临时授权**：子任务被拒绝的操作不会自动继承父任务已获得的单次审批。
+- **禁止审批时会直接拒绝**：如果原生会话的审批策略是 never，需要审批的操作会被拒绝，DSMM 不能替它放行。
+- **授权功能仍有限制**：目前没有按指定外部目录单独授予写权限、为子 Agent 开放审批，或跨会话记住临时授权的功能。
+- **任务等待与取消**：角色调用默认等待执行完成。若需后台异步执行，须在启动前完成配置，正在前台同步等待的任务无法中途切入后台；取消任务请使用原生的中断操作。
+
+---
+
+## 相关文档
+
+需要了解具体设置时，可以继续阅读：
+
+- [预设方案](docs/profiles.md)
+- [插件设置](docs/settings-status.md)
+- [模型与备用路由](docs/model-routing.md)
+- [权限与审批](docs/native-permissions.md)
+
+参与开发请看[测试说明](docs/testing.md)、[兼容性说明](docs/compatibility.md)和[维护指南](docs/maintenance.md)。
+
+---
+
+## 许可证与归属
+
+本项目遵循 [Anti American AI Public License (AAAPL)](LICENSE)，版权所有 © 2026 Hugefiver。依赖库与第三方授权详情请见 [docs/maintenance.md](docs/maintenance.md)。

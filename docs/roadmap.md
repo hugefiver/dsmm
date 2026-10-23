@@ -2,7 +2,7 @@
 
 ## Version policy
 
-**DSMM 0.3.14 targets exactly DSH `0.2.1-rc.2`.** Each DSMM version targets the published DSH RC or stable release selected for that version. Older SDKs and old configuration schemas aren't runtime compatibility targets. Loading sessions created by DSMM `0.2.x` is a required compatibility target, separate from retaining old runtime implementations or execution behavior. A newer upstream release requires deliberate reassessment, not an automatic dependency or runtime switch.
+**DSMM 0.3.15 targets exactly DSH `0.2.1-rc.2`.** Each DSMM version targets the published DSH RC or stable release selected for that version. Older SDKs and old configuration schemas aren't runtime compatibility targets. Loading sessions created by DSMM `0.2.x` is a required compatibility target, separate from retaining old runtime implementations or execution behavior. A newer upstream release requires deliberate reassessment, not an automatic dependency or runtime switch.
 
 Published `0.3.0` retains its original rc.1 package, tag, assets and version-bound release identity.
 
@@ -132,4 +132,4 @@ As of 2026-10-23, the public [DSH master comparison](https://github.com/deepseek
 
 ## Publication and Desktop installation
 
-0.3.14 publication uses the version-bound [release controls](releasing.md). Desktop plugin installation follows publication, uses the Desktop-owned carrier and requires exact DSH `0.2.1-rc.2`. Installation doesn't authorize upgrading the Host, changing credentials or real sessions, altering unrelated configuration, or restarting active work. An incompatible Host or required data migration blocks installation rather than expanding its scope.
+0.3.15 publication uses the version-bound [release controls](releasing.md). Desktop plugin installation follows publication, uses the Desktop-owned carrier and requires exact DSH `0.2.1-rc.2`. Installation doesn't authorize upgrading the Host, changing credentials or real sessions, altering unrelated configuration, or restarting active work. An incompatible Host or required data migration blocks installation rather than expanding its scope.
