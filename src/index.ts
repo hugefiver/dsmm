@@ -99,7 +99,7 @@ export async function apply(input: DshContext, config: Config = {}, startupOptio
   const profiles = await createProfileRuntime(ctx as DshContext, startup.settings, { startup, readDesired: () => deployment.readDesired(), modeController: controller,
     runtimeView: () => runtimeAdmissionView(ctx), getMountedPermission: mountedPermission });
   lifetime.signal.throwIfAborted();
-  admission = new NativeAdmission(ctx, profiles, policy);
+  admission = new NativeAdmission(ctx, profiles, policy, agents => { for (const agent of agents) commandApprovals.clearAgent(agent); });
   ctx.provide("dsmmNativeAdmission", admission);
   ctx.provide("dsmmProfileRuntime", profiles);
   ctx.provide("dsmmDeploymentConfig", deployment);

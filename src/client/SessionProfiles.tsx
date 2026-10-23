@@ -43,7 +43,7 @@ export function SessionScopeFeedback({ state, t }: PropsLocale<"settings.dsmm-pr
     {session?.warnings?.length ? <div><p>{t("admissionWarnings")}</p><ProfileWarnings warnings={session.warnings} t={t} /></div> : null}
     {state.dirty && <p className="dsmm-hint">{t("sessionDirty")}</p>}
     {(session?.refreshRequired || session?.selection.refreshRequired) && <p role="status">{t("sessionCommittedRefresh")}</p>}
-    {state.sessionUnconfirmed && <p role="status">{t("sessionUnconfirmedRefresh")}</p>}
+    {state.sessionUnconfirmed && <p role="status">{t(state.sessionIssue?.code === "blank-identity-unconfirmed" ? "sessionPreparationUnknown" : "sessionUnconfirmedRefresh")}</p>}
     {state.sessionIssue !== null && <><p role="alert">{state.sessionIssue.source === "profile-model" ? t(state.sessionIssue.code === "model-unconfigured" ? "headerNoProfileModel" : state.sessionIssue.code === "model-choice-changed" ? "headerModelChoiceChanged" : "headerModelUnconfirmed")
       : state.sessionIssue.code === "conflict" ? t("sessionConflict")
       : ["busy", "maintenance", "disposed", "not-owned"].includes(state.sessionIssue.code) ? t("sessionBusy", { reason: state.sessionIssue.code })
@@ -68,7 +68,24 @@ export function SessionScope({ state, actions, t, compact = false, showFeedback 
   try { if (binding !== undefined) binding = parseSubagentRuntimeAdmissionView(binding); } catch { binding = undefined; }
   return <div className="dsmm-session-scope" aria-busy={state.sessionBusy !== null} data-dsmm-session-scope>
     {!compact && <h3>{t("sessionScope")}</h3>}
-    {state.currentSessionId === null ? <p className="dsmm-hint">{t("sessionChooseWorkspace")}</p> : <>
+    {state.currentSessionId === null ? <>
+      <p className="dsmm-hint">{t(state.sessionPreparationAvailable ? "sessionChooseWorkspace" : "sessionPreparationUnavailable")}</p>
+      <div className="dsmm-field"><label htmlFor={`${prefix}-workspace`}>{t("sessionWorkspace")}</label>
+        <select id={`${prefix}-workspace`} value={state.sessionWorkspaceId ?? ""} disabled={!state.sessionPreparationAvailable || disabled} onChange={event => { if (current()) void actions.chooseSessionWorkspace(event.currentTarget.value); }}>
+          <option value="">{t("sessionWorkspacePlaceholder")}</option>
+          {state.sessionWorkspaces.map(workspace => <option key={workspace.id} value={workspace.id}>{workspace.label}</option>)}
+        </select>
+      </div>
+      {state.sessionWorkspaces.length === 0 && <p className="dsmm-hint">{t("sessionNoWorkspaces")}</p>}
+      <div className="dsmm-field"><label htmlFor={`${prefix}-choice`}>{t("sessionSelect")}</label>
+        <select id={`${prefix}-choice`} value={state.sessionChoice ?? ""} disabled={!state.sessionPreparationAvailable || disabled || state.sessionUnconfirmed} onChange={event => { if (current()) actions.chooseSessionProfile(event.currentTarget.value || null); }}>
+          <option value="">{t("sessionBaseline")}</option>
+          {state.snapshot?.profiles.map(profile => <option key={profile.id} value={profile.id} disabled={!isConfigRevision(profile.revision) || profile.error !== undefined}>{profile.label?.trim() || profile.id}</option>)}
+        </select>
+      </div>
+      <div className="dsmm-actions"><Button type="button" variant="outline" disabled={!state.sessionPreparationAvailable || disabled || state.sessionUnconfirmed || state.snapshot === null} onClick={() => { if (current()) void actions.applySession(); }}>{t("sessionPrepare")}</Button>
+        <Button type="button" variant="outline" disabled={state.sessionBusy !== null || state.busy !== null || state.pendingEditor !== null} onClick={() => { if (current()) void actions.refreshSession(); }}>{t("sessionRefresh")}</Button></div>
+    </> : <>
       {labels !== null && <p data-dsmm-session-state>{labels.admitted}</p>}
       {labels !== null && !compact && <p className="dsmm-hint" data-dsmm-session-future-default>{labels.futureDefault}</p>}
       {session === null && <p className="dsmm-hint" id={`${prefix}-overlay-reason`}>{t("sessionUnavailable")}</p>}
@@ -119,9 +136,10 @@ export function SessionProfiles(props: SessionProfilesProps) {
   const unavailable = id === null || committing || state.busy !== null || state.sessionUnconfirmed || session === null || session.refreshRequired === true || session.selection.refreshRequired === true;
   const profileDisabled = unavailable || state.pendingEditor !== null || state.dirty || state.invalidFields.length > 0
     || session === null || !writableSelectionVersion(session.selection.selectionRevision);
-  const disabled = profileDisabled || session?.canApplyOverlay !== true || session?.applyOverlayUnavailableReason === "new-session-required" || state.snapshot === null;
+   const sessionlessDisabled = !state.sessionPreparationAvailable || committing || state.busy !== null || state.sessionUnconfirmed || state.pendingEditor !== null || state.dirty || state.invalidFields.length > 0 || state.snapshot === null;
+   const disabled = id === null ? sessionlessDisabled : profileDisabled || session?.canApplyOverlay !== true || session?.applyOverlayUnavailableReason === "new-session-required" || state.snapshot === null;
   let feedback = "";
-  if (state.sessionUnconfirmed) feedback = t("sessionUnconfirmedRefresh");
+   if (state.sessionUnconfirmed) feedback = t(state.sessionIssue?.code === "blank-identity-unconfirmed" ? "sessionPreparationUnknown" : "sessionUnconfirmedRefresh");
   else if (session?.refreshRequired || session?.selection.refreshRequired) feedback = t("sessionCommittedRefresh");
   else if (state.sessionIssue !== null) feedback = t(state.sessionIssue.source === "profile-model" ? state.sessionIssue.code === "model-unconfigured" ? "headerNoProfileModel" : state.sessionIssue.code === "model-choice-changed" ? "headerModelChoiceChanged" : "headerModelUnconfirmed"
     : state.sessionIssue.code === "conflict" ? "headerConflict" : state.sessionIssue.code === "activation" ? "headerActivationRefused"
@@ -129,7 +147,7 @@ export function SessionProfiles(props: SessionProfilesProps) {
     : state.sessionIssue.code === "cancelled" ? "headerCancelledRefused" : state.sessionIssue.code === "unavailable" || state.sessionIssue.kind === "assembly" ? "headerUnavailableRefused" : "headerSelectionRefused");
   else if (committing || state.busy !== null) feedback = t(state.sessionBusy === "apply" || state.sessionBusy === "reset" ? "headerApplying" : "headerLoading");
   else if (state.dirty || state.invalidFields.length > 0 || state.pendingEditor !== null) feedback = t("headerDraft");
-   else if (id === null) feedback = t("sessionChooseWorkspace");
+    else if (id === null) feedback = t(!state.sessionPreparationAvailable ? "sessionPreparationUnavailable" : state.sessionWorkspaceId === null ? "sessionChooseWorkspace" : "sessionPrepareHint");
   else if (session === null || state.snapshot === null) feedback = t("headerUnavailable");
   else if (state.sessionNotice !== null) feedback = t(state.sessionNotice === "mode-on" ? "headerModeOn" : state.sessionNotice === "mode-off" ? "headerModeOff" : state.sessionNotice === "applied-with-model" ? "headerAppliedWithModel" : "headerApplied");
   const profileName = unknownCaptured ? t("headerCaptured") : admission !== undefined && sourceRelationship(admission, currentSaved?.revision) === "current" && currentSaved?.label?.trim() ? currentSaved.label : admission?.selectedId ?? t("sessionBaseline");
@@ -147,7 +165,12 @@ export function SessionProfiles(props: SessionProfilesProps) {
   const retryHint = t(state.sessionUnconfirmed ? "sessionUnconfirmedRefresh" : diagnostic?.code === "maintenance" || diagnostic?.code === "busy" ? "headerWaitRetryHint" : "headerRetryHint");
   if (diagnostic !== null) entries.push({ type: "label", id: "@diagnostic", text: diagnosticText }, { type: "label", id: "@retry", text: retryHint });
   if (admission?.selectedId != null && currentSaved === undefined) entries.push({ id: admission.selectedId, label: `${admission.selectedId} — ${t("headerSavedUnavailable")}`, disabled: true });
-  if (unknownCaptured) entries.push({ id: "__dsmm_captured_default__", label: t("headerCaptured"), disabled: true });
+   if (unknownCaptured) entries.push({ id: "__dsmm_captured_default__", label: t("headerCaptured"), disabled: true });
+   if (id === null) {
+     entries.push({ type: "separator", id: "@workspace-separator" }, { type: "label", id: "@workspace-heading", text: state.sessionPreparationPending ? t("sessionPendingProfile", { profile: profiles.find(profile => profile.id === state.sessionChoice)?.label?.trim() || state.sessionChoice || t("sessionBaseline") }) : t("sessionWorkspace") });
+     for (const workspace of state.sessionWorkspaces) entries.push({ id: `@workspace:${workspace.id}`, label: `${workspace.id === state.sessionWorkspaceId ? "✓ " : ""}${workspace.label}`, disabled: !state.sessionPreparationAvailable || state.dirty || state.invalidFields.length > 0 || state.pendingEditor !== null || state.busy !== null });
+     if (state.sessionWorkspaces.length === 0) entries.push({ type: "label", id: "@no-workspaces", text: t("sessionNoWorkspaces") });
+   }
   entries.push({ type: "separator", id: "@keep-separator" }, { type: "label", id: "@keep-heading", text: t("headerCompactProfiles") }, { id: "", label: t("sessionBaseline"), disabled });
   if (session !== null && (session.canApplyOverlay !== true || session.applyOverlayUnavailableReason === "new-session-required")) entries.push({ type: "label", id: "@overlay-reason", text: capabilityReason(session.applyOverlayUnavailableReason, t) });
    for (const profile of profiles) entries.push({ id: profile.id, label: (profile.label?.trim() ? profile.label : profile.id) + (profile.error === undefined && isConfigRevision(profile.revision) ? "" : ` — ${t("headerSavedUnavailable")}`) + (profileWarnings(profile.warnings).length ? ` — ${t("warningProfile")}` : ""), disabled: disabled || !isConfigRevision(profile.revision) || profile.error !== undefined });
@@ -163,13 +186,14 @@ export function SessionProfiles(props: SessionProfilesProps) {
          if (live.currentSessionId !== id || live.sessionViewEpoch !== state.sessionViewEpoch || live.session !== session) return;
         if (value === "@refresh") {
           if (committing || state.busy !== null) return;
-           void (async () => { await props.refresh(); if (id !== null && props.readProfileView().currentSessionId === id && props.readProfileView().sessionViewEpoch === state.sessionViewEpoch) await props.refreshSession(); })();
+            void (async () => { await props.refresh(); if (props.readProfileView().currentSessionId === id && props.readProfileView().sessionViewEpoch === state.sessionViewEpoch) await props.refreshSession(); })();
         } else {
           const row = entries.find((entry) => entry.id === value && !("type" in entry));
           if (row === undefined || !("disabled" in row) || row.disabled) return;
-          if (value === "@mode") { if (mode !== undefined) void props.setDeepwork(!mode.active); }
+           if (value.startsWith("@workspace:")) { void props.chooseSessionWorkspace(value.slice("@workspace:".length)); return; }
+           if (value === "@mode") { if (mode !== undefined) void props.setDeepwork(!mode.active); }
           else if (value === "@use-model") void props.useSessionProfileModel();
-          else { props.chooseSessionProfile(value || null); void props.applySession(); }
+           else { props.chooseSessionProfile(value || null); void props.applySession(); if (id === null && state.sessionWorkspaceId === null) return; }
         }
         setOpenFor(undefined);
       }} />

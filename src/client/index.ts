@@ -29,6 +29,8 @@ import { bindPermissionSession } from "./permission-session.js";
 import { PermissionController } from "./permission-controller.js";
 import { PERMISSIONS_NS, permissionEn, permissionZh } from "./permission-locales.js";
 import { registerRoleToolViews } from "./RoleToolView.js";
+import { profileBlankNative } from "./profile-blank.js";
+import type { ProfileBlankServices } from "./profile-blank.js";
 
 export { ProfilesController, NEW_PROFILE_CONTENT } from "./controller.js";
 export type { ProfilesActions, ProfilesViewSnapshot, ProfilesIssue, SessionApplyOptions, ProfileModelSelectorRemote } from "./controller.js";
@@ -96,6 +98,7 @@ export async function apply(ctx: Context): Promise<void> {
     void profileCtx.inject(["connection"], connectionCtx => {
       controller.bindConnection((connectionCtx.connection as unknown as ConnectionHandle).generation);
       void controller.refresh();
+      void controller.refreshSession();
       connectionCtx.effect(() => () => controller.bindConnection(null), "dsmm: profile connection withdrawal");
     });
     profiles = controller;
@@ -114,6 +117,10 @@ export async function apply(ctx: Context): Promise<void> {
     void profileCtx.inject(["conversation"], conversationCtx => {
       controller.attachComposerBlocks(conversationCtx.conversation.blocks, () => t("sessionSelectionBlock"));
       conversationCtx.effect(() => () => controller.attachComposerBlocks(null), "dsmm: profile composer block lifetime");
+    });
+    void profileCtx.inject(["uiWorkspace", "workspaces", "layout", "sessions", "uiSession"], blankCtx => {
+      controller.attachBlankNative(profileBlankNative(blankCtx as unknown as ProfileBlankServices));
+      blankCtx.effect(() => () => controller.attachBlankNative(null), "dsmm: native blank preparation lifetime");
     });
     profileCtx.slots.inject("settings.section", () => profileCtx.slots.register({
       name: "settings.section", id: "dsmm-profiles", order: 30,
@@ -140,13 +147,15 @@ export async function apply(ctx: Context): Promise<void> {
       const nativeSessions = sessionCtx.sessions as unknown as ISessions;
       const update = () => {
         const binding = source.getSnapshot();
+        const nativeBinding = binding.key === undefined ? undefined : nativeSessions.binding(binding.key as SessionId);
+        controller.attachSessionSource(binding.key ?? null, nativeBinding?.session ?? null);
         controller.setSession(binding.key ?? null);
         controller.attachModelSelectionSource(binding.key ?? null, binding.key === undefined ? null : binding.keyedHooks.projection?.("modelSelection") ?? null);
-        controller.attachModelEventSource(binding.key ?? null, binding.key === undefined ? null : nativeSessions.binding(binding.key as SessionId)?.eventSource ?? null);
+        controller.attachModelEventSource(binding.key ?? null, nativeBinding?.eventSource ?? null);
       };
       update();
       sessionCtx.effect(() => source.subscribe(update), "dsmm: current native session");
-      sessionCtx.effect(() => () => { controller.attachModelSelectionSource(null, null); controller.attachModelEventSource(null, null); controller.attachModelInteractionSource(null, null); controller.setSession(null); }, "dsmm: native session withdrawal");
+      sessionCtx.effect(() => () => { controller.attachModelSelectionSource(null, null); controller.attachModelEventSource(null, null); controller.attachModelInteractionSource(null, null); controller.setSession(null); controller.attachSessionSource(null, null); }, "dsmm: native session withdrawal");
       void sessionCtx.inject(["modelDirectories", "remote.session"], (modelCtx) => {
         const updateInteraction = () => {
           const id = source.getSnapshot().key;

@@ -29,6 +29,12 @@ import { ProfileStore } from "../src/profile-store.js";
 import { DsmmProfileRuntime } from "../src/profile-runtime.js";
 import { resolveConfig } from "../src/settings.js";
 import type { DshContext } from "../src/dsh-types.js";
+import { createSnapshotStore } from "@deepseek-ai/dsh-client-store";
+import type { SessionSnapshot, SessionEventWindow } from "@deepseek-ai/dsh-api-session-controller/client";
+import type { StandardSourceBinding } from "@deepseek-ai/dsh-client-ui-slots";
+import { Session, SessionId } from "@deepseek-ai/dsh-session";
+import { LlmAttemptId } from "@deepseek-ai/dsh-llm";
+import type { SessionProfileSnapshot, SessionProfileSelectRequest } from "../src/profile-types.js";
 
 const require = createRequire(import.meta.url);
 const sdk = createRequire(process.env.DSMM_TEST_DSH_ENTRY ?? new URL("../package.json", import.meta.url));
@@ -438,5 +444,45 @@ test("unloading the client cancels a namespace-owned pending settings declaratio
     f.declareSettings();
     assert.equal(f.client.slots.entries("settings.section").length, 0);
     assert.equal(f.client.locale.bind(NS)("title"), "title");
+  } finally { await f.dispose(); }
+});
+
+test("current native Session running transition rereads stale busy capability before allowing Profile CAS", async () => {
+  const id = SessionId("started-native-root"), writes: SessionProfileSelectRequest[] = [];
+  const selection = { selectedId: null, appliedRevision: null, selectionRevision: "absent" } as const;
+  const busy: SessionProfileSnapshot = { sessionId: id, admissionEpoch: "live-epoch", selection, admittedSelection: selection, globalDefault: selection,
+    scope: "global-default", switchAllowed: false, canApplyOverlay: false, applyOverlayUnavailableReason: "new-session-required", canToggleMode: false, toggleModeUnavailableReason: "busy", canSelectModel: false };
+  let actual = busy, reads = 0;
+  const f = await fixture(false, (endpoint, args) => {
+    if (endpoint === "dsmmProfiles/describeSession") { reads++; return Promise.resolve({ ok: true, value: actual }); }
+    if (endpoint === "dsmmProfiles/selectSession") { writes.push(args.request as SessionProfileSelectRequest); return Promise.resolve({ ok: true, value: actual }); }
+  });
+  const session = createSnapshotStore<SessionSnapshot>({ sessionId: id, running: true, pendingSubmissions: [], subagent: null, removed: false,
+    openState: "open", openError: null, hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null, promptAttempted: true, awaitingFirstTurn: false });
+  const current = createSnapshotStore<StandardSourceBinding>({ key: id, hooks: {}, keyedHooks: {}, props: {} });
+  const eventSource = createSnapshotStore<SessionEventWindow>({ entries: [], revision: 0, hasMore: false, change: { kind: "replace", entries: [] } });
+  const binding = { sessionId: id, session, eventSource };
+  try {
+    f.client.provide("sessions", { binding: (key: string) => key === id ? binding : undefined,
+      list: createSnapshotStore({ ids: [id], byId: { [id]: {} } }) } as unknown as Context["sessions"]);
+    f.client.provide("uiSession", { adapter: { current } } as unknown as Context["uiSession"]);
+    f.declareSettings(); await f.entry.await(); await namespaceChild(f).await();
+    const face = profilesFace(f);
+    for (let round = 0; round < 1000 && (reads === 0 || face.hooks.profiles.getSnapshot().sessionBusy !== null); round++) await setImmediate();
+    assert.equal(reads, 1); assert.equal(face.hooks.profiles.getSnapshot().session?.canApplyOverlay, false);
+    eventSource.set({ ...eventSource.getSnapshot(), revision: 1, change: { kind: "settle-assistant", attemptId: LlmAttemptId("settled-attempt") } });
+    const row = { type: "event" as const, event: Session.create(id).append("turn/end", { turn: 1, reason: { kind: "completed" } }) };
+    eventSource.set({ ...eventSource.getSnapshot(), entries: [row], revision: 2, change: { kind: "append", entries: [row] } });
+    current.set({ ...current.getSnapshot() });
+    await setImmediate();
+    assert.equal(reads, 1); assert.equal(session.getSnapshot().running, true);
+    actual = { ...busy, switchAllowed: true, canApplyOverlay: true, applyOverlayUnavailableReason: undefined, canToggleMode: true, toggleModeUnavailableReason: undefined };
+    session.set({ ...session.getSnapshot(), running: false });
+    current.set({ ...current.getSnapshot() });
+    for (let round = 0; round < 1000 && face.hooks.profiles.getSnapshot().sessionBusy !== null; round++) await setImmediate();
+    assert.equal(reads, 2, "the exact Session observable must refresh capabilities after its driver stops");
+    assert.equal(face.hooks.profiles.getSnapshot().session?.canApplyOverlay, true);
+    await face.resetSession();
+    assert.deepEqual(writes, [{ sessionId: id, id: null, expectedSelectionRevision: "absent", expectedAdmissionEpoch: "live-epoch" }]);
   } finally { await f.dispose(); }
 });

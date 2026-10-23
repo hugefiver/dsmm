@@ -1,7 +1,8 @@
 /** Test composition only; no native or DSMM production bundle is rewritten. */
 export const COMPOSITION_ID = "@dsmm/profile-ui-acceptance";
 
-export function compositionBundle() {
+export function compositionBundle(options = {}) {
+  const containerMode = options.containerMode ?? 'default';
   return `window.__ModuleLoader__.load({id:${JSON.stringify(COMPOSITION_ID)},factory(require){
     const React=require('react');
     const {installConnection}=require('@deepseek-ai/dsh-client-connection/client');
@@ -11,14 +12,21 @@ export function compositionBundle() {
       const locale=new LocaleRuntime(ctx,undefined,{languages:['en'],preference:'en'});
       ctx.provide('locale',locale);
       ctx.slots.installLocale(locale);
-      // The owned component surface is vertically scrollable; it is not the
-      // production application's fixed-height settings-shell layout.
-      document.body.style.overflow='auto';
-      document.getElementById('root').style.height='auto';
-      document.getElementById('root').style.overflow='visible';
+      const isFixed = ${JSON.stringify(containerMode)} === 'fixed-height' || window.__dsmmHarnessLayout === 'fixed-height';
+      if (isFixed) {
+        document.body.style.overflow = 'hidden';
+        document.getElementById('root').style.height = '100vh';
+        document.getElementById('root').style.overflow = 'hidden';
+      } else {
+        document.body.style.overflow = 'auto';
+        document.getElementById('root').style.height = 'auto';
+        document.getElementById('root').style.overflow = 'visible';
+      }
       ctx.slots.register({name:'root',children:{'settings.section':{kind:'list',scope:'root'}}},
-        ({renderSlot})=>React.createElement('main',{'data-profile-ui-harness':'',style:{padding:'24px',width:'100%',minWidth:0,boxSizing:'border-box'}},
-          renderSlot('settings.section',{}, {only:'dsmm-profiles'})));
+        ({renderSlot})=>React.createElement('main',{
+          'data-profile-ui-harness':'',
+          style: isFixed ? {padding:'24px',width:'100%',minWidth:0,boxSizing:'border-box',height:'100%',overflowY:'auto'} : {padding:'24px',width:'100%',minWidth:0,boxSizing:'border-box'}
+        }, renderSlot('settings.section',{}, {only:'dsmm-profiles'})));
       window.__dsmmUiContext=ctx;
       window.__dsmmNativeSeedProof={reactVersion:React.version,primitiveNames:Object.keys(require('@deepseek-ai/dsh-client-ui-primitives')).filter(name=>name==='Button'||name==='Input')};
     }};

@@ -76,7 +76,16 @@ function PermissionCoverage({ state, t }: Locale & { state: PermissionView }) {
 export function PermissionRulesEditor({ controller, state, t }: Locale & { controller: PermissionController; state: PermissionView }) {
   const id = useId(), draft = state.draft, disabled = !controller.canEdit(state.generation), value = observedRules(state), observedPolicy = value?.snapshot ?? null;
   const writable = state.scope === "root" && state.connected;
-  return <section className="dsmm-zone" aria-label={t("rules")}><h3>{t("rules")}</h3><p className="dsmm-hint">{t("rulesHint")}</p><Issue value={state.rulesIssue} t={t} />
+  return <section className="dsmm-zone" aria-label={t("rules")}>
+    <div className="dsmm-rules-save-bar">
+      <div className="dsmm-actions">
+        <Button type="button" variant="primary" disabled={!controller.canSave(state.generation)} onClick={() => void controller.save(state.generation)}>{t("save")}</Button>
+        <Button type="button" variant="outline" disabled={!writable || state.reading || state.busy !== null} onClick={() => void controller.refresh(state.generation)}>{t("refresh")}</Button>
+        <Button type="button" variant="outline" disabled={!writable || state.reading || state.busy !== null || !state.dirty && state.rulesIssue === null} onClick={() => void controller.refresh(state.generation, true)}>{t("discard")}</Button>
+      </div>
+      {state.dirty && <p className="dsmm-status" role="status" aria-live="polite">{t("dirty")}</p>}
+    </div>
+    <h3>{t("rules")}</h3><p className="dsmm-hint">{t("rulesHint")}</p><Issue value={state.rulesIssue} t={t} />
     {displayUnconfirmed(state) && <p className="dsmm-hint">{t("unconfirmedObservation")}</p>}
     <p className="dsmm-hint">{t("observedPolicy")}</p><dl className="dsmm-child-meta"><dt>{t("profileOverrideState")}</dt><dd>{t("profileOverrideUnknown")}</dd></dl>
     <dl className="dsmm-child-meta"><dt>{t("runtime")}</dt><dd>{value === null ? t("unknown") : t(value.runtime.state)}</dd>
@@ -95,10 +104,6 @@ export function PermissionRulesEditor({ controller, state, t }: Locale & { contr
         {draft.revoke.map(ruleId => <div className="dsmm-field" key={ruleId}><p>{t("stageRevoke")}: {ruleId}</p><Button type="button" variant="outline" disabled={disabled} onClick={() => controller.edit(state.generation, { revoke: draft.revoke.filter(id => id !== ruleId) })}>{t("unstage")}: {ruleId}</Button></div>)}</div>}
     </>}
     <RuleRecords state={state} controller={controller} t={t} />
-    <div className="dsmm-actions"><Button type="button" variant="primary" disabled={!controller.canSave(state.generation)} onClick={() => void controller.save(state.generation)}>{t("save")}</Button>
-      <Button type="button" variant="outline" disabled={!writable || state.reading || state.busy !== null} onClick={() => void controller.refresh(state.generation)}>{t("refresh")}</Button>
-      <Button type="button" variant="outline" disabled={!writable || state.reading || state.busy !== null || !state.dirty && state.rulesIssue === null} onClick={() => void controller.refresh(state.generation, true)}>{t("discard")}</Button></div>
-    {state.dirty && <p>{t("dirty")}</p>}
   </section>;
 }
 export function PermissionsPanel({ controller, t, sessionId }: PermissionsPanelProps) {

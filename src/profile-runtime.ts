@@ -259,7 +259,6 @@ export class DsmmProfileRuntime {
   }
   async selectSession(request: SessionProfileSelectRequest, agent: DshAgent, signal?: AbortSignal, authority?: () => void): Promise<SessionProfileSnapshot> {
     this.assertRoot(agent);
-    if (this.historyAdmissions.has(this.admission(agent))) throw new DsmmProfileError("unavailable", "A continued historical Agent is not a blank configuration target.");
     if (request.sessionId !== agent.id) throw new DsmmProfileError("not-owned", "The native session does not match the captured Agent.");
     const previous = this.admission(agent);
     const owner = this.ctx.get?.<NativeAdmission>("dsmmNativeAdmission");
@@ -272,12 +271,12 @@ export class DsmmProfileRuntime {
       authority?.();
     };
     check();
-    if (owner?.beginBlank === undefined || agent.runMaintenance === undefined) throw new DsmmProfileError("unavailable", "Native blank-session configuration maintenance is unavailable.");
+    if (owner?.beginBlank === undefined || agent.runMaintenance === undefined) throw new DsmmProfileError("unavailable", "Native session configuration maintenance is unavailable.");
     if (agent.status === "running") throw new DsmmProfileError("busy", "Wait for the session to become idle.");
     try {
       return await agent.runMaintenance(async maintenanceSignal => {
         check(maintenanceSignal);
-        const transaction = owner.beginBlank(agent as Agent, signal === undefined ? maintenanceSignal : AbortSignal.any([maintenanceSignal, signal]), () => check(maintenanceSignal));
+        const transaction = await owner.beginBlank(agent as Agent, signal === undefined ? maintenanceSignal : AbortSignal.any([maintenanceSignal, signal]), () => check(maintenanceSignal));
         const assertCurrent = () => transaction.assertCurrent();
         let next!: AdmittedProfile, response!: SessionProfileSnapshot;
         try {
@@ -431,7 +430,7 @@ export class DsmmProfileRuntime {
     const toggleModeUnavailableReason = agent.status === "running" || hasOpenTurn(sessionEvents(agent.session)) ? "busy"
       : agent.runMaintenance === undefined ? "maintenance" : !mode.active && (!this.baseline.modules.deepwork.enabled || !admission.settings.modules.deepwork.enabled) ? "module-off"
       : mode.locked || !mode.active && !ready ? "runtime-unavailable" : undefined;
-    const applyOverlayUnavailableReason = this.historyAdmissions.has(admission) ? "new-session-required" : this.store.readOnly ? "runtime-unavailable" : owner?.blankReason?.(agent as Agent, inMaintenance) ?? (owner?.blankReason === undefined ? "runtime-unavailable" : undefined);
+    const applyOverlayUnavailableReason = this.store.readOnly ? "runtime-unavailable" : owner?.blankReason?.(agent as Agent, inMaintenance) ?? (owner?.blankReason === undefined ? "runtime-unavailable" : undefined);
     return { canSelectModel: selectModelUnavailableReason === undefined, ...(selectModelUnavailableReason === undefined ? {} : { selectModelUnavailableReason }),
       canToggleMode: toggleModeUnavailableReason === undefined, ...(toggleModeUnavailableReason === undefined ? {} : { toggleModeUnavailableReason }),
       canApplyOverlay: applyOverlayUnavailableReason === undefined, ...(applyOverlayUnavailableReason === undefined ? {} : { applyOverlayUnavailableReason }) };

@@ -193,7 +193,10 @@ test("real Loader module admission preserves busy captures, fences off work, and
 
     const overlay = await runtime.save({ id: "module-overlay", expectedRevision: null, content: '{"version":1,"id":"module-overlay","settings":{"workflow":{"reviewCap":2}}}' });
     const parentSession = await runtime.getSession(parent as DshAgent);
-    await assert.rejects(runtime.selectSession({ sessionId: parent.id, id: overlay.id, expectedRevision: overlay.revision, expectedSelectionRevision: parentSession.selection.selectionRevision, expectedAdmissionEpoch: parentSession.admissionEpoch }, parent as DshAgent), { code: "unavailable" });
+    assert.equal(parent.status, "idle");
+    assert.equal(parentSession.canApplyOverlay, false);
+    assert.equal(parentSession.applyOverlayUnavailableReason, "busy");
+    await assert.rejects(runtime.selectSession({ sessionId: parent.id, id: overlay.id, expectedRevision: overlay.revision, expectedSelectionRevision: parentSession.selection.selectionRevision, expectedAdmissionEpoch: parentSession.admissionEpoch }, parent as DshAgent), { code: "busy" });
     await runtime.select({ id: overlay.id, expectedRevision: overlay.revision, expectedSelectionRevision: (await runtime.describe()).selectionRevision });
     assert.equal(runtime.getSettings(parent as DshAgent).modules.deepwork.enabled, true);
     assert.equal(runtime.getSettings(parent as DshAgent).workflow.reviewCap, captured.settings.workflow.reviewCap);
@@ -349,9 +352,14 @@ test("real Loader module admission preserves busy captures, fences off work, and
     assert.equal(childAdmission.epoch, captured.epoch);
     assert.deepEqual(pinnedAdmission.profile, fixedParent.profile);
     const offNow = await runtime.getSession(off as DshAgent);
-    await assert.rejects(runtime.selectSession({ sessionId: off.id, id: overlay.id, expectedRevision: overlay.revision, expectedSelectionRevision: offNow.selection.selectionRevision, expectedAdmissionEpoch: offNow.admissionEpoch }, off as DshAgent), { code: "unavailable" });
-    assert.equal(runtime.getSettings(off as DshAgent).modules.deepwork.enabled, false, "idle overlay does not pull a newer master state");
+    assert.equal(offNow.canApplyOverlay, true);
+    const selectedOff = await runtime.selectSession({ sessionId: off.id, id: overlay.id, expectedRevision: overlay.revision, expectedSelectionRevision: offNow.selection.selectionRevision, expectedAdmissionEpoch: offNow.admissionEpoch }, off as DshAgent);
+    assert.notEqual(selectedOff.admissionEpoch, offNow.admissionEpoch);
+    assert.equal(runtime.getSettings(off as DshAgent).modules.deepwork.enabled, true);
+    assert.equal(runtime.getSettings(off as DshAgent).workflow.reviewCap, 2);
     assert.equal((await runtime.getSession(off as DshAgent)).deepwork!.active, false);
+    assert.equal(runtime.admission(parent as DshAgent), fixedParent);
+    assert.equal(runtime.admission(childAgent as DshAgent), childAdmission);
     const restarted = await nativeRoutingFixture(config, { nativePresets: true, home: mounted.home, profileDir: mounted.profileDir, beforeDsmm });
     fixtures.push(restarted);
     const first = await restarted.create();

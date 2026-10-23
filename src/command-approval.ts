@@ -49,6 +49,7 @@ export class CommandApprovals {
   private memory = new WeakMap<Agent, SessionRuleApprovals>();
   private invocations = new WeakMap<object, Invocation[]>();
   private readonly retiredAgents = new WeakSet<Agent>();
+  private readonly agentGenerations = new WeakMap<Agent, object>();
   private generation: object = {};
   private readonly lifetime = new AbortController();
   constructor(private readonly ctx: Context) {
@@ -68,6 +69,7 @@ export class CommandApprovals {
     const session = agent.session, workspace = session.header.cwd, context = agent.ctx, token = exec.token, args = exec.arguments;
     const values: unknown = structuredClone(args), name = exec.name, callId = exec.callId;
     const owner = scope.owner ?? this, realm = scope.realm ?? context, generation = this.generation;
+    const agentGeneration = this.agentGenerations.get(agent);
     const signal = AbortSignal.any([exec.signal, this.lifetime.signal]);
     const rules = contributions.map(rule => ({ ...rule, semantics: structuredClone(rule.semantics) }));
     let approved = false;
@@ -84,7 +86,7 @@ export class CommandApprovals {
       try { scope.assertCurrent?.(); } catch (error) { this.memory.delete(agent); throw error; }
     };
     const sourceCurrent = (): boolean => {
-      try { return generation === this.generation && (scope.sourceCurrent === undefined || scope.sourceCurrent() === scope.source); }
+      try { return generation === this.generation && agentGeneration === this.agentGenerations.get(agent) && (scope.sourceCurrent === undefined || scope.sourceCurrent() === scope.source); }
       catch { return false; }
     };
     const policyAllows = (): boolean => {
@@ -149,6 +151,7 @@ export class CommandApprovals {
   }
   finish(exec: Readonly<ToolExecution>): void { this.invocations.delete(exec); }
   invalidate(): void { this.generation = {}; this.memory = new WeakMap(); }
+  clearAgent(agent: Agent): void { this.agentGenerations.set(agent, {}); this.memory.delete(agent); }
   revokeAgent(agent: Agent): void { this.retiredAgents.add(agent); this.memory.delete(agent); }
   retire(): void { this.lifetime.abort(); this.invalidate(); }
 }

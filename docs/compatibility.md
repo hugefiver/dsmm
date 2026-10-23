@@ -1,6 +1,6 @@
 # DSMM compatibility and upgrade boundaries
 
-**DSMM 0.3.13 targets exactly DSH `0.2.1-rc.2`** and Node.js 22 or later. Older SDKs and automatically drifting versions aren't supported targets.
+**DSMM 0.3.14 targets exactly DSH `0.2.1-rc.2`** and Node.js 22 or later. Older SDKs and automatically drifting versions aren't supported targets.
 
 ## Supported integration
 
@@ -50,7 +50,7 @@ Standard supported model calls use native prepared calls. Raw/custom and Pi-AI s
 
 ## Retired compatibility surfaces
 
-No old SDK branch, legacy-read host, cold-profile migration, session repair or custom-owner selector is a 0.3.13 activation path. Old libraries, captures and unmarked history aren't copied, rewritten, repaired or adopted by same-name fallback. Retired brand calibration/default-effort and MaxReasoningPresets fields reject with `deprecated-field`; edit configuration deliberately using generic routes and parameters.
+No old SDK branch, legacy-read host, cold-profile migration, session repair or custom-owner selector is a 0.3.14 activation path. Old libraries, captures and unmarked history aren't copied, rewritten, repaired or adopted by same-name fallback. Retired brand calibration/default-effort and MaxReasoningPresets fields reject with `deprecated-field`; edit configuration deliberately using generic routes and parameters.
 
 Published **0.3.0 retains its rc.1 identity**, immutable tag, package, assets and version-bound receipt grammar. Historical release controls interpret those records under their original identity, not as a runtime compatibility branch.
 

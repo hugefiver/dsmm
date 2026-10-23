@@ -222,3 +222,34 @@ test("generic guard-owned memory works without managed provenance and rejects ch
     f.setPolicy("never"); assert.equal((await run()).isError, true); assert.equal(starts, 3);
   } finally { await f.dispose(); }
 });
+
+test("exact Agent memory clearing preserves once calls and prevents late captures from reseeding without retiring other roots", async () => {
+  const f = await permissionFixture(2000, { settings: { enabled: false } });
+  try {
+    const memory = new CommandApprovals(f.ctx), other = await f.create();
+    const rule = { kind: "git" as const, semantics: { id: "exact-clear" } };
+    let rootRule = rule;
+    let last: Readonly<ToolExecution> | undefined;
+    f.ctx.tools.register({ name: "clear-command", description: "Counter-only exact memory boundary", parameters: {},
+      output: { schema: { type: "string" }, render: () => [] }, async execute() { return "completed"; } });
+    f.ctx.on("tools/pre-execute", async (exec, next) => {
+      if (exec.name !== "clear-command") return next();
+      last = exec;
+      return memory.decide(exec, memory.capture(exec, [exec.agent === f.root ? rootRule : rule]), next, "Exact command rule");
+    }, { global: true });
+    const run = (agent = f.root) => f.execute(command, {}, undefined, undefined, agent, "clear-command");
+    assert.equal((await run()).isError, false); assert.equal((await run(other)).isError, false);
+    assert.equal((await run()).isError, false); assert.equal(f.nativeAnswers(), 2);
+    const old = last!;
+    rootRule = { kind: "git", semantics: { id: "late-capture" } };
+    const late = memory.capture(old, [rootRule])!;
+    assert.equal(late.missing.length, 1);
+    memory.clearAgent(f.root);
+    assert.doesNotThrow(() => late.resolved("allowed-once"));
+    assert.doesNotThrow(() => late.assertCurrent(), "non-retirement clearing must not cancel an authorized once call");
+    memory.commit(old); memory.finish(old);
+    assert.equal((await run()).isError, false); assert.equal(f.nativeAnswers(), 3, "old capture must not repopulate cleared memory");
+    assert.equal((await run()).isError, false); assert.equal((await run(other)).isError, false);
+    assert.equal(f.nativeAnswers(), 3, "new captures work and another root retains its memory");
+  } finally { await f.dispose(); }
+});

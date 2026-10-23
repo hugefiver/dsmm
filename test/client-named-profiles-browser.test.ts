@@ -23,8 +23,7 @@ test("Named profiles redesigned UI page-level browser QA and interactive flows",
   const sdk = createRequire(await realpath(process.env.DSMM_TEST_DSH_ENTRY!));
   const { chromium } = createRequire(process.env.DSMM_TEST_PLAYWRIGHT_ENTRY!)("playwright");
   const { startProfileUiServer } = await import(new URL("../scripts/profile-ui-harness-server.mjs", import.meta.url).href);
-  const { COMPOSITION_ID } = await import(new URL("../scripts/profile-ui-harness-browser.mjs", import.meta.url).href);
-  const { stableCompositionBundle } = await import(new URL("../scripts/stable-native-acceptance.mjs", import.meta.url).href);
+  const { compositionBundle } = await import(new URL("../scripts/profile-ui-harness-browser.mjs", import.meta.url).href);
 
   const temporaryParent = await realpath(tmpdir());
   const owned = await realpath(await mkdtemp(join(temporaryParent, "dsmm-named-profiles-browser-")));
@@ -179,7 +178,7 @@ test("Named profiles redesigned UI page-level browser QA and interactive flows",
       nativeRequire: sdk,
       packageRoot,
       sha256: "owned-named-profiles-fixture",
-      composition: stableCompositionBundle(COMPOSITION_ID),
+      composition: compositionBundle({ containerMode: "fixed-height" }),
     });
 
     browser = await chromium.launch({
@@ -552,6 +551,22 @@ test("Named profiles redesigned UI page-level browser QA and interactive flows",
 
     const saveBar = page.locator(".dsmm-save-bar");
     await saveBar.waitFor();
+    const saveBarPosition = await saveBar.evaluate((el: HTMLElement) => window.getComputedStyle(el).position);
+    assert.equal(saveBarPosition, "sticky", "Main profile save bar must be sticky");
+
+    // In fixed-height container, scroll down and verify save bar stays in visible viewport
+    const container = page.locator("[data-profile-ui-harness]");
+    await container.evaluate((el: HTMLElement) => { el.scrollTop = 400; });
+    await page.waitForTimeout(50);
+    const saveBarInViewport = await saveBar.evaluate((el: HTMLElement) => {
+      const rect = el.getBoundingClientRect();
+      const parent = el.closest("[data-profile-ui-harness]") || document.documentElement;
+      const pRect = parent.getBoundingClientRect();
+      return rect.top >= pRect.top - 1 && rect.top < pRect.bottom && rect.bottom > pRect.top;
+    });
+    assert.equal(saveBarInViewport, true, "Main profile save bar must remain in scroll viewport when scrolled");
+    await container.evaluate((el: HTMLElement) => { el.scrollTop = 0; });
+
     const saveBtn = saveBar.locator("button", { hasText: "保存" });
     assert.equal(await saveBtn.isEnabled(), true);
     await saveBtn.click();
@@ -601,6 +616,16 @@ test("Named profiles redesigned UI page-level browser QA and interactive flows",
     const dialogBox = await modelsDialog.boundingBox();
     assert.ok(dialogBox && dialogBox.width <= 1040, "Dialog max width must be <= 1040px");
 
+    // Check dialog top bar
+    const dialogTopBar = modelsDialog.locator(".dsmm-dialog-top-bar");
+    await dialogTopBar.waitFor();
+    assert.equal(await dialogTopBar.isVisible(), true, "Dialog must have a visible top bar");
+    const dialogTopSaveBtn = dialogTopBar.locator("button").filter({ hasText: "保存" });
+    assert.equal(await dialogTopSaveBtn.count(), 1, "Dialog top bar must have a Save button");
+    const dialogTopCloseBtn = dialogTopBar.locator("button").filter({ hasText: "取消" });
+    assert.equal(await dialogTopCloseBtn.count(), 1, "Dialog top bar must have a Cancel button");
+    assert.equal(await dialogTopSaveBtn.isEnabled(), false, "Dialog save button must be disabled when clean");
+
     // Check body sibling inert
     const isSiblingInert = await page.evaluate(() => {
       const dialogEl = document.querySelector(".dsmm-profile-models-dialog");
@@ -628,7 +653,35 @@ test("Named profiles redesigned UI page-level browser QA and interactive flows",
     const builderDialogModel = builderCard.locator(".dsmm-role-primary-route input[id$='-model']");
     assert.equal(await builderDialogModel.inputValue(), "deepseek-reasoner");
 
-    // 12. Dual Orchestrator Model Synchronization
+    // 12. Dual Orchestrator Model Synchronization & Dialog Save Eligibility
+    await orchDialogModel.fill("deepseek-reasoner");
+    assert.equal(await dialogTopSaveBtn.isEnabled(), true, "Dialog save button must be enabled when dirty and valid");
+
+    // Invalid model input locks save in dialog
+    await orchDialogModel.fill("");
+    await page.waitForTimeout(50);
+    assert.equal(await dialogTopSaveBtn.isEnabled(), false, "Dialog save button must be disabled when invalid");
+    await orchDialogModel.fill("deepseek-reasoner");
+    await page.waitForTimeout(50);
+    assert.equal(await dialogTopSaveBtn.isEnabled(), true, "Dialog save button re-enables when valid");
+
+    // Save from dialog top bar
+    await dialogTopSaveBtn.click();
+    await page.waitForTimeout(100);
+    assert.equal(await dialogTopSaveBtn.isEnabled(), false, "Dialog save button must be disabled after saving");
+
+    // Close button retains uncommitted draft
+    await orchDialogModel.fill("deepseek-chat");
+    await page.keyboard.press("Escape");
+    await dialogTopCloseBtn.click();
+    await page.waitForTimeout(100);
+    assert.equal(await modelsDialog.count(), 0, "Cancel/Close button unmounts modal");
+    assert.equal(await editorState.getAttribute("data-dsmm-editor-state"), "dirty");
+    assert.equal(await orchestratorModel.inputValue(), "deepseek-chat");
+
+    // Reopen dialog to test Escape behavior
+    await openModelsBtn.click();
+    await modelsDialog.waitFor();
     await orchDialogModel.fill("deepseek-reasoner");
     // First Escape closes EditableChoice suggestion dropdown; dialog stays open
     await page.keyboard.press("Escape");
@@ -684,6 +737,13 @@ test("Named profiles redesigned UI page-level browser QA and interactive flows",
       const card = el.getBoundingClientRect();
       return card.bottom > viewport.top && card.top < viewport.bottom && card.right > viewport.left && card.left < viewport.right;
     }), true, "Last role must intersect the actual scroll viewport");
+    assert.equal(await dialogTopBar.isVisible(), true, "Dialog top bar must remain visible while scrolled to bottom");
+    const dialogTopBarInViewport = await dialogTopBar.evaluate((el: HTMLElement) => {
+      const rect = el.getBoundingClientRect();
+      const viewport = document.querySelector(".dsmm-profile-models-dialog-content")!.getBoundingClientRect();
+      return rect.top >= viewport.top - 1 && rect.bottom <= viewport.bottom && rect.top < viewport.bottom && rect.bottom > viewport.top;
+    });
+    assert.equal(dialogTopBarInViewport, true, "Dialog top bar bounding rect must remain within scroll viewport while scrolled to bottom");
     // Scroll back to top
     await dialogContent.evaluate((el: HTMLElement) => { el.scrollTop = 0; });
     await page.waitForTimeout(50);

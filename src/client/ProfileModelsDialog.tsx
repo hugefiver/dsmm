@@ -96,6 +96,7 @@ export interface ProfileModelsDialogProps extends Locale {
   targetField?: string | null;
   onTargetLocated?: () => void;
   onJumpToJsonc?: () => void;
+  canSave?: boolean;
 }
 
 export function ProfileModelsDialog({
@@ -111,6 +112,7 @@ export function ProfileModelsDialog({
   targetField,
   onTargetLocated,
   onJumpToJsonc,
+  canSave: canSaveProp,
   t,
 }: ProfileModelsDialogProps) {
   const prefix = useId();
@@ -122,6 +124,7 @@ export function ProfileModelsDialog({
     index: number;
     action: "add" | "moveUp" | "moveDown" | "remove";
   } | null>(null);
+  const dialogTopBarRef = useRef<HTMLDivElement>(null);
 
   const wasOpenRef = useRef(open);
   useEffect(() => {
@@ -276,6 +279,8 @@ export function ProfileModelsDialog({
   const roles = state.snapshot?.roles ?? [];
   const effectiveDisabled = disabled || isInvalidProjection || doc === null;
   const baseline = state.snapshot?.editorDefaults;
+  const canSave = canSaveProp ?? (!disabled && !isInvalidProjection && doc !== null && state.dirty && state.snapshot !== null && state.invalidFields.length === 0);
+  const isSaveLocked = (state.dirty || state.invalidFields.length > 0) && !disabled && doc !== null && state.snapshot !== null && (state.invalidFields.length > 0 || Boolean(isInvalidProjection));
 
   const filteredRoles = roles.filter((role) => {
     if (searchQuery.trim()) {
@@ -290,6 +295,35 @@ export function ProfileModelsDialog({
     return true;
   });
 
+  useEffect(() => {
+    if (!open) return;
+    const el = dialogTopBarRef.current;
+    if (!el) return;
+    const parent = el.closest(".dsmm-profile-models-dialog-content") as HTMLElement | null;
+    const update = () => {
+      const height = el.offsetHeight;
+      if (parent) {
+        parent.style.setProperty("--dsmm-dialog-bar-offset", `${height}px`);
+      }
+    };
+    update();
+    if (typeof ResizeObserver !== "undefined") {
+      const ro = new ResizeObserver(update);
+      ro.observe(el);
+      return () => {
+        ro.disconnect();
+        if (parent) {
+          parent.style.removeProperty("--dsmm-dialog-bar-offset");
+        }
+      };
+    }
+    return () => {
+      if (parent) {
+        parent.style.removeProperty("--dsmm-dialog-bar-offset");
+      }
+    };
+  }, [open, state.dirty, isSaveLocked, state.busy]);
+
   return (
     <Modal
       open={open}
@@ -301,6 +335,44 @@ export function ProfileModelsDialog({
       contentClassName="dsmm-profile-models-dialog-content"
       onKeyDownCapture={handleKeyDownCapture}
     >
+      <div ref={dialogTopBarRef} className="dsmm-dialog-top-bar">
+        <div className="dsmm-actions">
+          <Button
+            type="button"
+            variant="primary"
+            disabled={!canSave}
+            onClick={() => { void actions.save(); }}
+          >
+            {t(state.busy === "save" ? "saving" : "save")}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onClose}
+          >
+            {t("cancel")}
+          </Button>
+        </div>
+        {state.busy === "save" ? (
+          <p className="dsmm-status" role="status" aria-live="polite">
+            {t("saving")}
+          </p>
+        ) : state.dirty ? (
+          <p className="dsmm-status" role="status" aria-live="polite">
+            {t("dirty")}
+          </p>
+        ) : null}
+        {isSaveLocked && (
+          <div className="dsmm-save-lock-reason" role="status">
+            <span className="dsmm-save-lock-text">
+              {isInvalidProjection
+                ? t("rawInvalid")
+                : t("saveLockedReason", { count: state.invalidFields.length })}
+            </span>
+          </div>
+        )}
+      </div>
+
       <div className="dsmm-models-filter-bar dsmm-dialog-filter-bar">
         <div className="dsmm-field dsmm-filter-search">
           <Input

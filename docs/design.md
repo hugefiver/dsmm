@@ -1,6 +1,6 @@
 # DSMM native architecture
 
-DSMM 0.3.13 targets exactly DSH `0.2.1-rc.2`. It supplies Core configuration and native permission integration plus optional Deepwork roles, routing and skills.
+DSMM 0.3.14 targets exactly DSH `0.2.1-rc.2`. It supplies Core configuration and native permission integration plus optional Deepwork roles, routing and skills.
 
 ## Native integration boundary
 

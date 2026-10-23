@@ -37,8 +37,7 @@ test("Core deployment controls save sparse desired values through native Gateway
   const sdk = createRequire(await realpath(process.env.DSMM_TEST_DSH_ENTRY!));
   const { chromium } = createRequire(process.env.DSMM_TEST_PLAYWRIGHT_ENTRY!)("playwright");
   const { startProfileUiServer } = await import(new URL("../scripts/profile-ui-harness-server.mjs", import.meta.url).href);
-  const { COMPOSITION_ID } = await import(new URL("../scripts/profile-ui-harness-browser.mjs", import.meta.url).href);
-  const { stableCompositionBundle } = await import(new URL("../scripts/stable-native-acceptance.mjs", import.meta.url).href);
+  const { compositionBundle } = await import(new URL("../scripts/profile-ui-harness-browser.mjs", import.meta.url).href);
   const temporaryParent = await realpath(tmpdir());
   const owned = await realpath(await mkdtemp(join(temporaryParent, "dsmm-core-ui-")));
   const packageRoot = join(owned, "package"), sourceRoot = fileURLToPath(new URL("../src/client/", import.meta.url));
@@ -162,7 +161,7 @@ test("Core deployment controls save sparse desired values through native Gateway
     ` }, bundle: true, write: false, platform: "browser", format: "cjs", target: "es2022", external: ["react", "react/jsx-runtime", "@deepseek-ai/dsh-client-ui-primitives"],
       banner: { js: 'window.__ModuleLoader__.load({id:"@dsmm/dsmm",factory:(require)=>{const module={exports:{}};const exports=module.exports;' }, footer: { js: "return module.exports;}});" } });
     await writeFile(join(packageRoot, "lib", "client.js"), result.outputFiles![0]!.text);
-    server = await startProfileUiServer({ nativeRequire: sdk, packageRoot, sha256: "owned-core-source-fixture", composition: stableCompositionBundle(COMPOSITION_ID) });
+    server = await startProfileUiServer({ nativeRequire: sdk, packageRoot, sha256: "owned-core-source-fixture", composition: compositionBundle({ containerMode: "fixed-height" }) });
     browser = await chromium.launch({ executablePath: process.env.DSMM_TEST_BROWSER_EXECUTABLE ?? chromium.executablePath(), headless: true, args: ["--disable-extensions", "--disable-sync"] });
     const context = await browser.newContext({ viewport: { width: 768, height: 900 }, serviceWorkers: "block" });
     assert.deepEqual(await context.cookies(), []);
@@ -226,6 +225,18 @@ test("Core deployment controls save sparse desired values through native Gateway
     assert.equal(await globalField.locator('option[value="inherit"]').textContent(), `${deploymentEn.useDefaults} · ${deploymentEn.on}`);
     await globalField.selectOption("false");
     // Explicit dirty state, with no save in flight.
+    const saveBarPosition = await saveBar.evaluate((element: HTMLElement) => window.getComputedStyle(element).position);
+    assert.equal(saveBarPosition, "sticky", "Scope save bar must be sticky");
+    const container = page.locator("[data-profile-ui-harness]");
+    await container.evaluate((el: HTMLElement) => { el.scrollTop = 300; });
+    const isSaveBarInViewport = await saveBar.evaluate((el: HTMLElement) => {
+      const rect = el.getBoundingClientRect();
+      const parent = el.closest("[data-profile-ui-harness]") || document.documentElement;
+      const pRect = parent.getBoundingClientRect();
+      return rect.top >= pRect.top - 1 && rect.top < pRect.bottom && rect.bottom > pRect.top;
+    });
+    assert.equal(isSaveBarInViewport, true, "Scope save bar must remain in scroll viewport when scrolled");
+    await container.evaluate((el: HTMLElement) => { el.scrollTop = 0; });
     assert.equal(await saveBar.getByRole("status").textContent(), deploymentEn.dirty);
     await capture("state-dirty");
     await saveBar.getByRole("button", { name: "Save", exact: true }).click();
@@ -272,6 +283,29 @@ test("Core deployment controls save sparse desired values through native Gateway
     await openModule("Permissions and safety");
     const rulesPanel = page.locator("[data-dsmm-permissions]");
     await rulesPanel.waitFor();
+    const rulesSaveBar = rulesPanel.locator(".dsmm-rules-save-bar");
+    await rulesSaveBar.waitFor();
+
+    // Verify ScopeSave and rules save bar are both sticky and do not overlap
+    const layout = await page.evaluate(() => {
+      const scopeEl = document.querySelector(".dsmm-scope-save") as HTMLElement | null;
+      const rulesEl = document.querySelector(".dsmm-rules-save-bar") as HTMLElement | null;
+      if (!scopeEl || !rulesEl) return null;
+      const sRect = scopeEl.getBoundingClientRect();
+      const rRect = rulesEl.getBoundingClientRect();
+      return {
+        scopeSticky: window.getComputedStyle(scopeEl).position === "sticky",
+        rulesSticky: window.getComputedStyle(rulesEl).position === "sticky",
+        scopeBottom: sRect.bottom,
+        rulesTop: rRect.top,
+        noOverlap: rRect.top >= sRect.bottom - 1,
+      };
+    });
+    assert.ok(layout, "ScopeSave and rules save bar must be present");
+    assert.equal(layout.scopeSticky, true, "ScopeSave must be sticky");
+    assert.equal(layout.rulesSticky, true, "Rules save bar must be sticky");
+    assert.equal(layout.noOverlap, true, `Rules save bar (${layout.rulesTop}) must not overlap ScopeSave (${layout.scopeBottom})`);
+
     const rulesStatus = rulesPanel.locator('[role="status"]').first();
     await page.waitForFunction(() => document.querySelector("[data-dsmm-permissions]")?.getAttribute("aria-busy") === "true");
     assert.equal(await rulesStatus.textContent(), permissionEn.reading);

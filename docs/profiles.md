@@ -1,6 +1,6 @@
 # Deepwork runtime profiles
 
-DSMM 0.3.13 targets exactly DSH `0.2.1-rc.2`. See [compatibility](compatibility.md) for installation boundaries.
+DSMM 0.3.14 targets exactly DSH `0.2.1-rc.2`. See [compatibility](compatibility.md) for installation boundaries.
 
 A named Deepwork profile is a runtime-policy document, not a native deployment profile or Agent preset. Open **Settings → Deepwork Profiles** to browse and edit it. Native **Plugins → DSMM** edits deployment layers instead, as described in [settings and status](settings-status.md).
 
@@ -15,13 +15,21 @@ A named Deepwork profile is a runtime-policy document, not a native deployment p
 
 Browsing doesn't activate anything. **Save profile** doesn't select it or change a resident Agent. **Set as future default** records the named ID and an archival saved revision, never a dirty draft. Subsequent activations read that ID's latest valid saved content. **Use baseline for future sessions** clears that default without deleting documents.
 
-**Apply profile to current session** and **Pin baseline for current session** are unavailable in this version (`canApplyOverlay:false`, `new-session-required`). Save and select a future default, then create a new session. Nothing is queued, restarted or silently applied to the current root or its children.
+**Apply profile to current session** and **Pin baseline for current session** are available for eligible quiescent root sessions, including roots with execution history or a restored admission. Explicit selection replaces the root's configuration under native maintenance and revision checks, preserving its ID, history, draft and native model selection. Resident children retain their captured configuration and ceilings; new delegations use the selected configuration. Saving alone never reconfigures a resident Agent.
 
-The compact Conversation header menu shows the current admission separately from the future default. **Use profile model** asks native model selection to use the admitted immutable configuration's declared main model, not a later saved draft. It doesn't write an overlay pointer or increment the admission epoch. Native model-default persistence follows the Models tab; newer manual model or effort intent, including same-value reselection, wins. `canSelectModel`, `canToggleMode` and `canApplyOverlay` have independent reasons: unavailable live Apply doesn't disable ordinary model selection or mode switching. Sessionless controls never create a session.
+The root and its resident descendants must have no running work, open turn, queued input, active tool/approval or pending delegation. An `idle` label alone does not establish this. Unprovable external-provider startup remains unavailable; coverage is limited to native services sharing the same Host lifecycle and agents registry. Successful publication invalidates command-rule memory for the exact subtree, without inheriting approvals or affecting another root. The client refreshes capabilities on native running-state transitions; the server remains the authority, and Refresh can reread other state changes.
+
+The compact Conversation header menu shows the current admission separately from the future default. **Use profile model** asks native model selection to use the admitted immutable configuration's declared main model, not a later saved draft. It doesn't write an overlay pointer or increment the admission epoch. Native model-default persistence follows the Models tab; newer manual model or effort intent, including same-value reselection, wins. `canSelectModel`, `canToggleMode` and `canApplyOverlay` have independent reasons: unavailable live Apply doesn't disable ordinary model selection or mode switching.
+
+Without a current session, choose a workspace and a saved profile or deployment defaults in the header menu or Settings session scope. Choosing a profile first keeps that choice pending until a workspace is explicitly selected. Browsing, refreshing and editing profiles do not create sessions, and the first workspace is never selected automatically. On explicit selection, the native workspace service creates or reuses a blank session; DSMM retains it, blocks sending while configuration is unconfirmed, completes the existing selection transaction and only then opens the confirmed session. This does not change the future default or native model.
+
+Preparation keeps native draft ownership: DSMM does not copy or reconstruct text, references or attachments. A later navigation, service replacement or disposal prevents an old result from opening a session. An unknown selection result requires rereading the same target, not automatically creating another session or resubmitting the choice. If connection fails before a session ID is returned, use native workspace navigation to inspect the result. Full Host-level draft/attachment continuity remains a separate integration acceptance requirement.
 
 ## Named profiles interface layout
 
 The redesigned Named Profiles page (`.dsmm-profiles.dsmm-named-profiles`) organizes editing into a streamlined, scannable flow with a wide multi-agent configuration dialog:
+
+Long editors keep their primary actions at the top of the relevant scrolling surface. The Profile page has one Save/Discard/Reload bar; the Agent-model dialog has its own Save/Close controls for the same draft and save eligibility. Deployment scope actions and root-rule actions remain separate transactions, with nested bars offset to avoid overlap. Row-level add/remove actions stay with their fields.
 
 1. **Header browse row** — Select profile, New draft, and Refresh inventory buttons alongside a real-time status badge (`data-dsmm-editor-state`) tracking dirty, saved, refresh-required, and applied states.
 2. **Effective summary card** — Visible summary of future default (with inline Set as future default button) and current session admission (with a quick-locate button targeting the session settings section).
@@ -41,7 +49,8 @@ The redesigned Named Profiles page (`.dsmm-profiles.dsmm-named-profiles`) organi
    - Expandable calling levels (`low`, `high`, `max`) with accurate configuration summary (absent for orchestrator).
    - Expandable fallback chains (up to 32 items with safe focus management on add/move/remove).
    - Collapsed non-model role settings (`enabled`, `retry`) with inheritance summary using known data.
-   - Single JSONC draft shared with main page; closing dialog via Esc or close button preserves dirty/invalid drafts without extra discard confirmation.
+    - Single JSONC draft shared with main page; closing dialog via Esc or close button preserves dirty/invalid drafts without extra discard confirmation.
+    - Top Save invokes the same profile save action as the main page, preserving validation, conflict, read-only and busy guards. Closing the dialog does not discard the draft.
 6. **Advanced execution settings** — Collapsed `<details>` disclosure for global execution settings:
    - Profile defaults: Default strategy and rate-limit bounds (`settings.runtimePolicy`).
    - Git write protection: Sparse `settings.guards.gitWriteGuard` (`ask` | `deny` | `off`) and `settings.guards.gitWriteScope` (`all-writes` | `high-risk`). When guard is `off`, the scope control is disabled with an explanatory note ("保护已关闭，检查范围暂不生效"), while Unset/inherit remains accessible.
@@ -49,7 +58,7 @@ The redesigned Named Profiles page (`.dsmm-profiles.dsmm-named-profiles`) organi
 7. **Advanced JSONC source editor** — Collapsed `<details className="dsmm-advanced">` disclosure:
    - Full JSONC source editor preserving comments, whitespace, and unprojected parameters.
    - User-triggered validation refusals expand disclosures and select the exact UTF-16 character range with reduced-motion support.
-8. **Save bar with Actionable Save-Lock Locator** — In normal document flow at the bottom:
+8. **Save bar with Actionable Save-Lock Locator** — At the top of the editor, sticky within its scrolling surface:
    - Status message and blocking issues.
    - When save is locked due to invalid fields, actionable locator buttons directly navigate to the target:
      - For role-scoped invalid fields, automatically opens the dialog, clears filters, expands the target details group, and focuses the invalid field.

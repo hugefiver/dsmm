@@ -1,14 +1,14 @@
 # Native permissions
 
-DSMM 0.3.13 targets exactly DSH `0.2.1-rc.2`. In the current runtime, DSH owns approval; DSMM composes policy into the native tool pipeline without a second approval queue or UI. DSMM command-rule approval memory is limited to the exact live Agent and is distinct from native once grants.
+DSMM 0.3.14 targets exactly DSH `0.2.1-rc.2`. In the current runtime, DSH owns approval; DSMM composes policy into the native tool pipeline without a second approval queue or UI. DSMM command-rule approval memory is limited to the exact live Agent and is distinct from native once grants.
 
 ## Permission architecture and extension target
 
 Permission control has two separately configured lanes: **additional protection**, where DSMM detects an operation DSH would otherwise permit and requests native approval according to its guard configuration; and **native-request authorization**, where DSMM answers an intercepted DSH operation according to applicable authorization rules. Git-write guards illustrate the first; the exact-request command allowlist answerer illustrates the second.
 
-The extension target is primarily the second lane: explicit operator-created live-session grants, including model-proposed command/subcommand, tool, path or full-access requests. Models propose scopes but never grant authority. Both lanes share rule representation, matching and presentation while keeping configuration and policy effects separate. A grant in one lane does not implicitly satisfy an independent requirement in the other.
+Permission improvements must not expand interception: operations that currently need no approval must not acquire another DSMM approval. Existing additional guards retain their own configuration. Restricting configured command elevation to the actual native standing `workspace-write` mode remains deferred pending a public source-binding interface; it is not a guarantee of the current implementation. See [native command authorization scope](roadmap.md#upstream-watch-native-command-authorization-scope). Direct loading of native bash/pwsh remains supported without replacement tools or a required adapter migration.
 
-See the [unified permission-control design](superpowers/specs/2026-10-23-unified-permission-control.md) for target interactions, scope enforcement and grant lifetime. The sections below describe current implementation behavior, not completion of that extension. Live-session answering would issue a fresh decision for each matched native request; it would not reuse a previous native once grant or make full access equivalent to a path grant.
+Operator-created long-lived command/subcommand/path grants and model-proposed authorization scopes are deferred. DSH rc.2 has no native remembered-grant/revoke contract; implementing a separate scope-confirmation and revocation system is not part of the current extension. The [unified permission-control design](superpowers/specs/2026-10-23-unified-permission-control.md) describes that deferred target. Existing configured patterns and live-Agent command-rule memory remain available; neither is a general native grant store.
 
 ## Full access and approval
 
@@ -37,6 +37,8 @@ Configuration writes require the real native operator, exact entry/form or Root 
 ## Trusted read-only calls
 
 Trusted native `read`, `glob` and `grep` calls do not request outside-read approval, inside or outside the workspace. This includes saved `outsideReads: ask` and `outside-read` entries with `action: ask`. DSMM continues reading these settings without rewriting user configuration. Missing FS/path or co-location facts do not turn `allow`, `ask` or `inherit` into a read approval.
+
+In `read-only`, any future automatic authorization is limited to identifiable outside-workspace reads, never writable sandbox escalation. The current Host has no dedicated outside-read approval request to answer. DSMM does not create one, infer its source from reason text, or treat `outsideReads: allow` as permission to approve independent native or third-party requests.
 
 Existing deny policy and path-rule matching remain effective. Outside standing Full access, a relevant deny fails closed when the required containment or path facts cannot be proved; an unknown backend is not proof that a target is inside the workspace. Standing Full access retains its definite-blacklist behavior described above.
 
@@ -68,7 +70,7 @@ Observed `kind:shell` registration isn't proof of the actual executor, environme
 
 ### Running overlay changes
 
-Live overlay Apply is unavailable. Save/select a future default and create a new session instead of rebinding an active parent or pending invocation. Ordinary mode controls and Use profile model retain independent capabilities; neither grants overlay authority.
+Overlay Apply is available for trusted quiescent roots, including roots with history, under native subtree maintenance and admission CAS. Active work and pending approvals prevent switching; successful publication invalidates the exact subtree's command-rule memory without changing native standing permissions or transferring approval. Resident children retain their captured ceilings. Ordinary mode controls and Use profile model retain independent capabilities; neither grants overlay authority. See [Profile selection](profiles.md) for eligibility and external-provider limits.
 
 Same-call approval, cancellation, ownership and input isolation remain effective. Don't replay a whole parent task to work around a refused call; inspect the outcome and explicitly invoke fresh work only when appropriate.
 

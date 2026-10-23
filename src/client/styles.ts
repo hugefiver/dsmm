@@ -62,7 +62,8 @@ export const PROFILE_STYLES = `
 .dsmm-panel-heading{display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:center;min-width:0}
 .dsmm-panel-heading h2:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:2px}
 .dsmm-rules-transaction{padding-top:16px}
-.dsmm-scope-save{display:flex;flex-direction:column;gap:8px;padding-top:16px;border-top:1px solid var(--dsw-alias-border-l4)}
+.dsmm-scope-save{position:sticky;top:0;z-index:4;display:flex;flex-direction:column;gap:8px;padding:8px 0 12px;background:var(--dsw-alias-bg-module-platform,var(--dsw-alias-bg-layer-1));border-bottom:1px solid var(--dsw-alias-border-l4);margin-bottom:8px}
+.dsmm-rules-save-bar{position:sticky;top:var(--dsmm-scope-save-offset,0px);z-index:3;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;background:var(--dsw-alias-bg-module-platform,var(--dsw-alias-bg-layer-1));border-bottom:1px solid var(--dsw-alias-border-l4);margin-bottom:8px}
 .dsmm-deployment .dsmm-deployment-group{border-top:1px solid var(--dsw-alias-border-l4);padding-top:8px;min-width:0}
 .dsmm-deployment .dsmm-deployment-group>div{display:flex;flex-direction:column;gap:8px;padding-top:8px}
 .dsmm-deployment .dsmm-deployment-group>summary.dsmm-group-summary-row{display:flex;align-items:center;gap:8px;list-style:none}
@@ -108,7 +109,11 @@ export const PROFILE_STYLES = `
 .dsmm-named-profiles .dsmm-advanced-settings[open]{padding-bottom:12px}
 .dsmm-named-profiles .dsmm-advanced-settings>summary{font-weight:500}
 .dsmm-named-profiles .dsmm-advanced-settings>div{margin-top:12px;display:flex;flex-direction:column;gap:12px}
-.dsmm-named-profiles .dsmm-save-bar{display:flex;flex-direction:column;gap:8px;padding-top:12px;border-top:1px solid var(--dsw-alias-border-l4)}
+.dsmm-named-profiles .dsmm-save-bar{position:sticky;top:0;z-index:5;display:flex;flex-direction:column;gap:8px;padding:8px 0 12px;background:var(--dsw-alias-bg-module-platform);border-bottom:1px solid var(--dsw-alias-border-l4);margin-bottom:4px}
+.dsmm-dialog-top-bar{position:sticky;top:0;z-index:10;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;padding:8px 0 12px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-module-platform));border-bottom:1px solid var(--dsw-alias-border-l4);flex-shrink:0}
+.dsmm-profiles :is(.dsmm-field, fieldset, details, .dsmm-zone, input, select, textarea){scroll-margin-top:calc(var(--dsmm-save-bar-offset, 48px) + 12px)}
+.dsmm-profile-models-dialog :is(.dsmm-field, .dsmm-dialog-role-card, fieldset, details, .dsmm-zone, input, select, textarea){scroll-margin-top:calc(var(--dsmm-dialog-bar-offset, 48px) + 12px)}
+.dsmm-deployment :is(.dsmm-field, fieldset, details, .dsmm-zone, input, select, textarea){scroll-margin-top:calc(var(--dsmm-scope-save-offset, 48px) + 12px)}
 .dsmm-named-profiles .dsmm-save-lock-reason{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;border:1px solid var(--dsw-alias-state-warn-primary);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-module-platform)}
 .dsmm-named-profiles .dsmm-save-lock-text{font-weight:500;color:var(--dsw-alias-state-warn-primary)}
 .dsmm-named-profiles .dsmm-save-lock-action{display:flex;align-items:center;gap:8px}

@@ -30,7 +30,37 @@ export interface DeploymentPageProps extends Locale {
 export function ScopeSave({ controller, workspace, refreshOnly = false, t }: Locale & { controller: DeploymentController; workspace?: DeploymentWorkspace; refreshOnly?: boolean }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const pending = [...new Set(controller.pendingPaths().map(moduleFor))];
-  return <section className="dsmm-scope-save" aria-label={t("saveScope")}>
+  const ref = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const parent = el.closest(".dsmm-section-panel") as HTMLElement | null;
+    const update = () => {
+      const height = el.offsetHeight;
+      if (parent) {
+        parent.style.setProperty("--dsmm-scope-save-offset", `${height}px`);
+      }
+    };
+    update();
+    if (typeof ResizeObserver !== "undefined") {
+      const ro = new ResizeObserver(update);
+      ro.observe(el);
+      return () => {
+        ro.disconnect();
+        if (parent) {
+          parent.style.removeProperty("--dsmm-scope-save-offset");
+        }
+      };
+    }
+    return () => {
+      if (parent) {
+        parent.style.removeProperty("--dsmm-scope-save-offset");
+      }
+    };
+  }, []);
+
+  return <section ref={ref} className="dsmm-scope-save" aria-label={t("saveScope")}>
     <p className="dsmm-status" role="status" aria-live="polite">{refreshOnly ? state.busy ? t("loading") : "" : state.busy ? t("saving") : state.refreshRequired ? t("savedRefreshRequired") : state.saved ? t("saved") : state.dirty ? t("dirty") : ""}</p>
     {!refreshOnly && pending.length > 0 && <p>{t("pendingModules")}: {pending.map(module => t(moduleTitle(module))).join(" · ")}</p>}
     {state.issue !== null && <p className="dsmm-issue" role="alert">{t(state.issue)}</p>}
@@ -128,13 +158,13 @@ export function DeploymentPage(props: DeploymentPageProps) {
       onKeyDown={event => onTabKey(event, index)} onClick={() => select(module)}>{t(moduleTitle(module))}</Button>)}</div>
     {active !== null && <section id={`${id}-panel`} role="tabpanel" className="dsmm-section-panel" aria-labelledby={`${id}-tab-${active}`} data-dsmm-module={active}>
       <div className="dsmm-panel-heading"><h2 id={`${id}-heading`} ref={heading} tabIndex={-1}>{t(moduleTitle(active))}</h2></div>
-      {active === "state" ? <><StateInspector controller={props.core} t={t} />{scopeActions}</> : <>
+      {scopeActions}
+      {active === "state" ? <StateInspector controller={props.core} t={t} /> : <>
         {navigation.scope === "profile" && navigation.native === null ? <p>{t("unavailableForm")}</p> : state.snapshot === null ? <p>{t(state.busy ? "loading" : "unavailable")}</p> : <div data-dsmm-layer={controller.layer} aria-busy={state.busy} className="dsmm-structured">
           {fields.length === 0 && <p className="dsmm-hint">{t("noModuleFields")}</p>}
           {fields.map(([key, schema]) => <Field key={`${navigation.scope}:${key}`} schema={schema} path={[key]} controller={controller} initiallyOpen={fields.length === 1 && active !== "permissions"} disclosures={disclosures.current[navigation.scope]} t={t} />)}
           {active === "run" && controller.layer === "profile" && <NativeRuntimeState value={state.snapshot.subagentRuntime} t={t} />}
         </div>}
-        {scopeActions}
         {active === "permissions" && <section className="dsmm-zone dsmm-rules-transaction" aria-label={t("rootRules")}>{workspace.permissions === undefined ? <p>{t("rootRulesUnavailable")}</p> : <PermissionsPanel controller={workspace.permissions} t={props.permissionsT ?? (key => Object.hasOwn(permissionEn, key) ? permissionText(t)(key as PermissionLocaleKey) : key)} />}</section>}
       </>}
     </section>}

@@ -1,10 +1,12 @@
-# Unified permission control
+# Deferred unified scope authorization
 
 ## Goal and scope
 
 DSMM permission control has two independently configured policy lanes with a shared rule model and a consistent operator experience. The primary extension is operator-authorized, live-session approval of operations that DSH intercepts. Models can propose authorization requests but cannot grant them.
 
-This document defines the target behavior. It does not claim that live-session native-request grants, their management UI or precise external-path enforcement are implemented. DSH remains the execution, approval and sandbox owner; the design does not require replacing or patching DSH packages.
+This document defines a deferred target. Long-lived command/subcommand/path grants, model-proposed scopes and their management UI await simpler supported DSH scope, lifetime and revocation contracts. Native command authorization also awaits a public binding to the actual registration scope, policy and executor, preserving direct native module loading and aliases without replacement tools or adapter migration. These permission extensions are outside the Profile usability delivery; see [the upstream watch](../../roadmap.md#upstream-watch-native-command-authorization-scope). DSH remains the execution, approval and sandbox owner; the design does not require replacing or patching DSH packages.
+
+Permission extensions must not expand the current interception set or add approval to otherwise permitted operations. Configured command elevation is limited to native standing `workspace-write`. Standing full access retains existing identifiable high-risk protection without new approvals. In `read-only`, added automatic authorization is limited to identifiable outside-workspace reads and never grants writable execution. A native read with no approval request remains a normal read, not a reason to create a new gate. Independent native/third-party approvals retain their own authority.
 
 ## Two policy lanes
 
@@ -72,7 +74,7 @@ Full-access approval must disclose writes to any OS-permitted location, not just
 
 ## Delivery boundary and acceptance
 
-The current Host has an exact-request answerer usable for the native-request lane. Extending it with live grants and explicit operator interaction is a DSMM feature, not wholly contingent on a future native remembered-grant API. It still requires security-focused implementation and validation. General native remembered grants would reduce custom integration work; precise path writes remain dependent on a supported enforcement contract that rc.2 does not provide.
+The current Host has an exact-request answerer usable for configured native-command authorization. General live grants would require a separate scope-confirmation, lifecycle and revocation implementation on rc.2; this design remains deferred until supported Host contracts make that integration practical. Precise path writes also depend on a shared enforcement contract that rc.2 does not provide. Existing command configuration and first-lane rule memory do not constitute delivery of this design.
 
 Acceptance must demonstrate:
 

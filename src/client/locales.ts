@@ -2,7 +2,12 @@ import type { DsmmRateLimitPolicy } from "../routing-policy.js";
 
 export const NS = "settings.dsmm-profiles";
 export const en = {
-  sessionChooseWorkspace: "Choose a workspace to start a session, then choose its configuration before sending.",
+  sessionChooseWorkspace: "Choose a workspace and profile here. A blank session is prepared only when you confirm a profile choice.",
+  sessionWorkspace: "Workspace", sessionWorkspacePlaceholder: "Choose a workspace…",
+  sessionPrepare: "Open with this profile", sessionPrepareHint: "Choose a profile to prepare and open a blank session. The native model stays unchanged.",
+  sessionPendingProfile: "Choose a workspace for: {profile}", sessionNoWorkspaces: "No workspaces available. Add or reconnect a workspace using native workspace navigation, then refresh.",
+  sessionPreparationUnavailable: "Native workspace preparation is unavailable. Open a workspace using native navigation, then choose this session's profile.",
+  sessionPreparationUnknown: "The Host did not return a session ID. Inspect the workspace using native navigation; this action will not automatically create or select again.",
   sessionSelectionBlock: "Finish choosing this session's configuration to continue typing.",
   sessionCommittedRefresh: "Saved. Refresh to confirm it.",
   sessionUnconfirmedRefresh: "The result is unknown. Refresh before choosing or sending again.",
@@ -116,7 +121,12 @@ export const en = {
 };
 export type ProfilesLocaleKey = keyof typeof en;
 export const zh: Record<ProfilesLocaleKey, string> = {
-  sessionChooseWorkspace: "请先选择工作区新建会话，发送前再选择本次会话的配置。",
+  sessionChooseWorkspace: "在此选择工作区与方案；仅明确确认方案选择时才会准备空白会话。",
+  sessionWorkspace: "工作区", sessionWorkspacePlaceholder: "请选择工作区…",
+  sessionPrepare: "使用此方案打开", sessionPrepareHint: "选择方案后将准备并打开空白会话，保留原生模型。",
+  sessionPendingProfile: "请为「{profile}」选择工作区", sessionNoWorkspaces: "暂无可用工作区。请通过原生工作区导航添加或重新连接工作区，然后刷新。",
+  sessionPreparationUnavailable: "当前无法准备原生空白会话。请通过原生导航打开工作区，再选择本次会话方案。",
+  sessionPreparationUnknown: "Host 未返回会话 ID。请通过原生导航检查工作区；本入口不会自动重复创建或提交选择。",
   sessionSelectionBlock: "请先完成本次会话的配置选择，然后即可继续输入。",
   sessionCommittedRefresh: "已保存，请刷新确认。",
   sessionUnconfirmedRefresh: "结果未知，请刷新后再选择或发送。",

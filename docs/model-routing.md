@@ -2,7 +2,7 @@
 
 Providers, accounts and credentials remain native DSH configuration, never named-profile contents.
 
-DSMM 0.3.13 targets exactly DSH `0.2.1-rc.2`. Standard calls use native prepared calls. The public Pi-AI completions seam supports self-contained literal and explicit model-mapping raw configurations; unsupported catalog-backed raw combinations are rejected without affecting standard calls.
+DSMM 0.3.14 targets exactly DSH `0.2.1-rc.2`. Standard calls use native prepared calls. The public Pi-AI completions seam supports self-contained literal and explicit model-mapping raw configurations; unsupported catalog-backed raw combinations are rejected without affecting standard calls.
 
 ## Native roots and child defaults
 

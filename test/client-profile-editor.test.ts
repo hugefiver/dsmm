@@ -295,7 +295,7 @@ test("profile control is an icon-only native portaled menu with no standalone vi
   f.controller.dispose();
 });
 
-test("true sessionless welcome keeps the profile control inspectable without enabling a mutation", async () => {
+test("sessionless welcome without native preparation keeps the control inspectable without enabling mutation", async () => {
   const component = await nativeHeaderComponent(), f = fixture(); await f.controller.refresh();
   const tree = component({ ...f.controller.actions, readProfileView: f.controller.store.getSnapshot, sessionId: undefined, useProfiles: (select) => select(f.controller.store.getSnapshot()), t: translate });
   assert.notEqual(tree, null, "undefined native identity and null controller identity are the same honest sessionless state");
@@ -305,6 +305,31 @@ test("true sessionless welcome keeps the profile control inspectable without ena
   assert.ok(entries.filter((entry) => !("type" in entry)).every((entry) => "disabled" in entry && entry.disabled));
   assert.equal(f.controller.store.getSnapshot().currentSessionId, null); assert.deepEqual(f.selections, []);
   f.controller.dispose();
+});
+
+test("sessionless header keeps a Profile choice until the user explicitly chooses its workspace", async () => {
+  const component = await nativeHeaderComponent(), f = fixture(), blocks = await nativeComposerBlocks(), id = SessionId("header-prepared-blank");
+  const connections: string[] = [], opened: string[] = [];
+  try {
+    f.controller.attachComposerBlocks(blocks, () => en.sessionSelectionBlock);
+    f.controller.attachBlankNative({
+      workspaces: createSnapshotStore([{ id: "not-assumed", label: "Other" }, { id: "explicit", label: "Chosen" }]),
+      beginNavigation: () => new AbortController().signal,
+      connectWorkspace: async workspace => { connections.push(workspace); return id; },
+      retain: target => ({ sessionId: target, ready: Promise.resolve({ sessionId: target }), release() {} }),
+      openSession: target => { opened.push(target); f.controller.setSession(target); },
+    });
+    await f.controller.refresh();
+    const first = headerTree(component, f.controller);
+    assert.equal(menuRowDisabled(first, "p"), false); assert.deepEqual(connections, []);
+    headerMenu(first).props.onSelect("p");
+    assert.equal(f.controller.store.getSnapshot().sessionPreparationPending, true);
+    assert.equal(connections.length, 0); assert.equal(f.selections.length, 0);
+    headerMenu(headerTree(component, f.controller)).props.onSelect("@workspace:explicit"); await settle(f.controller);
+    assert.deepEqual(connections, ["explicit"]); assert.deepEqual(opened, [id]);
+    assert.equal(f.selections[0]?.id, "p"); assert.equal(f.selections[0]?.sessionId, id);
+    assert.equal(f.calls.includes("select"), false); assert.equal(f.calls.includes("save"), false);
+  } finally { f.controller.dispose(); }
 });
 
 test("the same root menu enables on an owned blank binding and rejects a retained sessionless action", async () => {

@@ -50,6 +50,7 @@ export function ProfilesSection(props: ProfilesSectionProps) {
   const hadConfirmation = useRef(false);
   const initiatorRef = useRef<HTMLElement | null>(null);
   const dialogInitiatorRef = useRef<HTMLElement | null>(null);
+  const saveBarRef = useRef<HTMLDivElement>(null);
   const orchestratorRef = useRef<HTMLDivElement>(null);
   const sessionScopeRef = useRef<HTMLDivElement>(null);
 
@@ -85,6 +86,7 @@ export function ProfilesSection(props: ProfilesSectionProps) {
   }
   const basicDoc = structuredDoc ?? (lastValidBasicDocRef.current !== null && lastValidBasicDocRef.current.id === editor?.id && lastValidBasicDocRef.current.epoch === state.editorEpoch ? lastValidBasicDocRef.current.doc : null);
   const rawInvalid = editor !== null && structuredDoc === null;
+  const canSave = !editorDisabled && state.dirty && snapshot !== null && state.invalidFields.length === 0 && !rawInvalid;
 
   function focusJsonc(location?: ProfileDiagnosticLocation): boolean {
     if (advancedRef.current !== null) {
@@ -195,6 +197,34 @@ export function ProfilesSection(props: ProfilesSectionProps) {
   if (snapshot?.selectionError !== undefined && !selectionConflict) selection = t("appliedInvalid");
   else if (snapshot?.selectedId !== null && snapshot?.selectedId !== undefined) selection = t("appliedProfile", { id: snapshot.selectedId, revision: t(configurationVersionState(snapshot.sourceRevision)) });
   const notice = state.notice === null ? "" : t(state.notice.key === "reset" ? "resetDone" : state.notice.key, { id: state.notice.id });
+  useEffect(() => {
+    const el = saveBarRef.current;
+    if (!el) return;
+    const parent = el.closest(".dsmm-editor") as HTMLElement | null;
+    const update = () => {
+      const height = el.offsetHeight;
+      if (parent) {
+        parent.style.setProperty("--dsmm-save-bar-offset", `${height}px`);
+      }
+    };
+    update();
+    if (typeof ResizeObserver !== "undefined") {
+      const ro = new ResizeObserver(update);
+      ro.observe(el);
+      return () => {
+        ro.disconnect();
+        if (parent) {
+          parent.style.removeProperty("--dsmm-save-bar-offset");
+        }
+      };
+    }
+    return () => {
+      if (parent) {
+        parent.style.removeProperty("--dsmm-save-bar-offset");
+      }
+    };
+  }, [editor?.id, state.dirty, state.invalidFields.length, rawInvalid, invalid]);
+
   const warnings = editor === null ? [] : draftWarnings(editor.content);
 
   return <section className="dsmm-profiles dsmm-named-profiles" aria-label={t("title")} aria-busy={state.busy !== null}>
@@ -266,6 +296,143 @@ export function ProfilesSection(props: ProfilesSectionProps) {
 
     {editor === null && <p className="dsmm-hint">{t("noEditor")}</p>}
     {editor !== null && <div className="dsmm-editor">
+      <div ref={saveBarRef} className="dsmm-save-bar">
+        <div className="dsmm-actions">
+          <Button type="button" variant="primary" disabled={!canSave} onClick={() => { void props.save(); }}>{t(state.busy === "save" ? "saving" : "save")}</Button>
+          <Button type="button" variant="outline" disabled={editorDisabled || (!state.dirty && state.invalidFields.length === 0)} onClick={(event) => { initiatorRef.current = event.currentTarget; props.discard(); }}>{t("discard")}</Button>
+          {editor.revision !== null && !state.dirty && <Button type="button" variant="outline" disabled={disabled} onClick={(event) => { initiatorRef.current = event.currentTarget; void props.reload(); }}>{t("reload")}</Button>}
+          <p className="dsmm-status" role="status" aria-live="polite" aria-atomic="true">{state.busy === "refresh" && snapshot === null ? t("loading") : state.busy === "read" ? t("reading") : notice}</p>
+        </div>
+        {(() => {
+          const isSaveLocked = (state.dirty || state.invalidFields.length > 0) && !editorDisabled && snapshot !== null && (state.invalidFields.length > 0 || rawInvalid || invalid);
+          if (!isSaveLocked) return null;
+          return (
+            <div className="dsmm-save-lock-reason" role="status">
+              <span className="dsmm-save-lock-text">
+                {rawInvalid
+                  ? t("rawInvalid")
+                  : state.invalidFields.length > 0
+                  ? t("saveLockedReason", { count: state.invalidFields.length })
+                  : t("validation")}
+              </span>
+              <div className="dsmm-save-lock-action">
+                {rawInvalid && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      if (advancedRef.current !== null) {
+                        advancedRef.current.open = true;
+                        jsoncOpenRef.current = true;
+                      }
+                      const reducedMotion = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+                      editorRef.current?.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth" });
+                      editorRef.current?.focus();
+                    }}
+                  >
+                    {t("jumpToJsonc")}
+                  </Button>
+                )}
+                {!rawInvalid && state.invalidFields.length > 0 && (() => {
+                  const firstInvalid = state.invalidFields[0];
+                  const roleMatch = /^(?:settings\.)?(?:roleRouting|roles)\.([a-zA-Z0-9_-]+)(?:\.|$)/.exec(firstInvalid);
+                  const roleId = roleMatch?.[1];
+                  if (roleId) {
+                    return (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => {
+                          dialogInitiatorRef.current = e.currentTarget;
+                          setTargetRole(roleId);
+                          setTargetRoleField(firstInvalid);
+                          setModelsDialogOpen(true);
+                        }}
+                      >
+                        {t("jumpToField")}: {firstInvalid}
+                      </Button>
+                    );
+                  }
+                  return (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        if (!focusGlobalField(firstInvalid)) focusJsonc(state.issue?.location);
+                      }}
+                    >
+                      {t("jumpToField")}: {firstInvalid}
+                    </Button>
+                  );
+                })()}
+                {!rawInvalid && state.invalidFields.length === 0 && invalid && (() => {
+                  if (state.issue?.field === "id" || state.issue?.field === "newId") {
+                    return (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const reducedMotion = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+                          inputRef.current?.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth" });
+                          inputRef.current?.focus();
+                        }}
+                      >
+                        {t("jumpToField")}: ID
+                      </Button>
+                    );
+                  }
+                  const roleMatch = /^(?:settings\.)?(?:roleRouting|roles)\.([a-zA-Z0-9_-]+)(?:\.|$)/.exec(state.issue?.field ?? "");
+                  const roleId = roleMatch?.[1];
+                  if (roleId && snapshot?.roles?.some(r => r.id === roleId)) {
+                    return (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => {
+                          dialogInitiatorRef.current = e.currentTarget;
+                          setTargetRole(roleId);
+                          setTargetRoleField(state.issue?.field ?? null);
+                          setModelsDialogOpen(true);
+                        }}
+                      >
+                        {t("jumpToRole")}: {roleId}
+                      </Button>
+                    );
+                  }
+                  return (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        if (advancedRef.current !== null) {
+                          advancedRef.current.open = true;
+                          jsoncOpenRef.current = true;
+                        }
+                        const reducedMotion = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+                        editorRef.current?.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth" });
+                        editorRef.current?.focus();
+                        const location = state.issue?.location;
+                        if (location !== undefined && editorRef.current && location.offset + location.length <= editorRef.current.value.length) {
+                          editorRef.current.setSelectionRange(location.offset, location.offset + location.length);
+                        }
+                      }}
+                    >
+                      {t("jumpToJsonc")}
+                    </Button>
+                  );
+                })()}
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+
       {warnings.length > 0 && <div><p>{t("draftWarnings")}</p><ProfileWarnings warnings={warnings} t={t} /></div>}
       {editor.warnings?.length ? <div><p>{t("savedWarnings")}</p><ProfileWarnings warnings={editor.warnings} t={t} /></div> : null}
 
@@ -473,147 +640,12 @@ export function ProfilesSection(props: ProfilesSectionProps) {
           setTargetRoleField(null);
         }}
         onJumpToJsonc={() => closeModelsDialog("jsonc")}
+        canSave={canSave}
         t={t}
       />
-
-      <div className="dsmm-save-bar">
-        {(() => {
-          const isSaveLocked = (state.dirty || state.invalidFields.length > 0) && !editorDisabled && snapshot !== null && (state.invalidFields.length > 0 || rawInvalid || invalid);
-          if (!isSaveLocked) return null;
-          return (
-            <div className="dsmm-save-lock-reason" role="status">
-              <span className="dsmm-save-lock-text">
-                {rawInvalid
-                  ? t("rawInvalid")
-                  : state.invalidFields.length > 0
-                  ? t("saveLockedReason", { count: state.invalidFields.length })
-                  : t("validation")}
-              </span>
-              <div className="dsmm-save-lock-action">
-                {rawInvalid && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      if (advancedRef.current !== null) {
-                        advancedRef.current.open = true;
-                        jsoncOpenRef.current = true;
-                      }
-                      const reducedMotion = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-                      editorRef.current?.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth" });
-                      editorRef.current?.focus();
-                    }}
-                  >
-                    {t("jumpToJsonc")}
-                  </Button>
-                )}
-                {!rawInvalid && state.invalidFields.length > 0 && (() => {
-                  const firstInvalid = state.invalidFields[0];
-                  const roleMatch = /^(?:settings\.)?(?:roleRouting|roles)\.([a-zA-Z0-9_-]+)(?:\.|$)/.exec(firstInvalid);
-                  const roleId = roleMatch?.[1];
-                  if (roleId) {
-                    return (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={(e) => {
-                          dialogInitiatorRef.current = e.currentTarget;
-                          setTargetRole(roleId);
-                          setTargetRoleField(firstInvalid);
-                          setModelsDialogOpen(true);
-                        }}
-                      >
-                        {t("jumpToField")}: {firstInvalid}
-                      </Button>
-                    );
-                  }
-                  return (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        if (!focusGlobalField(firstInvalid)) focusJsonc(state.issue?.location);
-                      }}
-                    >
-                      {t("jumpToField")}: {firstInvalid}
-                    </Button>
-                  );
-                })()}
-                {!rawInvalid && state.invalidFields.length === 0 && invalid && (() => {
-                  if (state.issue?.field === "id" || state.issue?.field === "newId") {
-                    return (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          const reducedMotion = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-                          inputRef.current?.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth" });
-                          inputRef.current?.focus();
-                        }}
-                      >
-                        {t("jumpToField")}: ID
-                      </Button>
-                    );
-                  }
-                  const roleMatch = /^(?:settings\.)?(?:roleRouting|roles)\.([a-zA-Z0-9_-]+)(?:\.|$)/.exec(state.issue?.field ?? "");
-                  const roleId = roleMatch?.[1];
-                  if (roleId && snapshot?.roles?.some(r => r.id === roleId)) {
-                    return (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={(e) => {
-                          dialogInitiatorRef.current = e.currentTarget;
-                          setTargetRole(roleId);
-                          setTargetRoleField(state.issue?.field ?? null);
-                          setModelsDialogOpen(true);
-                        }}
-                      >
-                        {t("jumpToRole")}: {roleId}
-                      </Button>
-                    );
-                  }
-                  return (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        if (advancedRef.current !== null) {
-                          advancedRef.current.open = true;
-                          jsoncOpenRef.current = true;
-                        }
-                        const reducedMotion = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-                        editorRef.current?.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth" });
-                        editorRef.current?.focus();
-                        const location = state.issue?.location;
-                        if (location !== undefined && editorRef.current && location.offset + location.length <= editorRef.current.value.length) {
-                          editorRef.current.setSelectionRange(location.offset, location.offset + location.length);
-                        }
-                      }}
-                    >
-                      {t("jumpToJsonc")}
-                    </Button>
-                  );
-                })()}
-              </div>
-            </div>
-          );
-        })()}
-        <div className="dsmm-actions">
-          <Button type="button" variant="primary" disabled={editorDisabled || !state.dirty || snapshot === null || state.invalidFields.length > 0 || rawInvalid} onClick={() => { void props.save(); }}>{t(state.busy === "save" ? "saving" : "save")}</Button>
-          <Button type="button" variant="outline" disabled={editorDisabled || (!state.dirty && state.invalidFields.length === 0)} onClick={(event) => { initiatorRef.current = event.currentTarget; props.discard(); }}>{t("discard")}</Button>
-          {editor.revision !== null && !state.dirty && <Button type="button" variant="outline" disabled={disabled} onClick={(event) => { initiatorRef.current = event.currentTarget; void props.reload(); }}>{t("reload")}</Button>}
-        </div>
-      </div>
     </div>}
 
     {state.issue !== null && !modelsDialogOpen && <div className="dsmm-issue" id={`${prefix}-issue`} role="alert"><p>{t(issueKey(state.issue))}</p><IssueDetails issue={state.issue} t={t} /></div>}
-    <p className="dsmm-status" role="status" aria-live="polite" aria-atomic="true">{state.busy === "refresh" && snapshot === null ? t("loading") : state.busy === "read" ? t("reading") : notice}</p>
+    {editor === null && <p className="dsmm-status" role="status" aria-live="polite" aria-atomic="true">{state.busy === "refresh" && snapshot === null ? t("loading") : state.busy === "read" ? t("reading") : notice}</p>}
   </section>;
 }
