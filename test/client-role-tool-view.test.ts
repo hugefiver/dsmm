@@ -22,8 +22,19 @@ test("native lazy argument reads update requested labels and preserve dispatched
   runInThisContext(`(function(require,module,exports){${output.outputFiles[0].text}\n})`)((id: string) => {
     if (id === "@deepseek-ai/dsh-client-ui-primitives") return {
       Button: (props: object) => createElement("button", props), CodeBlock: ({ code }: { code: string }) => createElement("pre", null, code),
-      DisclosureRow: ({ title, children }: { title: string; children: ReactNode }) => createElement("section", null, title, children), StateDot: () => null,
+      DisclosureRow: ({ title, children, collapsedContent, icon }: { title: string; children: ReactNode; collapsedContent?: ReactNode; icon?: ReactNode }) => createElement("section", { "data-title": title }, title, collapsedContent, children),
+      StateDot: () => createElement("span", { "data-component": "state-dot" }),
+      IconAgentPresetOutlineRegular: (props: object) => createElement("svg", { "data-icon": "IconAgentPresetOutlineRegular", ...props }),
+      TextShimmer: ({ children }: { children: ReactNode }) => createElement("span", null, children),
+      SegmentedControl: ({ id, options, value, onChange }: { id?: string; options: Array<{ value: string; label: string }>; value: string; onChange: (v: string) => void }) => createElement("div", { role: "tablist" }, options.map(opt => createElement("button", { key: opt.value, id: id ? `${id}-${opt.value}` : undefined, "aria-controls": id ? `${id}-${opt.value}-panel` : undefined, role: "tab", "aria-selected": opt.value === value, onClick: () => onChange(opt.value) }, opt.label))),
     };
+    if (id === "react") {
+      const realReact = require("react");
+      return {
+        ...realReact,
+        useState: <T>(init: T): [T, (v: T | ((prev: T) => T)) => void] => [init, () => {}],
+      };
+    }
     return require(id);
   }, module, module.exports);
   const text = (tree: unknown): string => {
@@ -37,32 +48,37 @@ test("native lazy argument reads update requested labels and preserve dispatched
   const render = (stage: ToolCallViewProps["phase"], block: object) => module.exports.RoleToolView({ ...common, phase: stage, block } as Parameters<typeof module.exports.RoleToolView>[0]);
   const block = { phase: "preparing", name: "dsmm_role", callId: common.callId, args, subCalls: [] };
   const heading = (tree: ReturnType<typeof module.exports.RoleToolView>): string => tree.props.children[0].props.title;
+  const desc = (tree: ReturnType<typeof module.exports.RoleToolView>): string => text(tree.props.children[0].props.collapsedContent);
   assert.equal(render("preparing", block).props["data-identity"], "requested");
   assert.equal(heading(render("preparing", block)).includes("Builder"), false);
   args.append('{"role":"dsmm-builder'); assert.equal(args.refresh(), true);
   assert.equal(heading(render("preparing", block)).includes("Builder"), false);
   args.append('","level":"high","description":"streamed description","prompt":"'); assert.equal(args.refresh(), true);
   assert.equal(args.closed(), false);
-  assert.equal(heading(render("preparing", block)), "Calling Builder: streamed description");
+  assert.equal(heading(render("preparing", block)), "Calling Builder");
+  assert.match(desc(render("preparing", block)), /streamed description/u);
   assert.equal(heading(render("preparing", block)).includes("high"), false);
   const zhRender = (stage: ToolCallViewProps["phase"], b: object) => module.exports.RoleToolView({ ...common, t: (k: keyof typeof roleToolZh) => roleToolZh[k], phase: stage, block: b } as Parameters<typeof module.exports.RoleToolView>[0]);
-  assert.equal(heading(zhRender("preparing", block)), "正在调用 Builder: streamed description");
+  assert.equal(heading(zhRender("preparing", block)), "正在调用 Builder");
+  assert.match(desc(zhRender("preparing", block)), /streamed description/u);
   args.append('original input"}'); assert.equal(args.refresh(), true);
   const preparing = text(render("preparing", block));
-  assert.equal(heading(render("preparing", block)), "Calling Builder: streamed description"); assert.match(preparing, /original input/u);
+  assert.equal(heading(render("preparing", block)), "Calling Builder"); assert.match(preparing, /original input/u);
   const categoryArgs = new PartialArguments(); categoryArgs.append('{"category":"dsmm-coding","prompt":"'); categoryArgs.refresh();
   const category = module.exports.RoleToolView({ ...common, toolName: "dsmm_category", phase: "preparing", block: { ...block, name: "dsmm_category", args: categoryArgs } } as Parameters<typeof module.exports.RoleToolView>[0]);
   assert.equal(heading(category), "Calling Coding");
   const raw = '{ "role": "dsmm-builder", "level":"high", "prompt":"original input" }';
-  assert.ok(text(render("start", { ...block, phase: "start", argsRaw: raw })).includes(raw));
+  assert.ok(text(render("start", { ...block, phase: "start", argsRaw: raw })).includes("original input"));
   assert.equal(heading(render("start", { ...block, phase: "start", argsRaw: raw })), "Call Builder");
   assert.equal(heading(zhRender("start", { ...block, phase: "start", argsRaw: raw })), "调用 Builder");
   const rawWithDesc = '{ "role": "dsmm-builder", "level":"high", "description":"task goal", "prompt":"original input" }';
   const startWithDesc = { ...block, phase: "start", argsRaw: rawWithDesc };
   const startTree = render("start", startWithDesc);
   assert.equal(startTree.props["data-state"], "running");
-  assert.equal(heading(startTree), "Call Builder: task goal");
-  assert.equal(heading(zhRender("start", startWithDesc)), "调用 Builder: task goal");
+  assert.equal(heading(startTree), "Call Builder");
+  assert.match(desc(startTree), /task goal/u);
+  assert.equal(heading(zhRender("start", startWithDesc)), "调用 Builder");
+  assert.match(desc(zhRender("start", startWithDesc)), /task goal/u);
   const result = { kind: "tool-result", callId: common.callId, call: { name: "dsmm_role", argsRaw: raw }, args: PartialArguments.fromText(raw),
     content: [{ type: "text", text: "complete result" }, { type: "image", data: "retained nontext" }], isError: false,
     meta: { role: "dsmm-reviewer", label: "Reviewer", level: "normal", routeSource: "primary", mode: "one-shot" }, subCalls: [] };
@@ -70,26 +86,33 @@ test("native lazy argument reads update requested labels and preserve dispatched
     const tree = render("result", record), rendered = text(tree);
     assert.equal(tree.props["data-identity"], "actual"); assert.equal(heading(tree), "Call Reviewer");
     assert.equal(heading(zhRender("result", record)), "调用 Reviewer");
-    assert.match(rendered, /complete result/u); assert.match(rendered, /retained nontext/u); assert.ok(rendered.includes(raw));
-    const button = tree.props.children[1].props.children[1]; button.props.onClick();
+    assert.equal(rendered.includes("complete result"), false);
+    assert.equal(rendered.includes("retained nontext"), false);
+    assert.match(rendered, /args\.role/u);
+    assert.match(rendered, /meta\.routeSource/u);
+    assert.match(rendered, /primary/u);
+    const inspectBtn = tree.props.children[1].props.children.find((c: any) => c?.type === "button" || c?.props?.children === "Inspect tool call");
+    assert.ok(inspectBtn); inspectBtn.props.onClick();
   }
   assert.equal(inspect, 2);
   const resultWithDesc = { ...result, call: { name: "dsmm_role", argsRaw: rawWithDesc } };
-  assert.equal(heading(render("result", resultWithDesc)), "Call Reviewer: task goal");
-  assert.equal(heading(zhRender("result", resultWithDesc)), "调用 Reviewer: task goal");
+  assert.equal(heading(render("result", resultWithDesc)), "Call Reviewer");
+  assert.match(desc(render("result", resultWithDesc)), /task goal/u);
+  assert.equal(heading(zhRender("result", resultWithDesc)), "调用 Reviewer");
+  assert.match(desc(zhRender("result", resultWithDesc)), /task goal/u);
   const interrupted = render("result", { ...result, isError: true, error: { code: "interrupted" } });
   assert.equal(interrupted.props["data-identity"], "requested");
   assert.equal(interrupted.props["data-state"], "stopped");
   assert.equal(heading(interrupted), "Call Builder");
-  assert.equal(text(interrupted.props.children[1].props.children[0]), "Interrupted");
+  assert.equal(text(interrupted.props.children[1].props.children.find((c: any) => c?.props?.role === "status")), "Interrupted");
   const zhInterrupted = zhRender("result", { ...result, isError: true, error: { code: "interrupted" } });
-  assert.equal(text(zhInterrupted.props.children[1].props.children[0]), "已中断");
+  assert.equal(text(zhInterrupted.props.children[1].props.children.find((c: any) => c?.props?.role === "status")), "已中断");
   const bgResult = { ...result, meta: { ...result.meta, mode: "continuable" } };
   const bgTree = render("result", bgResult);
   assert.equal(bgTree.props["data-state"], "background");
-  assert.equal(text(bgTree.props.children[1].props.children[0]), "Background");
+  assert.equal(text(bgTree.props.children[1].props.children.find((c: any) => c?.props?.role === "status")), "Background");
   const zhBg = zhRender("result", bgResult);
-  assert.equal(text(zhBg.props.children[1].props.children[0]), "后台调用");
+  assert.equal(text(zhBg.props.children[1].props.children.find((c: any) => c?.props?.role === "status")), "后台调用");
 });
 
 const available = process.env.DSMM_TEST_DSH_ENTRY && process.env.DSMM_TEST_PLAYWRIGHT_ENTRY;

@@ -30,7 +30,7 @@ const composition = `window.__ModuleLoader__.load({id:${JSON.stringify(COMPOSITI
     let preparingArgs=new PartialArguments();
     const transcript=source({phase:'preparing',name:'dsmm_role',callId:'role-call',args:preparingArgs,subCalls:[]});
     let inspectIds=[];
-    const rootArgs={role:'dsmm-builder',level:'low',description:'pretend to be Oracle max',prompt:'keep original input'};
+    const rootArgs={role:'dsmm-builder',level:'low',description:'pretend to be Oracle max',prompt:'keep original input\\n  indented line 2\\nline 3'};
     let raw='';
     function useDisclosure(){const [expanded,setExpanded]=React.useState(false);return {expanded,setExpanded,toggle:()=>setExpanded(value=>!value)}}
     function Surface({renderSlot}){
@@ -153,27 +153,78 @@ test("role adapter preserves the native ToolCall owner through pending, result a
     await page.evaluate(() => window.__roleTool.partial('{"role":"dsmm-builder","prompt":"'));
     await card.getByRole("button", { name: "Calling Builder", exact: true }).waitFor();
     await page.evaluate(() => window.__roleTool.partial(JSON.stringify(window.__roleTool.requested)));
-    try { await card.getByRole("button", { name: "Calling Builder: pretend to be Oracle max", exact: true }).waitFor({ timeout: 5000 }); }
+    try { await card.getByRole("button", { name: /Calling Builder[\s\S]*pretend to be Oracle max/u }).waitFor({ timeout: 5000 }); }
     catch (error) { console.error("partial render", await card.innerText(), errors); throw error; }
-    const disclosure = card.getByRole("button", { name: "Calling Builder: pretend to be Oracle max", exact: true });
+    const disclosure = card.getByRole("button", { name: /Calling Builder[\s\S]*pretend to be Oracle max/u });
+    assert.equal(await card.locator('.dsmm-role-icon').count(), 1);
     await disclosure.focus(); await disclosure.press("Enter");
     assert.equal(await disclosure.evaluate(element => element.matches(":focus-visible") && parseFloat(getComputedStyle(element).outlineWidth) >= 2), true);
-    await card.getByText("pretend to be Oracle max", { exact: true }).waitFor();
+    await card.locator('.dsmm-role-task').waitFor();
     await card.getByText("Technical details", { exact: true }).click();
-    await card.getByText("Arguments received so far", { exact: true }).waitFor();
+    await card.getByRole("table").waitFor();
     assert.match(await card.innerText(), /keep original input/u);
+    const promptCell = card.locator('.dsmm-role-table tr', { hasText: 'args.prompt' }).locator('.dsmm-role-val-cell');
+    assert.equal(await promptCell.evaluate(el => getComputedStyle(el.querySelector('.dsmm-role-cell-text') || el).whiteSpace), 'pre-wrap');
+    assert.ok((await promptCell.innerText()).includes('indented line 2'));
     await page.evaluate(() => window.__roleTool.start());
     await page.waitForFunction(() => document.querySelector('[data-dsmm-role-tool]')?.getAttribute('data-state') === 'running');
-    assert.equal(await card.getByRole("button", { name: "Call Builder: pretend to be Oracle max", exact: true }).count(), 1);
+    assert.equal(await card.getByRole("button", { name: /Call Builder[\s\S]*pretend to be Oracle max/u }).count(), 1);
     await card.getByRole("button", { name: "Inspect tool call", exact: true }).click();
     assert.deepEqual(await page.evaluate(() => window.__roleTool.inspectIds()), ["role-call"]);
     await page.evaluate(value => window.__roleTool.result(value), meta);
     await page.waitForFunction(() => document.querySelector('[data-dsmm-role-tool]')?.getAttribute('data-identity') === 'actual');
-    assert.equal(await card.getByRole("button", { name: "Call Reviewer: pretend to be Oracle max", exact: true }).count(), 1);
-    assert.match(await card.innerText(), /complete original output/u); assert.match(await card.innerText(), /non-text-retained/u);
+    assert.equal(await card.getByRole("button", { name: /Call Reviewer[\s\S]*pretend to be Oracle max/u }).count(), 1);
+    await card.getByRole("table").waitFor();
+    assert.match(await card.innerText(), /primary/u);
     assert.match(await card.innerText(), /fixture\/model-a/u);
+    const tableTab = card.getByRole("tab", { name: "Table" });
+    const jsonTab = card.getByRole("tab", { name: "JSON" });
+    const tableTabId = await tableTab.getAttribute("id");
+    const jsonTabId = await jsonTab.getAttribute("id");
+    const tableControls = await tableTab.getAttribute("aria-controls");
+    const jsonControls = await jsonTab.getAttribute("aria-controls");
+    assert.ok(tableControls && jsonControls, "both tabs have aria-controls");
+    const tablePanel = card.locator(`#${tableControls}`);
+    const jsonPanel = card.locator(`#${jsonControls}`);
+    assert.equal(await tablePanel.count(), 1, "table panel IDREF exists");
+    assert.equal(await jsonPanel.count(), 1, "json panel IDREF exists");
+    assert.equal(await tablePanel.getAttribute("aria-labelledby"), tableTabId);
+    assert.equal(await jsonPanel.getAttribute("aria-labelledby"), jsonTabId);
+    assert.equal(await tablePanel.getAttribute("hidden"), null, "table panel visible by default");
+    assert.equal(await jsonPanel.getAttribute("hidden"), "", "json panel hidden by default");
+
+    // Test tab keyboard navigation
+    await jsonTab.focus();
+    await page.keyboard.press("Enter");
+    assert.equal(await jsonTab.getAttribute("aria-selected"), "true");
+    assert.equal(await jsonPanel.getAttribute("hidden"), null, "json panel visible after Enter");
+    assert.equal(await tablePanel.getAttribute("hidden"), "", "table panel hidden after switching to json");
+    assert.equal(await card.getByRole("table").count(), 0);
+    assert.match(await card.innerText(), /"routeSource":\s*"primary"/u);
     const evidence = process.env.DSMM_ROLE_TOOL_EVIDENCE_DIR;
-    if (evidence) await mkdir(evidence, { recursive: true });
+    if (evidence) {
+      await mkdir(evidence, { recursive: true });
+      await page.evaluate(async () => {
+        document.body.setAttribute("data-ds-dark-theme", "");
+        await Promise.all(document.getAnimations().map(a => a.finished));
+      });
+      await page.waitForTimeout(150);
+      await page.screenshot({ path: join(evidence, "json-mode-dark.png"), fullPage: true });
+      await page.evaluate(async () => {
+        document.body.removeAttribute("data-ds-dark-theme");
+        await Promise.all(document.getAnimations().map(a => a.finished));
+      });
+      await page.waitForTimeout(150);
+    }
+    await tableTab.focus();
+    await page.keyboard.press("Space");
+    assert.equal(await tableTab.getAttribute("aria-selected"), "true");
+    assert.equal(await tablePanel.getAttribute("hidden"), null, "table panel visible after Space");
+    assert.equal(await jsonPanel.getAttribute("hidden"), "", "json panel hidden after switching to table");
+    await card.getByRole("table").waitFor();
+    if (evidence) {
+      await page.screenshot({ path: join(evidence, "table-mode-light.png"), fullPage: true });
+    }
     for (const width of [375, 768, 1280]) {
       await page.setViewportSize({ width, height: 900 });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `reflow ${width}`);
@@ -197,7 +248,25 @@ test("role adapter preserves the native ToolCall owner through pending, result a
         let ancestor = element, background;
         while (ancestor) { const color = getComputedStyle(ancestor).backgroundColor, rgb = channels(color); if (rgb.length === 3 || rgb[3] === 1) { background = color; break; } ancestor = ancestor.parentElement; }
         if (!background) throw new Error("No opaque native surface");
-        const ratio = foreground => { const a = luminance(foreground), b = luminance(background); return (Math.max(a, b) + .05) / (Math.min(a, b) + .05); };
+        const ratio = (foreground, bg = background) => { const a = luminance(foreground), b = luminance(bg); return (Math.max(a, b) + .05) / (Math.min(a, b) + .05); };
+        const resolveOpaqueBg = el => {
+          let cur = el;
+          while (cur) {
+            const bg = getComputedStyle(cur).backgroundColor;
+            const ch = channels(bg);
+            if (ch.length === 3 || (ch.length === 4 && ch[3] === 1)) return bg;
+            cur = cur.parentElement;
+          }
+          return background;
+        };
+        const titleColor = getComputedStyle(element.querySelector('.dsmm-role-title')).color;
+        const tabSelected = element.querySelector('[role="tab"][aria-selected="true"]');
+        const tabUnselected = element.querySelector('[role="tab"][aria-selected="false"]');
+        const indicator = element.querySelector('._indicator_d62eq_22, [class*="indicator"]');
+        const tabSelectedBg = indicator ? resolveOpaqueBg(indicator) : background;
+        const tabUnselectedBg = tabUnselected ? resolveOpaqueBg(tabUnselected) : background;
+        const tabSelectedRatio = tabSelected ? ratio(getComputedStyle(tabSelected).color, tabSelectedBg) : 21;
+        const tabUnselectedRatio = tabUnselected ? ratio(getComputedStyle(tabUnselected).color, tabUnselectedBg) : 21;
         const codeContrast = [...element.querySelectorAll('pre')].map(pre => {
           let node = pre;
           while (node.firstElementChild) node = node.firstElementChild;
@@ -208,9 +277,26 @@ test("role adapter preserves the native ToolCall owner through pending, result a
         });
         const focusStyle = getComputedStyle(element.querySelector('[data-disclosure-row]'));
         if (channels(focusStyle.outlineColor).length === 4 && channels(focusStyle.outlineColor)[3] !== 1) throw new Error('Keyboard ring is transparent');
-        return { title: ratio(getComputedStyle(element.querySelector('.dsmm-role-title')).color), status: ratio(getComputedStyle(element.querySelector('[role=status]')).color), focus: ratio(focusStyle.outlineColor), code: codeContrast, background };
+        return {
+          title: ratio(titleColor),
+          tabSelected: tabSelectedRatio,
+          tabUnselected: tabUnselectedRatio,
+          status: ratio(getComputedStyle(element.querySelector('[role=status]')).color),
+          focus: ratio(focusStyle.outlineColor),
+          code: codeContrast,
+          background
+        };
       });
-      assert.ok(contrast.title >= 4.5 && contrast.status >= 4.5 && contrast.focus >= 3 && contrast.code.length === 3 && contrast.code.every(value => value >= 4.5), JSON.stringify(contrast));
+      assert.ok(
+        contrast.title >= 4.5 &&
+        contrast.tabSelected >= 4.5 &&
+        contrast.tabUnselected >= 4.5 &&
+        contrast.status >= 4.5 &&
+        contrast.focus >= 3 &&
+        contrast.code.length >= 1 &&
+        contrast.code.every(value => value >= 4.5),
+        JSON.stringify(contrast)
+      );
       t.diagnostic(`${dark ? "dark" : "light"} native text contrast ${JSON.stringify(contrast)}`);
     }
     await page.evaluate(() => window.__roleTool.locale('zh'));
@@ -222,7 +308,7 @@ test("role adapter preserves the native ToolCall owner through pending, result a
     await page.evaluate(() => { document.documentElement.style.zoom = ""; window.__roleTool.locale('en'); });
     const longOutput = `${"full-output ".repeat(6000)}end-of-complete-output`;
     await page.evaluate(({ value, longOutput }) => window.__roleTool.result(value, { content: [{ type: 'text', text: longOutput }] }), { value: meta, longOutput });
-    assert.match(await card.innerText(), /end-of-complete-output/u);
+    assert.equal((await card.innerText()).includes("end-of-complete-output"), false);
     await page.evaluate(value => window.__roleTool.result(value), meta);
     await page.evaluate(() => window.__roleTool.replay());
     await page.locator('[data-chat-call-id="replayed-call"]').waitFor();
@@ -235,6 +321,9 @@ test("role adapter preserves the native ToolCall owner through pending, result a
       if (options.error) {
         if (await card.getByText("Error details", { exact: true }).count() === 0) await card.getByRole("button", { name: /Builder/u }).click();
         assert.match(await card.innerText(), new RegExp(options.error.reason, 'u'));
+        if (evidence && options.error.code === "failed") {
+          await page.screenshot({ path: join(evidence, "error-state.png"), fullPage: true });
+        }
       }
     }
     await page.evaluate(value => window.__roleTool.result({ ...value, jobId: "owned-job" }), meta);
@@ -249,7 +338,11 @@ test("role adapter preserves the native ToolCall owner through pending, result a
     if (await coding.getAttribute("aria-expanded") === "true") await coding.click();
     assert.equal(await coding.getAttribute("aria-expanded"), "false");
     assert.equal(await page.locator('[data-dsmm-role-tool="dsmm_category"]').getAttribute("data-identity"), "actual");
-    if (evidence) await page.screenshot({ path: join(evidence, "native-role-tool-coding-collapsed.png"), fullPage: true });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    if (evidence) {
+      await page.screenshot({ path: join(evidence, "native-role-tool-coding-collapsed.png"), fullPage: true });
+      await page.screenshot({ path: join(evidence, "native-role-tool-1280-collapsed.png"), fullPage: true });
+    }
     // The real native tree still renders subcalls; each atom receives its own identity.
     await page.evaluate(value => window.__roleTool.result(value, { subCalls:[{phase:'start',name:'dsmm_planner',callId:'owned-subcall',parentCallId:'role-call',argsRaw:'{}',subCalls:[]}] }), meta);
     await page.locator('[data-subcalls] [data-dsmm-role-tool="dsmm_planner"]').waitFor();
@@ -263,7 +356,7 @@ test("role adapter preserves the native ToolCall owner through pending, result a
     await page.waitForFunction(() => !document.querySelector('[data-dsmm-role-tool]'));
     assert.equal(await page.locator('[data-chat-call-id="role-call"]').count(), 1, "windowless call uses native fallback");
     assert.deepEqual(errors, []);
-    t.diagnostic("Real SDK ToolCallTree + native Slot renderer: pending/start/result/replay, full content, inspect, keyboard disclosure, error/interruption, background, category, subcalls and windowless native fallback passed at 375/768/1280.");
+    t.diagnostic("Real SDK ToolCallTree + native Slot renderer: pending/start/result/replay, table/JSON technical details (no full result content), inspect, keyboard disclosure, error/interruption, background, category, subcalls and windowless native fallback passed at 375/768/1280.");
     await context.close();
   } finally {
     await browser?.close(); await server?.close();

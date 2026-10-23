@@ -52,3 +52,69 @@ export function actualRoleTool(toolName: string, meta: unknown, failed: boolean)
 export function roleToolDisplay(target: string): string {
   return target.slice("dsmm-".length).split("-").map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
 }
+
+export interface TechnicalRow {
+  property: string;
+  value: unknown;
+  isComplex: boolean;
+}
+
+export function technicalTableRows(
+  toolName: string,
+  callId: string,
+  rawArgs: string,
+  meta?: unknown,
+  routeSource?: string,
+): TechnicalRow[] {
+  const rows: TechnicalRow[] = [];
+  rows.push({ property: "toolName", value: toolName, isComplex: false });
+  rows.push({ property: "callId", value: callId, isComplex: false });
+  if (routeSource !== undefined) {
+    rows.push({ property: "routeSource", value: routeSource, isComplex: false });
+  }
+
+  const argsObj = roleToolArguments(rawArgs);
+  if (argsObj !== undefined) {
+    for (const [k, v] of Object.entries(argsObj)) {
+      const isComplex = typeof v === "object" && v !== null;
+      rows.push({ property: `args.${k}`, value: v, isComplex });
+    }
+  } else if (rawArgs !== "") {
+    rows.push({ property: "args", value: rawArgs, isComplex: false });
+  }
+
+  if (meta !== undefined && meta !== null) {
+    if (typeof meta === "object" && !Array.isArray(meta)) {
+      for (const [k, v] of Object.entries(meta as Record<string, unknown>)) {
+        const isComplex = typeof v === "object" && v !== null;
+        rows.push({ property: `meta.${k}`, value: v, isComplex });
+      }
+    } else {
+      rows.push({ property: "meta", value: meta, isComplex: typeof meta === "object" });
+    }
+  }
+
+  return rows;
+}
+
+export function technicalJsonData(
+  toolName: string,
+  callId: string,
+  rawArgs: string,
+  meta?: unknown,
+  routeSource?: string,
+): Record<string, unknown> {
+  const parsedArgs = roleToolArguments(rawArgs);
+  const data: Record<string, unknown> = {
+    toolName,
+    callId,
+  };
+  if (routeSource !== undefined) {
+    data.routeSource = routeSource;
+  }
+  data.args = parsedArgs !== undefined ? parsedArgs : rawArgs;
+  if (meta !== undefined && meta !== null) {
+    data.meta = meta;
+  }
+  return data;
+}
