@@ -8,7 +8,7 @@ export const moduleTitle = (module: ConfigModule): DeploymentLocaleKey => `modul
 export function moduleFor(path: string): ConfigModule {
   const key = path.split(".")[0];
   if (["defaultActive", "modules", "modelParameters", "runtime"].includes(key)) return "run";
-  if (["roleRouting", "runtimePolicy", "runtimeRecovery"].includes(key)) return "routes";
+  if (["rootModelPolicy", "roleRouting", "runtimePolicy", "runtimeRecovery"].includes(key)) return "routes";
   if (["workflow", "roles", "skills", "presets", "businessLocale", "locale", "promptOrder", "subagents"].includes(key)) return "workflow";
   if (["permissionControl", "guards"].includes(key)) return "permissions";
   return "other";

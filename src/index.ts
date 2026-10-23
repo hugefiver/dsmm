@@ -2,7 +2,7 @@ import { Context, symbols } from "@deepseek-ai/cordis";
 import type { Agent } from "@deepseek-ai/dsh-agent";
 import type {} from "@deepseek-ai/dsh-api-gateway";
 import type { DshAgent, DshContext } from "./dsh-types.js";
-import { registerDeepworkCommand, registerDsmmStatusCommand } from "./commands.js";
+import { registerDsmmTuiAdapter } from "./tui-adapter.js";
 import { registerSafetyGuards } from "./guards.js";
 import { registerDeepworkPrompt } from "./mode.js";
 import { registerAgentSkills } from "./preset-skills.js";
@@ -52,7 +52,7 @@ export type { DsmmStatusSnapshot } from "./status.js";
 export type * from "./dsh-types.js";
 export { DSMM_SKILL_NAMES, DSMM_SETTINGS_SCHEMA, DEFAULT_DSMM_SETTINGS, MVP_SKILL_NAMES, deploymentEditorSchema, isRoleEnabled, resolveConfig, resolveDeployment, resolveRoleRouting, registerSettings, validateNativeConfig } from "./settings.js";
 export type { DsmmFinalReviewPolicy, DsmmGitWritePolicy, DsmmGitWriteScope, DsmmGuardScope, DsmmGuardSettings, DsmmPluginConfig, DsmmNativeConfig,
-  DsmmModelRoute, DsmmRoleRoutingConfig, DsmmRoleRouting, DsmmRecoveryRoute, DsmmRuntimeRecoverySettings, DsmmSettings,
+  DsmmModelRoute, DsmmRootModelPolicy, DsmmRoleRoutingConfig, DsmmRoleRouting, DsmmRecoveryRoute, DsmmRuntimeRecoverySettings, DsmmSettings,
   DsmmSettingsGetter, DsmmSkillName, DsmmWorkflowSettings, MvpSkillName, DsmmSubagentSettings, DsmmDeploymentSnapshot } from "./settings.js";
 export { createProfileRuntime, DsmmProfileRuntime } from "./profile-runtime.js";
 export type { DsmmProfileRuntimeStore, DsmmProfileRuntimeOptions } from "./profile-runtime.js";
@@ -160,10 +160,7 @@ export async function apply(input: DshContext, config: Config = {}, startupOptio
     }
     installed.add(agent);
   });
-  ctx.inject(["commands"], scope => {
-    registerDsmmStatusCommand(scope as DshContext, controller, getSettings);
-    if (startup.settings.modules.deepwork.enabled) registerDeepworkCommand(scope as DshContext, controller, getSettings);
-  });
+  registerDsmmTuiAdapter(ctx, { controller, getSettings, profiles, deployment });
   ctx.inject(["typert"], scope => { registerConfigRpc(scope, deployment, startup.settings, () => profiles, startup.sources, mountedPermission); new DsmmProfilesHost(scope, profiles); registerRoleControlRpc(scope, nativeAdmission); });
   const permissions = createCorePermissionAuthority(ctx, { getSettings, rolePolicy: policy, signal: lifetime.signal });
   const installPermissions = () => ctx.inject(["tools", ...(ctx.fiber.entry === undefined ? [] : ["settings"])], scope => {

@@ -25,7 +25,7 @@ export const moduleSuites = Object.freeze({
     /^(?:host-|legacy-session|lsp|managed-activation|native-|recovery-policy|runtime-|session-(?!profile)|state|wave1-foundation)/u,
   ]),
   "routing-model": Object.freeze([
-    /^(?:agent-presets|child-|commands|mode|model-|role-|roles|root-|route-)/u,
+    /^(?:agent-presets|child-|commands|configured-root-|mode|model-|role-|roles|root-|route-)/u,
     /^client-(?:children|native-model-intent|role-tool)/u,
     /^native-(?:context-identification|delegation|model|request|root|route|role)/u,
   ]),

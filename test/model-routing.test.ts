@@ -6,14 +6,16 @@ import { registerRuntimeRecovery } from "../src/runtime-recovery.js";
 import { resolveConfig } from "../src/settings.js";
 import { DeepworkModeController } from "../src/state.js";
 import type { DsmmPluginConfig } from "../src/settings.js";
+import type { DsmmProfileAdmission, DsmmSettingsGetter } from "../src/settings.js";
+import { preparedRequestRouting } from "../src/request-routing.js";
 import { bindRoleInvocation } from "../src/role-invocation.js";
-import { liveRolePolicyIdentity, roleRouteLock } from "../src/role-routing.js";
+import { liveRolePolicyIdentity, persistedRoleRoute, roleRouteLock } from "../src/role-routing.js";
 import { resolveRoleRuntimePolicy } from "../src/routing-policy.js";
-import { Session, SessionId } from "@deepseek-ai/dsh-session";
+import { canonicalHeader, Session, SessionId } from "@deepseek-ai/dsh-session";
 import type {} from "@deepseek-ai/dsh-api-session-controller";
 
 type Listener = (frame: AgentRequestFrame, next: () => Promise<DshLlmCallConfig>) => Promise<DshLlmCallConfig>;
-function harness(config: DsmmPluginConfig = {}) {
+function harness(config: DsmmPluginConfig = {}, admitted = false) {
   let listener: Listener | undefined;
   let assemble: ((_assembly: unknown, context: { agent: AgentRequestFrame["agent"]; signal: AbortSignal }, next: () => Promise<void>) => Promise<void>) | undefined;
   const cleanups: Array<() => void> = [];
@@ -26,11 +28,17 @@ function harness(config: DsmmPluginConfig = {}) {
     },
     effect(callback) { const dispose = callback(); if (typeof dispose === "function") cleanups.push(dispose); }
   };
-  const settings = resolveConfig({ defaultActive: true, ...config });
-  registerModelRouting(context, new DeepworkModeController(context), () => settings);
+  let settings = resolveConfig({ defaultActive: true, ...config });
+  let admission: DsmmProfileAdmission = { settings, epoch: "initial", scope: "deployment-baseline", profile: null };
+  const getter: DsmmSettingsGetter = () => settings;
+  if (admitted) getter.admission = () => admission;
+  registerModelRouting(context, new DeepworkModeController(context), getter);
   const frame: AgentRequestFrame = { agent: { session: { header: { origin: "subagent" }, events: [], append() {} } },
     turn: 1, step: 1, signal: new AbortController().signal };
-  return { frame, settings, assemble: () => assemble!(undefined, { agent: frame.agent, signal: frame.signal }, async () => {}), get listener() { return listener; }, dispose() { cleanups.forEach(fn => fn()); } };
+  return { frame, get settings() { return settings; }, readmit(config: DsmmPluginConfig) {
+    settings = resolveConfig({ defaultActive: true, ...config });
+    admission = { ...admission, settings, epoch: "next" };
+  }, assemble: () => assemble!(undefined, { agent: frame.agent, signal: frame.signal }, async () => {}), get listener() { return listener; }, dispose() { cleanups.forEach(fn => fn()); } };
 }
 
 test("native downstream parameters remain authoritative without an explicit role route", async () => {
@@ -177,4 +185,62 @@ test("recovery and routing composition preserves native parameters without a cor
   const invoke = (index: number): Promise<DshLlmCallConfig> => index === requests.length ? Promise.resolve(config) : requests[index]!(h.frame, () => invoke(index + 1));
   assert.equal(await invoke(0), config);
   h.dispose();
+});
+
+test("configured deployment needs exact admission and enabled Deepwork before root routing", async () => {
+  const primary = { provider: "profile", model: "primary" }, downstream = { provider: "native", model: "baseline" };
+  for (const [admitted, enabled] of [[false, true], [true, false]] as const) {
+    const h = harness({ rootModelPolicy: "configured", modules: { deepwork: { enabled } }, roleRouting: { "dsmm-orchestrator": { primary } } }, admitted);
+    h.frame.agent.session = Session.create(SessionId(`configured-eligibility-${admitted}-${enabled}`));
+    try {
+      assert.equal(await h.listener!(h.frame, async () => downstream), downstream);
+      assert.equal(preparedRequestRouting(h.frame)!.decision.configuredRoot, false);
+    } finally { h.dispose(); }
+  }
+});
+
+for (const change of ["admission", "mode", "owner", "frame", "generation"] as const) test(`configured routing rejects ${change} changes across async preparation or prepared consumption`, async () => {
+  const primary = { provider: "profile", model: "primary" };
+  const config = { rootModelPolicy: "configured" as const, roleRouting: { "dsmm-orchestrator": { primary } } };
+  const h = harness(config, true), session = Session.create(SessionId(`configured-fence-${change}`));
+  h.frame.agent.session = session;
+  session.append("step/start", { turn: 1, step: 1 });
+  let release!: () => void, entered!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; }), started = new Promise<void>(resolve => { entered = resolve; });
+  h.frame.agent.ctx = { get(name) { return (name === "llm" ? { resolveCallConfig: async (call: DshLlmCallConfig) => { entered(); await held; return call; } } : undefined) as never; } };
+  try {
+    const result = h.listener!(h.frame, async () => ({ provider: "native", model: "baseline" }));
+    await started;
+    if (change === "admission") h.readmit(config);
+    if (change === "mode") session.append("deepwork/mode", { active: false });
+    if (change === "owner") h.dispose();
+    if (change === "frame") h.frame.step++;
+    release();
+    if (change !== "generation") await assert.rejects(result);
+    else {
+      await result;
+      const captured = preparedRequestRouting(h.frame)!;
+      captured.assertCurrent();
+      roleRouteLock(h.frame.agent, captured.decision.policy!)!.generation++;
+      assert.throws(() => captured.decision.assertCurrent());
+      assert.throws(() => captured.assertCurrent());
+    }
+  } finally { release(); h.dispose(); }
+});
+
+test("configured policy never adopts an arbitrary non-chain durable Host header", async () => {
+  const primary = { provider: "profile", model: "primary" }, native = { provider: "native", model: "outside-chain" };
+  const h = harness({ rootModelPolicy: "configured", roleRouting: { "dsmm-orchestrator": { primary } } }, true);
+  const session = Session.create(SessionId("configured-persisted-policy"));
+  h.frame.agent.session = session;
+  session.append("step/start", { turn: 1, step: 1 });
+  h.frame.agent.ctx = { get(name) { return (name === "llm" ? { resolveCallConfig: async (call: DshLlmCallConfig) => call } : undefined) as never; } };
+  try {
+    assert.deepEqual(await h.listener!(h.frame, async () => native), primary);
+    const { policy } = preparedRequestRouting(h.frame)!.decision;
+    session.append("request/header", { header: canonicalHeader({ config: native }), reason: "change" });
+    assert.equal(persistedRoleRoute(h.frame, primary, [], policy, true), undefined);
+    assert.deepEqual(persistedRoleRoute(h.frame, primary, [], policy), native, "native and child durable Host ownership stays unchanged");
+    assert.deepEqual(await h.listener!(h.frame, async () => native), primary);
+  } finally { h.dispose(); }
 });

@@ -179,6 +179,7 @@ test("default settings keep deepwork opt-in", () => {
   assert.deepEqual(DEFAULT_DSMM_SETTINGS, {
     permissionControl: DEFAULT_PERMISSION_CONTROL_SETTINGS,
     modelParameters: { passthrough: true },
+    rootModelPolicy: "native",
     modules: { deepwork: { enabled: true } },
     modeName: "deepwork",
     defaultActive: false,
@@ -224,6 +225,7 @@ test("resolveConfig overlays plugin config on defaults", () => {
   assert.deepEqual(resolveConfig({ modeName: "dw", promptOrder: 60 }), {
     permissionControl: DEFAULT_PERMISSION_CONTROL_SETTINGS,
     modelParameters: { passthrough: true },
+    rootModelPolicy: "native",
     modules: { deepwork: { enabled: true } },
     modeName: "dw",
     defaultActive: false,
@@ -241,6 +243,30 @@ test("resolveConfig overlays plugin config on defaults", () => {
     runtimeRecovery: DEFAULT_RUNTIME_RECOVERY_SETTINGS,
     lsp: DEFAULT_DSMM_LSP_SETTINGS
   });
+});
+
+test("root model policy resolves native by default while deployment transports stay sparse", () => {
+  assert.equal(resolveConfig().rootModelPolicy, "native");
+  assert.equal(DSMM_SETTINGS_SCHEMA({}).rootModelPolicy, "native");
+  assert.deepEqual(DSMM_CONFIG_SCHEMA({}), {});
+  const omitted = DSMM_NATIVE_CONFIG_SCHEMA({}).rootModelPolicy as unknown as { get(): unknown };
+  assert.equal(omitted.get(), undefined);
+  for (const rootModelPolicy of ["native", "configured"] as const) {
+    const config = { rootModelPolicy };
+    assert.deepEqual(DSMM_CONFIG_SCHEMA(config), config);
+    assert.equal(resolveConfig(config).rootModelPolicy, rootModelPolicy);
+    assert.equal(DSMM_SETTINGS_SCHEMA(config).rootModelPolicy, rootModelPolicy);
+    const native = DSMM_NATIVE_CONFIG_SCHEMA(config).rootModelPolicy as unknown as { get(): unknown };
+    assert.equal(native.get(), rootModelPolicy);
+    assert.equal(resolveConfig({ ...config, modelParameters: { passthrough: false } }).modelParameters.passthrough, false);
+  }
+  for (const rootModelPolicy of ["auto", "Native", "", false, 0, null, undefined, {}, []]) {
+    const config = { rootModelPolicy };
+    assert.throws(() => resolveConfig(config as unknown as DsmmPluginConfig));
+    assert.throws(() => DSMM_CONFIG_SCHEMA(config));
+    assert.throws(() => DSMM_NATIVE_CONFIG_SCHEMA(config));
+    assert.throws(() => DSMM_SETTINGS_SCHEMA(config));
+  }
 });
 
 test("resolveConfig reserves only the exact dsmm-status mode name", () => {

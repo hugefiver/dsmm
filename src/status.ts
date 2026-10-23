@@ -20,6 +20,7 @@ export interface DsmmStatusSnapshot {
   warnings?: ProfileDiagnostic[];
   subagentRuntime?: SubagentRuntimeAdmissionView;
   locale?: { value: NonNullable<DsmmSettings["locale"]>; source: string; capture: string };
+  rootModelPolicy?: { value: DsmmSettings["rootModelPolicy"]; source: string; capture: string };
   version: typeof DSMM_STATUS_VERSION;
   modules?: DsmmModuleState[];
   admission?: Pick<DsmmProfileAdmission, "profile" | "epoch" | "scope">;
@@ -88,12 +89,14 @@ export function createDsmmStatusSnapshot(input: {
   try { role = resolveEffectiveDsmmRole(agent, settings, modeActive); }
   catch { invalidDescriptor = true; }
   const inScope = modeActive || role !== undefined;
-  const policy = ordinaryRoot || role === undefined ? undefined : settings.roleRouting[role];
+  const nativeRoot = ordinaryRoot && !(input.admission?.settings === settings
+    && settings.rootModelPolicy === "configured" && settings.modules.deepwork.enabled && role !== undefined && !invalidDescriptor);
+  const policy = nativeRoot || role === undefined ? undefined : settings.roleRouting[role];
   const runtimePolicy = resolveRoleRuntimePolicy(settings, role);
   const roleRuntimeState = input.roleRuntimeState ?? (input.admission === undefined || invalidDescriptor ? undefined
     : roleRouteRuntimeState(agent, settings, role, input.admission.epoch));
-  const fallbacks = ordinaryRoot || invalidDescriptor ? [] : runtimePolicy.fallbackRoutes;
-  const selectedRoute = resolveRoute(agent);
+  const fallbacks = nativeRoot || invalidDescriptor ? [] : runtimePolicy.fallbackRoutes;
+  const selectedRoute = resolveRoute(agent, !ordinaryRoot || nativeRoot);
   const family = classifyModelFamily({
     providerID: selectedRoute.provider,
     modelID: selectedRoute.model
@@ -105,6 +108,11 @@ export function createDsmmStatusSnapshot(input: {
     ...(input.admission?.warnings === undefined ? {} : { warnings: structuredClone(input.admission.warnings) }),
     ...(input.subagentRuntime === undefined && input.admission?.subagentRuntime === undefined ? {} : { subagentRuntime: { ...(input.subagentRuntime ?? input.admission!.subagentRuntime!) } }),
     ...(settings.locale === undefined ? {} : { locale: { value: settings.locale, source: input.admission?.sources?.locale ?? "defaults", capture: input.admission?.sourceCaptures?.fields.locale ?? "admission" } }),
+    ...(input.admission === undefined ? {} : { rootModelPolicy: {
+      value: input.admission.settings.rootModelPolicy,
+      source: input.admission.sources?.rootModelPolicy ?? "defaults",
+      capture: input.admission.sourceCaptures?.fields.rootModelPolicy ?? "admission"
+    } }),
     ...(input.modules === undefined ? {} : { modules: structuredClone(input.modules) }),
     ...(input.admission?.store === undefined ? {} : { profileStore: { ...input.admission.store } }),
     ...(input.admission?.deployment === undefined ? {} : { deployment: {
@@ -138,12 +146,12 @@ export function createDsmmStatusSnapshot(input: {
       applies: inScope && !invalidDescriptor,
       ...(policy?.primary === undefined ? {} : { primary: { ...policy.primary } }),
       fallbackRoutes: fallbacks.map((route) => ({ ...route })),
-      fallbackSource: ordinaryRoot || invalidDescriptor ? "disabled" : runtimePolicy.fallbackSource,
-      strategy: ordinaryRoot ? "startup-lock" : runtimePolicy.strategy,
+      fallbackSource: nativeRoot || invalidDescriptor ? "disabled" : runtimePolicy.fallbackSource,
+      strategy: nativeRoot ? "startup-lock" : runtimePolicy.strategy,
       rateLimit: { ...runtimePolicy.rateLimit },
       ...(roleRuntimeState === undefined ? {} : { runtimeState: {
         ...roleRuntimeState,
-        ...(ordinaryRoot ? { strategy: "startup-lock" } : {}),
+        ...(nativeRoot ? { strategy: "startup-lock" } : {}),
         rateLimit: { ...roleRuntimeState.rateLimit },
         ...(roleRuntimeState.route === undefined ? {} : { route: { ...roleRuntimeState.route } })
       } }),
@@ -189,6 +197,7 @@ export function formatDsmmStatus(snapshot: DsmmStatusSnapshot): string {
     ...(snapshot.deployment?.sourceCaptures?.startup === undefined ? [] : [`Startup-pinned sources: global=${snapshot.deployment.sourceCaptures.startup.globalRevision}; native=${snapshot.deployment.sourceCaptures.startup.nativeRevision}`]),
     ...(snapshot.profileStore === undefined ? [] : [`Named store: ${snapshot.profileStore.origin}; ${snapshot.profileStore.readOnly ? "read-only" : "writable"}${snapshot.profileStore.writeRestriction === undefined ? "" : `; ${snapshot.profileStore.writeRestriction}`}`]),
     `Workflow policy: ${snapshot.effectiveSettings.workflow.policy}`,
+    ...(snapshot.rootModelPolicy === undefined ? [] : [`Root model policy: ${snapshot.rootModelPolicy.value} (${snapshot.rootModelPolicy.source}, ${snapshot.rootModelPolicy.capture})`]),
     `Route: ${provider}/${model} [${snapshot.route.family}]`,
     `Role policy: ${displayRole(snapshot.rolePolicy.role)}; strategy=${snapshot.rolePolicy.strategy}; primary=${snapshot.rolePolicy.primary === undefined ? "inherit" : `${snapshot.rolePolicy.primary.provider}/${snapshot.rolePolicy.primary.model}`}; fallbacks=${snapshot.rolePolicy.fallbackSource}; retries=${snapshot.rolePolicy.rateLimit.maxRetries}; threshold=${snapshot.rolePolicy.rateLimit.switchAfterRateLimits}; switches=${snapshot.rolePolicy.rateLimit.maxSwitches}`,
     ...(snapshot.rolePolicy.runtimeState === undefined ? [] : [`Retry state: retries=${snapshot.rolePolicy.runtimeState.retries}; rate limits=${snapshot.rolePolicy.runtimeState.rateLimitFailures}; switches=${snapshot.rolePolicy.runtimeState.switches}; delay ms=${snapshot.rolePolicy.runtimeState.totalDelayMs}`]),
@@ -199,7 +208,7 @@ export function formatDsmmStatus(snapshot: DsmmStatusSnapshot): string {
   ].join("\n");
 }
 
-function resolveRoute(agent: DshAgent): DsmmStatusRouteInput {
+function resolveRoute(agent: DshAgent, includeBaseline: boolean): DsmmStatusRouteInput {
   const requestHeader = agent.session.requestHeader?.();
   if (requestHeader !== undefined) {
     const config = requestHeader?.config;
@@ -210,6 +219,7 @@ function resolveRoute(agent: DshAgent): DsmmStatusRouteInput {
     };
   }
 
+  if (!includeBaseline) return {};
   return {
     provider: readString(agent.options?.provider),
     model: readString(agent.options?.model),
@@ -226,6 +236,7 @@ export function readOnlySettings(settings: DsmmSettings): DsmmSettings {
   return {
     permissionControl: structuredClone(settings.permissionControl),
     modelParameters: { ...settings.modelParameters },
+    rootModelPolicy: settings.rootModelPolicy,
     modules: { deepwork: { enabled: settings.modules.deepwork.enabled } },
     ...(settings.locale === undefined ? {} : { locale: settings.locale }),
     modeName: settings.modeName,

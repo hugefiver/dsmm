@@ -14,6 +14,8 @@ import { resolveRoleRuntimePolicy } from "./routing-policy.js";
 import type { DsmmRecoveryRoute, DsmmSettingsGetter } from "./settings.js";
 import type { DeepworkModeController } from "./state.js";
 import { configuredModelParameterPolicy, resolvedModelParameterPolicy } from "./model-parameter-policy.js";
+import { currentRequestRouting } from "./request-routing.js";
+import type { DsmmRequestRoutingDecision } from "./request-routing.js";
 
 interface PendingRecoveryRoute {
   turn: number;
@@ -28,6 +30,7 @@ interface PendingRecoveryRoute {
 }
 
 interface AttemptEvidence {
+  decision?: DsmmRequestRoutingDecision;
   id: string;
   turn: number;
   step: number;
@@ -70,7 +73,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isRateLimit(failure: DshLlmFailure): boolean {
-  if (["AUTH", "MISSING_CREDENTIAL", "INVALID_CREDENTIAL", "QUOTA", "ACCOUNT_QUOTA", "CONTEXT_WINDOW_EXCEEDED", "INVALID_ARGS", "CANCELLED", "ABORTED"].includes(failure.code) || failure.status === 402) return false;
+  if (["AUTH", "PERMISSION", "PERMISSION_DENIED", "FORBIDDEN", "MISSING_CREDENTIAL", "INVALID_CREDENTIAL", "QUOTA", "ACCOUNT_QUOTA", "CONTEXT_WINDOW_EXCEEDED", "INVALID_ARGS", "CANCELLED", "ABORTED"].includes(failure.code) || failure.status === 401 || failure.status === 403 || failure.status === 402) return false;
   return failure.code === "RATE_LIMIT" || failure.status === 429;
 }
 
@@ -79,7 +82,7 @@ function outputChunk(chunk: { type: string }): boolean {
   return chunk.type !== "usage" && chunk.type !== "finish";
 }
 
-function positiveNoOutput(frame: AgentRequestErrorFrame, attempt: AttemptEvidence | undefined, consumed = false): attempt is AttemptEvidence {
+function positiveNoOutput(frame: Pick<AgentRequestErrorFrame, "agent" | "failure" | "turn" | "step" | "provider">, attempt: AttemptEvidence | undefined, consumed = false): attempt is AttemptEvidence {
   if (attempt === undefined || !attempt.valid || attempt.output || (attempt.consumed && !consumed) || attempt.failure !== frame.failure
     || attempt.turn !== frame.turn || attempt.step !== frame.step || attempt.eventType !== "assistant/attempt"
     || attempt.seq === undefined || attempt.route.provider !== frame.provider) return false;
@@ -143,6 +146,8 @@ export function registerRuntimeRecovery(ctx: DshContext, controller: DeepworkMod
     disposeAssistantStream = ctx.on("agent/assistant-stream", ({ agent, frame }: { agent: DshAgent; frame: AssistantStreamFrame }) => {
       if (!active || !live(agent) || !getSettings(agent).modules.deepwork.enabled) return;
       if (frame.type === "start") {
+        const decision = currentRequestRouting(agent);
+        try { decision?.assertCurrent(); } catch { attemptsByAgent.delete(agent); return; }
         const settings = getSettings(agent);
         const role = resolveEffectiveDsmmRole(agent, settings, controller.active(agent, settings.defaultActive));
         const policy = liveRolePolicyIdentity(agent, settings, role, getSettings.admission?.(agent).epoch);
@@ -150,7 +155,7 @@ export function registerRuntimeRecovery(ctx: DshContext, controller: DeepworkMod
         const header = agent.session.requestHeader?.();
         if (header === undefined) { attemptsByAgent.delete(agent); return; }
         const previous = attemptsByAgent.get(agent);
-        const attempt: AttemptEvidence = { id: frame.attemptId, turn: frame.turn, step: frame.step, revision: frame.revision, chunks: 0,
+        const attempt: AttemptEvidence = { decision, id: frame.attemptId, turn: frame.turn, step: frame.step, revision: frame.revision, chunks: 0,
           route: modelRouteFromHeader(header), header, policy, generation: lock?.generation, manualSelectionSeq: lock?.manualSelectionSeq,
           valid: Number.isSafeInteger(frame.revision) && frame.revision >= 1 && (previous === undefined || frame.revision === previous.revision + 1), output: false, consumed: false };
         attemptsByAgent.set(agent, attempt);
@@ -182,36 +187,52 @@ export function registerRuntimeRecovery(ctx: DshContext, controller: DeepworkMod
     const prepareRequest = async (frame: AgentRequestFrame, downstream: DshLlmCallConfig): Promise<DshLlmCallConfig> => {
       if (!active || !live(frame.agent)) return downstream;
       const pending = pendingByAgent.get(frame.agent);
-      if (pending === undefined || !getSettings(frame.agent).modules.deepwork.enabled) return downstream;
-      if (latestNativeModelSelection(frame.agent)?.seq !== pending.manualSelectionSeq) {
-        pendingByAgent.delete(frame.agent);
-        throw new Error("dsmm retry was superseded by an explicit native model selection");
-      }
-      if (frame.signal.aborted || !isCurrentRecoveryStep(recoveryEvents(frame.agent), pending.turn, pending.step)) {
+      if (pending === undefined) return downstream;
+      const decision = currentRequestRouting(frame.agent);
+      decision?.assertCurrent();
+      if (pending.turn !== frame.turn || pending.step !== frame.step
+        || !isCurrentRecoveryStep(recoveryEvents(frame.agent), pending.turn, pending.step)) {
         pendingByAgent.delete(frame.agent);
         return downstream;
       }
-      if (pending.turn !== frame.turn || pending.step !== frame.step) return downstream;
+      pending.attempt.decision?.assertPolicyCurrent();
+      if (pending.attempt.decision !== undefined && (decision?.policy !== pending.attempt.decision.policy
+        || decision?.admission !== pending.attempt.decision.admission || frame.signal !== pending.attempt.decision.frame.signal)) {
+        pendingByAgent.delete(frame.agent);
+        throw new Error("DSMM retry routing capture changed");
+      }
+      if (!decision?.configuredRoot && latestNativeModelSelection(frame.agent)?.seq !== pending.manualSelectionSeq) {
+        pendingByAgent.delete(frame.agent);
+        throw new Error("dsmm retry was superseded by an explicit native model selection");
+      }
+      if (frame.signal.aborted) {
+        pendingByAgent.delete(frame.agent);
+        return downstream;
+      }
 
       if (pending.policy !== undefined) {
         const settings = getSettings(frame.agent);
         const role = resolveEffectiveDsmmRole(frame.agent, settings, controller.active(frame.agent, settings.defaultActive));
         if (role !== pending.role || liveRolePolicyIdentity(frame.agent, settings, role, getSettings.admission?.(frame.agent).epoch) !== pending.policy) {
           pendingByAgent.delete(frame.agent);
+          if (decision?.configuredRoot) throw new Error("DSMM retry policy is no longer current");
           return downstream;
         }
       }
 
       const accepted = frame.agent.session.requestHeader?.();
       const lock = pending.policy === undefined ? undefined : roleRouteLock(frame.agent, pending.policy);
+      const failure = pending.attempt.failure;
       if (!active || lock === undefined || lock.generation !== pending.generation || attemptsByAgent.get(frame.agent) !== pending.attempt
-        || accepted === undefined || !sameExactModelRoute(modelRouteFromHeader(accepted), pending.failedRoute)) {
+        || accepted === undefined || !sameExactModelRoute(modelRouteFromHeader(accepted), pending.failedRoute)
+        || decision?.configuredRoot && (failure === undefined || !positiveNoOutput({ ...frame, provider: pending.failedRoute.provider, failure }, pending.attempt, true))) {
         pendingByAgent.delete(frame.agent);
+        if (decision?.configuredRoot) throw new Error("DSMM retry evidence is no longer current");
         return downstream;
       }
 
       pendingByAgent.delete(frame.agent);
-      if (frame.agent.session.header?.origin !== "subagent") return downstream;
+      if (frame.agent.session.header?.origin !== "subagent" && !decision?.configuredRoot) return downstream;
       lock.route = { ...pending.route };
       recordAdmittedRecoveryRoute(frame, pending.route);
       return applyModelRoute(downstream, pending.route);
@@ -223,12 +244,13 @@ export function registerRuntimeRecovery(ctx: DshContext, controller: DeepworkMod
       let settings;
       let role;
       try {
+        attemptsByAgent.get(frame.agent)?.decision?.assertCurrent();
         settings = getSettings(frame.agent);
         if (!settings.modules.deepwork.enabled) return await next();
         role = resolveEffectiveDsmmRole(frame.agent, settings, controller.active(frame.agent, settings.defaultActive));
       } catch {
         const prior = attemptsByAgent.get(frame.agent);
-        return isRateLimit(frame.failure) && prior?.policy !== undefined ? undefined : await next();
+        return (isRateLimit(frame.failure) || isUnavailableRouteFailure(frame.failure, true)) && prior?.policy !== undefined ? undefined : await next();
       }
       const unavailable = isUnavailableRouteFailure(frame.failure, true);
       if (role === undefined || (!isRateLimit(frame.failure) && !unavailable)) return await next();
@@ -236,12 +258,22 @@ export function registerRuntimeRecovery(ctx: DshContext, controller: DeepworkMod
         const policy = liveRolePolicyIdentity(frame.agent, settings, role, getSettings.admission?.(frame.agent).epoch);
         const lock = policy === undefined ? undefined : roleRouteLock(frame.agent, policy);
         const attempt = attemptsByAgent.get(frame.agent);
+        const decision = attempt?.decision;
+        decision?.assertCurrent();
         const header = frame.agent.session.requestHeader?.();
         if (!active || frame.signal.aborted || lock === undefined || header === undefined
           || header.config.provider !== frame.provider || !sameExactModelRoute(modelRouteFromHeader(header), lock.route)
           || attempt === undefined || attempt.policy !== policy || attempt.generation !== lock.generation
-          || latestNativeModelSelection(frame.agent)?.seq !== attempt.manualSelectionSeq
+          || !decision?.configuredRoot && latestNativeModelSelection(frame.agent)?.seq !== attempt.manualSelectionSeq
           || !isCurrentRecoveryStep(recoveryEvents(frame.agent), frame.turn, frame.step) || !positiveNoOutput(frame, attempt)) return undefined;
+        const expectedGeneration = lock.generation;
+        const assertRouteCurrent = (): void => {
+          decision?.assertCurrent();
+          frame.signal.throwIfAborted();
+          if (!active || !live(frame.agent) || roleRouteLock(frame.agent, policy!) !== lock || lock.generation !== expectedGeneration) {
+            throw new Error("DSMM recovery route generation changed");
+          }
+        };
         attempt.consumed = true;
         const resolved = resolveRoleRuntimePolicy(settings, role);
         const bounds = resolved.rateLimit;
@@ -254,7 +286,7 @@ export function registerRuntimeRecovery(ctx: DshContext, controller: DeepworkMod
         } else {
           lock.startupSettled = true;
           lock.rateLimits += 1;
-          switching = frame.agent.session.header?.origin === "subagent"
+          switching = (frame.agent.session.header?.origin === "subagent" || decision?.configuredRoot === true)
             && resolved.strategy === "rate-limit-fallback" && lock.rateLimits >= bounds.switchAfterRateLimits;
           if (!switching && lock.retries >= bounds.maxRetries) return undefined;
         }
@@ -267,9 +299,11 @@ export function registerRuntimeRecovery(ctx: DshContext, controller: DeepworkMod
           const admission = getSettings.admission?.(frame.agent);
           const parameterPolicy = admission === undefined ? configuredModelParameterPolicy(settings) : resolvedModelParameterPolicy(admission);
           const selected = await selectInitialModelRouteChoice(llm ?? {} as DshLlmRuntime, candidates, frame.signal,
-            parameterPolicy.mode === "passthrough" ? ctx.get?.<DsmmLlmRouteResolver>("dsmmLlmRoutes") : undefined);
+            parameterPolicy.mode === "passthrough" ? ctx.get?.<DsmmLlmRouteResolver>("dsmmLlmRoutes") : undefined,
+            decision?.configuredRoot && parameterPolicy.mode === "native-defaults" ? route => modelRouteFromCall(projectModelRouteParameters(route, "dsmm-config", false)) : undefined, assertRouteCurrent);
+          assertRouteCurrent();
           route = parameterPolicy.mode === "native-defaults"
-            ? modelRouteFromCall(projectModelRouteParameters(selected.route, selected.requestedRoute.reasoningEffort === undefined ? "dsmm-config" : "native", false))
+            ? modelRouteFromCall(projectModelRouteParameters(selected.route, decision?.configuredRoot || selected.requestedRoute.reasoningEffort === undefined ? "dsmm-config" : "native", false))
             : selected.route;
           candidateIndex = index + 1 + candidates.findIndex(candidate => sameExactModelRoute(candidate, selected.requestedRoute));
         }
@@ -278,7 +312,6 @@ export function registerRuntimeRecovery(ctx: DshContext, controller: DeepworkMod
         const delay = unavailable ? 0 : Math.max(Math.min(bounds.maxDelayMs, bounds.initialDelayMs * 2 ** lock.retries), serverMinimum ?? 0);
         if (delay > bounds.maxDelayMs || delay > bounds.maxTotalDelayMs - lock.totalDelayMs) return undefined;
         lock.totalDelayMs += delay;
-        const expectedGeneration = lock.generation;
         if (delay > 0) {
           const wait = new AbortController();
           waits.add(wait);
@@ -293,15 +326,17 @@ export function registerRuntimeRecovery(ctx: DshContext, controller: DeepworkMod
           } finally { waits.delete(wait); }
         }
         const currentSettings = getSettings(frame.agent);
+        decision?.assertCurrent();
         const currentRole = resolveEffectiveDsmmRole(frame.agent, currentSettings, controller.active(frame.agent, currentSettings.defaultActive));
         if (!active || !live(frame.agent) || frame.signal.aborted || currentRole !== role
           || liveRolePolicyIdentity(frame.agent, currentSettings, currentRole, getSettings.admission?.(frame.agent).epoch) !== policy
           || roleRouteLock(frame.agent, policy!) !== lock || lock.generation !== expectedGeneration
           || attemptsByAgent.get(frame.agent) !== attempt || !isCurrentRecoveryStep(recoveryEvents(frame.agent), frame.turn, frame.step)
-          || latestNativeModelSelection(frame.agent)?.seq !== attempt.manualSelectionSeq
+          || !decision?.configuredRoot && latestNativeModelSelection(frame.agent)?.seq !== attempt.manualSelectionSeq
           || !positiveNoOutput(frame, attempt, true)
           || !sameExactModelRoute(modelRouteFromHeader(frame.agent.session.requestHeader?.()), attempt.route)) return undefined;
         if (switching) {
+          if (decision?.configuredRoot) lock.effortSource = "dsmm-config";
           lock.candidateIndex = candidateIndex;
           lock.generation += 1;
           if (!unavailable) lock.switches += 1;

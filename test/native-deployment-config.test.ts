@@ -9,6 +9,7 @@ import type { DshAgent as PackageDshAgent } from "../lib/dsh-types.js";
 import { nativeConfigRun } from "./native-config-fixture.ts";
 import { runFixtureTurn } from "./native-routing-fixture.ts";
 import { DSMM_ROLE_IDS } from "../lib/roles.js";
+import { readOnlySettings } from "../lib/status.js";
 
 type DshAgent = Omit<PackageDshAgent, "ctx">;
 
@@ -18,6 +19,51 @@ function gate() {
   const promise = new Promise<void>((resolve) => { release = resolve; });
   return { promise, release };
 }
+
+test("root model policy saves stay desired-only; native pin and clear control fresh immutable admissions", { timeout: 20_000 }, async () => {
+  const run = nativeConfigRun();
+  try {
+    const inherited = await run.createProfile("inherited-policy");
+    const pinned = await run.createProfile("pinned-policy", { rootModelPolicy: "native" });
+    const oldRoot = await inherited.create(), oldAdmission = inherited.runtime.admission(asDshAgent(oldRoot));
+    assert.equal(oldAdmission.settings.rootModelPolicy, "native");
+    assert.equal(Object.hasOwn((await inherited.deployment.readDesired()).profile, "rootModelPolicy"), false);
+    const global = await inherited.deployment.saveGlobal({ expectedRevision: "absent", edits: [
+      { op: "set", path: ["rootModelPolicy"], value: "configured" }
+    ] }, () => {});
+    const desired = await inherited.deployment.readDesired();
+    assert.equal(desired.settings.rootModelPolicy, "configured");
+    assert.equal(desired.sources.rootModelPolicy, "global");
+    assert.equal(readOnlySettings(desired.settings).rootModelPolicy, "configured");
+    assert.equal(inherited.runtime.admission(asDshAgent(oldRoot)), oldAdmission);
+    assert.equal(oldAdmission.settings.rootModelPolicy, "native");
+    const freshRoot = await inherited.create(), freshAdmission = inherited.runtime.admission(asDshAgent(freshRoot));
+    assert.equal(freshAdmission.settings.rootModelPolicy, "configured");
+    assert.equal(freshAdmission.sources?.rootModelPolicy, "global");
+    assert.equal(freshAdmission.sourceCaptures?.fields.rootModelPolicy, "deployment");
+    assert.ok(Object.isFrozen(freshAdmission.settings));
+    assert.equal(freshAdmission.restartRequired?.includes("rootModelPolicy"), false);
+    const pinnedRoot = await pinned.create(), pinnedAdmission = pinned.runtime.admission(asDshAgent(pinnedRoot));
+    assert.equal(pinnedAdmission.settings.rootModelPolicy, "native");
+    assert.equal(pinnedAdmission.sources?.rootModelPolicy, "profile");
+    const descriptor = pinned.descriptor();
+    await pinned.settings.mutate(descriptor.ns, [{ op: "unset", path: ["rootModelPolicy"] }], descriptor.revision);
+    assert.equal(Object.hasOwn(pinned.persistedConfig(), "rootModelPolicy"), false);
+    const clearedDesired = await pinned.deployment.readDesired();
+    assert.equal(clearedDesired.settings.rootModelPolicy, "configured");
+    assert.equal(clearedDesired.sources.rootModelPolicy, "global");
+    assert.equal(pinned.runtime.admission(asDshAgent(pinnedRoot)), pinnedAdmission);
+    assert.equal(pinnedAdmission.settings.rootModelPolicy, "native");
+    const clearedRoot = await pinned.create();
+    assert.equal(pinned.runtime.getSettings(asDshAgent(clearedRoot)).rootModelPolicy, "configured");
+    await inherited.deployment.saveGlobal({ expectedRevision: global.revision, edits: [{ op: "unset", path: ["rootModelPolicy"] }] }, () => {});
+    assert.equal((await pinned.deployment.readDesired()).settings.rootModelPolicy, "native");
+    assert.equal(freshAdmission.settings.rootModelPolicy, "configured");
+    inherited.assertLive(); pinned.assertLive();
+    assert.equal(inherited.adapter.calls.length, 0);
+    assert.equal(pinned.adapter.calls.length, 0);
+  } finally { await run.dispose(); }
+});
 
 test("rc.2 native SettingsForms persists sparse DSMM deployment without remounting or cancelling busy admissions", { timeout: 20_000 }, async (t) => {
   const run = nativeConfigRun({ managedRuntime: true });

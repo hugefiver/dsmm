@@ -117,6 +117,20 @@ test("all allowed runtime families round-trip through the existing resolver", ()
   assert.equal(settings.roleRouting["dsmm-reviewer"]?.primary?.reasoningEffort, "max");
 });
 
+test("named profiles retain deployment root model policy and reject policy overrides", () => {
+  for (const rootModelPolicy of ["native", "configured"] as const) {
+    const result = validateProfileDocument(content({ rootModelPolicy }));
+    assert.equal(result.document, undefined);
+    assert.equal(result.diagnostics[0]?.code, "unknown-field");
+    assert.equal(result.diagnostics[0]?.field, "settings.rootModelPolicy");
+    validation(() => parseProfileDocument(content({ rootModelPolicy })));
+    const document = parseProfileDocument(content({ defaultActive: true, roleRouting: {
+      "dsmm-orchestrator": { primary: { provider: "fixture", model: "primary" } }
+    } }));
+    assert.equal(resolveProfileSettings({ rootModelPolicy }, document.settings).rootModelPolicy, rootModelPolicy);
+  }
+});
+
 test("named Git scope overlays preserve omission, inheritance and explicit default overrides", () => {
   const baseline: DsmmPluginConfig = { guards: { gitWriteScope: "high-risk", gitWriteGuard: "deny" } };
   const inherited = parseProfileDocument(content({ guards: { shellCommandSafety: false } }));

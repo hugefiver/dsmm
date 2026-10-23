@@ -314,7 +314,12 @@ export class DsmmAwareLlmRuntime extends LlmRuntime {
             runtime.assertCaptured(captured);
             const providerSignal = AbortSignal.any([captured.frame.signal, captured.admission.signal,
               ...captured.generation === undefined ? [] : [captured.generation.signal], captured.revocation.signal, runtime.lifetime.signal]);
-            yield* dispatchPrepared(request, providerSignal);
+            for await (const chunk of dispatchPrepared(request, providerSignal)) {
+              runtime.assertCaptured(captured);
+              yield chunk;
+              runtime.assertCaptured(captured);
+            }
+            runtime.assertCaptured(captured);
           } finally { runtime.finishCaptured(captured); }
         };
         return dispatch(this);

@@ -1,14 +1,14 @@
 # Runtime recovery and route strategies
 
-DSMM 0.3.15 targets exactly DSH `0.2.1-rc.2`.
+DSMM 0.3.16 targets exactly DSH `0.2.1-rc.2`.
 
 ## Independent role strategies
 
 Each role may use `startup-lock` (default) or explicit `rate-limit-fallback`. `runtimePolicy` supplies inherited defaults; role `strategy` / `rateLimit` overrides only explicit fields. Profiles contain no native accounts or credentials.
 
-Child preparation admits the primary or first resolvable configured candidate in order without a sacrificial completion. A catalog isn't an authentication/network-health check. `startup-lock` retains the admitted route for bounded safe rate-limit retries. `rate-limit-fallback` may advance its ordered chain after the configured threshold. Success resets consecutive counts, duplicate failure delivery doesn't count twice, and exhausted chains don't wrap.
+Child preparation and eligible configured-root preparation admit the primary or first resolvable configured candidate in order without a sacrificial completion. A catalog isn't an authentication/network-health check. `startup-lock` retains the admitted route for bounded safe rate-limit retries. `rate-limit-fallback` may advance its ordered chain after the configured threshold. Success resets consecutive counts, duplicate failure delivery doesn't count twice, and exhausted chains don't wrap.
 
-Root model and effort remain native-owned even without an explicit selection event. Role/global primaries and fallback chains never implicitly replace that route. **Use profile model** is an explicit native selection action against admitted configuration, not a retry or overlay Apply. A role child's own native selection is resolved before configured-primary preflight when it resumes; its historical descriptor default does not replace that selection.
+With the default deployment policy `rootModelPolicy: "native"`, root model and effort remain native-owned even without an explicit selection event. Role/global primaries and fallback chains do not implicitly replace that route. Under explicit `configured` policy, eligible admitted roots use role primary/fallback routing and the same bounded recovery rules. This does not depend on a TUI management service being present. **Use profile model** remains an explicit native selection action, not a retry or overlay Apply. A role child's own native selection is resolved before configured-primary preflight when it resumes; its historical descriptor default does not replace that selection.
 
 | Policy field | Default | Strict integer bound |
 | --- | --- | --- |
@@ -33,7 +33,7 @@ Fallback decisions stay in the native request loop. DSMM doesn't create another 
 
 An abortable middleware delay can honor valid `providerRetryAfterMs` only within per-delay and total budgets. Cancellation, owner/provider retirement, closed turn/step boundaries or superseded intent invalidate pending work before another dispatch. Duplicate errors can't reserve a second fallback.
 
-Native model selection, including same-value reselection, is new intent. Assembly captures that intent for the request; a concurrently newer selection belongs to the next assembly, not a retrofit. Child initial routes are defaults, not every-turn overrides of accepted native intent or valid fallback. Existing Agents consume admitted policy, not later saved desired configuration. See [model routing](model-routing.md).
+For native-root routing and child selection, native model selection, including same-value reselection, is new intent. Assembly captures that intent for the request; a concurrently newer selection belongs to the next assembly, not a retrofit. Child initial routes are defaults, not every-turn overrides of accepted native intent or valid fallback. A configured root's native picker intent does not override its explicit primary, expand configured fallback candidates or reset retry budgets. Existing Agents consume admitted policy, not later saved desired configuration. The same request decision captures admission, role, mode revision and policy before recovery preparation, and remains checked through provider awaits and retries. See [model routing](model-routing.md).
 
 ## Live continuation and activation
 

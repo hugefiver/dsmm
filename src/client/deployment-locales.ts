@@ -1,7 +1,7 @@
 export const DEPLOYMENT_NS = "plugins.dsmm";
 export const deploymentEn = {
   title: "DSMM", summary: "Global config and profile overrides",
-  description: "Layers save independently; native models and running sessions stay unchanged.",
+  description: "Layers save independently; running sessions retain their admitted settings.",
   global: "DSMM Global config", globalHint: "Shared by this Home. Unset fields use built-in defaults.",
   profile: "Current DSH profile overrides", profileHint: "This profile only. Unset fields use Global, then Host defaults.",
   profileUnavailable: "Unavailable",
@@ -46,7 +46,7 @@ export const deploymentEn = {
 export type DeploymentLocaleKey = keyof typeof deploymentEn;
 export const deploymentZh: Record<DeploymentLocaleKey, string> = {
   title: "DSMM", summary: "全局配置与当前配置覆盖",
-  description: "两层独立保存，不改原生模型或运行中会话。",
+  description: "两层独立保存，运行中会话保留已准入设置。",
   global: "DSMM 全局配置", globalHint: "同一 Home 共用；未设置字段使用内建默认值。",
   profile: "当前 DSH 配置覆盖", profileHint: "仅影响此配置。未设置字段依次使用全局与宿主默认值。",
   profileUnavailable: "不可用",
@@ -94,6 +94,7 @@ declare module "@deepseek-ai/dsh-client-ui-slots" {
 
 /** Stable public field names stay visible alongside localized context. */
 export const deploymentFieldLabels: Record<string, [string, string]> = {
+  rootModelPolicy: ["Root model policy (native: user model; configured: admitted routes, all clients)", "根模型策略（native：用户模型；configured：准入路由，所有客户端）"],
   modelParameters: ["Model parameters", "模型参数"], passthrough: ["Model parameter passthrough", "模型参数透传"], locale: ["Agent business language", "Agent 业务语言"],
   permissionControl: ["Permission-control module", "权限控制子模块"],
   modules: ["Modules", "子模块"], skills: ["Skills", "技能"], roles: ["Agent roles", "Agent 角色"],

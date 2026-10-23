@@ -2,11 +2,18 @@
 
 Providers, accounts and credentials remain native DSH configuration, never named-profile contents.
 
-DSMM 0.3.15 targets exactly DSH `0.2.1-rc.2`. Standard calls use native prepared calls. The public Pi-AI completions seam supports self-contained literal and explicit model-mapping raw configurations; unsupported catalog-backed raw combinations are rejected without affecting standard calls.
+DSMM 0.3.16 targets exactly DSH `0.2.1-rc.2`. Standard calls use native prepared calls. The public Pi-AI completions seam supports self-contained literal and explicit model-mapping raw configurations; unsupported catalog-backed raw combinations are rejected without affecting standard calls.
 
-## Native roots and child defaults
+## Root policy and child defaults
 
-Every root retains native assembled provider/model/effort, including implicit defaults before the first `model/selection` event. Activating Deepwork, choosing a preset, saving/selecting a profile or refreshing a cold admission does not implicitly apply a root primary. **Use profile model** is the explicit native selection action against admitted configuration; later manual choices remain authoritative. Root retry preserves the exact native downstream configuration and never switches to a profile fallback channel automatically.
+`rootModelPolicy` is a deployment setting with two values:
+
+- **`native` (default):** roots retain native assembled provider/model/effort, including implicit defaults before the first `model/selection` event. Activating Deepwork, choosing a preset, saving/selecting a profile or refreshing a cold admission does not implicitly apply a root primary. **Use profile model** is the explicit native selection action against admitted configuration; later manual choices remain authoritative. Root retry preserves the native downstream configuration and does not automatically select a profile fallback channel.
+- **`configured`:** admitted roots with Deepwork enabled and an effective DSMM role use that role's configured primary and ordered fallback routes. Without an explicit primary, the initial route inherits the native baseline. Ordinary sessions with Deepwork mode off and no effective DSMM role retain native routing. Configuration does not grant a role, enable a disabled module or bypass native capability checks.
+
+Global and native-profile configuration may set this policy; named profiles cannot override it. Clearing a native-profile override restores inheritance from Global. The policy applies to the deployment, not to a detected client: a Web session in the same configured deployment follows it too. A separate Desktop deployment retains the default `native` behavior. Saving desired configuration does not replace an existing Agent's immutable admission; use the existing admission lifecycle to adopt changes.
+
+Configured routing changes the actual request, not the native model picker or its saved preference. An explicit primary takes precedence over a picker selection; inherited routing still uses the native baseline. Neither switching profiles nor automatic fallback writes the native model preference. Status distinguishes the admitted policy and actual route from a declared model.
 
 `roleRouting` is keyed by canonical IDs such as `dsmm-reviewer`, not tool names or labels. Each entry accepts `primary`, ordered `fallbackRoutes`, `strategy`, bounded `rateLimit`, and `levels`. Omitted primary inherits the native parent route for a child. Explicit host options on new delegation retain their priority. Historical descriptor options are reconstruction defaults, not a new override of current DSMM routing. A cold child resolves its invocation again, taking its own explicit native selection before configured-route preparation; a configured model that will not be used is not a preflight dependency. Ancestor selections, labels and old request defaults are not child selection intent.
 
@@ -33,7 +40,7 @@ These identifiers are placeholders for resolvable routes. Native model selection
 
 `modelParameters.passthrough` is an ordinary Core setting, defaulting to `true`, resolved through Global, explicit native profile and admitted named overlays. It's independent of Deepwork enablement and doesn't prove that a raw executor is installed. Save and future-default selection preserve the original JSON; each admitted Agent keeps its immutable policy.
 
-With passthrough **ON**, applicable routes retain bounded opaque JSON for a supported raw adapter. With **OFF**, opaque/custom parameters remain stored but aren't sent, and configured effort doesn't override native defaults. Independent native model/effort choices remain authoritative under either policy. OFF doesn't erase configuration or force replacement effort.
+With passthrough **ON**, applicable routes retain bounded opaque JSON for a supported raw adapter. With **OFF**, opaque/custom parameters remain stored but aren't sent, and configured effort doesn't override native defaults. Native-root model/effort choices and child selection retain their existing authority; `rootModelPolicy: "configured"` explicitly selects configuration-led root routing instead. OFF doesn't erase configuration or force replacement effort.
 
 Standard requests that the native adapter can fully express and consume use native `LlmRuntime.prepareCall`: route, defaults, validation, adapter generation and single dispatch remain native-owned. A synchronous configure callback can't change the captured route. An earlier `resolveCallConfig` query isn't a generation credential for later execution. Native catalog/model APIs remain the directory; DSMM doesn't add another model registry or scheduler.
 
@@ -85,11 +92,11 @@ Entries contain only currently admitted targets of the correct kind. Exact calle
 
 ## Locks, fallback and capture
 
-Child preparation selects the primary or first resolvable configured candidate in order without a sacrificial request. No admissible candidate produces a visible no-request refusal, not silent baseline routing. Explicit `fallbackRoutes:[]` disables inheritance of a fallback chain. Omitted role strategy/retry fields inherit `runtimePolicy`; `startup-lock` is the default.
+Child preparation and eligible configured-root preparation select the primary or first resolvable configured candidate in order without a sacrificial request. No admissible candidate produces a visible no-request refusal, not silent baseline routing. Explicit `fallbackRoutes:[]` disables inheritance of a fallback chain. Omitted role strategy/retry fields inherit `runtimePolicy`; `startup-lock` is the default.
 
 `startup-lock` keeps the admitted route across turns and bounded positively no-output-safe `RATE_LIMIT` retries. `rate-limit-fallback` may advance the ordered chain after the configured threshold, within finite switch/delay limits. Counters and locks aren't shared between roles or sessions; duplicate errors don't count twice, success resets consecutive counts, and exhausted chains don't wrap.
 
-Only provider absence established through the public registration directory, or adapter-proven `UNKNOWN_MODEL`, can advance a remaining startup candidate before accepted output/tool fragments. A generic `NO_ADAPTER` from preparation, middleware or an unready registered adapter is not absence proof. Transport, authorization, quota, payment, context and cancelled failures don't authorize model hopping. Partial text, reasoning or tool output forbids automatic retry, including same-route retry. Ordinary roots remain on their native route. See [runtime recovery](runtime-recovery.md).
+Only provider absence established through the public registration directory, or adapter-proven `UNKNOWN_MODEL`, can advance a remaining startup candidate before accepted output/tool fragments. A generic `NO_ADAPTER` from preparation, middleware or an unready registered adapter is not absence proof. Transport, authorization, quota, payment, context and cancelled failures don't authorize model hopping. Partial text, reasoning or tool output forbids automatic retry, including same-route retry. Roots using `native` remain on their native route; eligible `configured` roots use the same bounded fallback rules as configured role routing. See [runtime recovery](runtime-recovery.md).
 
 Resident Agents and freshly delegated children use immutable admitted policy, not a later draft or desired deployment. Cold continuation obtains current policy at its new activation. Child initial routes don't override later accepted native manual intent or valid fallback every turn. Omitted effort clears stale explicit effort. Profile storage, native persistence and execution ownership remain separate; see [profiles](profiles.md#storage-and-lifetime) and [compatibility](compatibility.md).
 

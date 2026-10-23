@@ -101,7 +101,9 @@ export class DeepworkModeController {
     return undefined;
   }
 
-  async select(agent: DshAgent, active: boolean, defaultActive = false): Promise<DeepworkSelectionOutcome> {
+  async select(agent: DshAgent, active: boolean, defaultActive = false, authority?: () => void,
+    committed?: (revision: string) => void): Promise<DeepworkSelectionOutcome> {
+    authority?.();
     if (active && !this.runtimeReady()) throw new Error("Deepwork runtime is not ready; enable it in native settings and restart the Host");
     if (active && !this.moduleEnabled(agent)) throw new Error("Deepwork module is not admitted in this session; a mode intent cannot enable it");
     if (agent.status === "running" || hasOpenTurn(sessionEvents(agent.session))) throw new Error("Deepwork mode requires an idle session; no change was queued");
@@ -110,7 +112,8 @@ export class DeepworkModeController {
     const write = async (signal?: AbortSignal): Promise<void> => {
       signal?.throwIfAborted();
       if (this.describe(agent, defaultActive).revision !== before.revision) throw new Error("Deepwork mode changed; refresh before retrying");
-      await this.selectIdle(agent, active, defaultActive);
+      authority?.();
+      await this.selectIdle(agent, active, defaultActive, authority, committed);
     };
     if (agent.runMaintenance === undefined) throw new Error("Deepwork mode requires native idle maintenance");
     await agent.runMaintenance(write);
@@ -118,12 +121,16 @@ export class DeepworkModeController {
   }
 
   /** Called inside the existing native maintenance / admission CAS boundary. */
-  async selectIdle(agent: DshAgent, active: boolean, _defaultActive: boolean): Promise<void> {
+  async selectIdle(agent: DshAgent, active: boolean, defaultActive: boolean, authority?: () => void,
+    committed?: (revision: string) => void): Promise<void> {
     if (active && !this.runtimeReady()) throw new Error("Deepwork runtime is not ready; enable it in native settings and restart the Host");
     if (active && !this.moduleEnabled(agent)) throw new Error("Deepwork module is not admitted in this session; a mode intent cannot enable it");
     if (hasOpenTurn(sessionEvents(agent.session))) throw new Error("Deepwork mode requires an idle session");
     if (this.intent(agent) === active) return;
+    authority?.();
     appendModeRecord(agent.session, active);
-    this.changed(agent);
+    const revision = this.describe(agent, defaultActive).revision;
+    try { committed?.(revision); }
+    finally { this.changed(agent); }
   }
 }

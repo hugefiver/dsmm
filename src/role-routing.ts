@@ -32,6 +32,7 @@ export interface RoleRouteLock {
   switches: number;
   totalDelayMs: number;
   manualSelectionSeq?: number;
+  effortSource?: "native" | "dsmm-config";
 }
 
 export interface NativeModelSelectionIntent {
@@ -79,23 +80,27 @@ export function orderedModelRoutes(candidates: readonly DsmmModelRoute[]): DsmmM
 }
 
 /** Exact metadata preparation, never a completion or advisory catalog health check. */
-export async function selectInitialModelRoute(llm: DshLlmRuntime, candidates: readonly DsmmModelRoute[], signal?: AbortSignal, resolver?: DsmmLlmRouteResolver): Promise<DsmmModelRoute> {
-  return (await selectInitialModelRouteChoice(llm, candidates, signal, resolver)).route;
+export async function selectInitialModelRoute(llm: DshLlmRuntime, candidates: readonly DsmmModelRoute[], signal?: AbortSignal, resolver?: DsmmLlmRouteResolver, assertCurrent?: () => void): Promise<DsmmModelRoute> {
+  return (await selectInitialModelRouteChoice(llm, candidates, signal, resolver, undefined, assertCurrent)).route;
 }
 
-export async function selectInitialModelRouteChoice(llm: DshLlmRuntime, candidates: readonly DsmmModelRoute[], signal?: AbortSignal, resolver?: DsmmLlmRouteResolver): Promise<{ route: DsmmModelRoute; requestedRoute: DsmmModelRoute }> {
+export async function selectInitialModelRouteChoice(llm: DshLlmRuntime, candidates: readonly DsmmModelRoute[], signal?: AbortSignal, resolver?: DsmmLlmRouteResolver, project?: (route: DsmmModelRoute) => DsmmModelRoute, assertCurrent?: () => void): Promise<{ route: DsmmModelRoute; requestedRoute: DsmmModelRoute }> {
   if (resolver === undefined && llm.resolveCallConfig === undefined) throw new Error("dsmm route admission requires the Host model service");
   let unavailable: unknown;
   for (const route of orderedModelRoutes(candidates)) {
+    assertCurrent?.();
     signal?.throwIfAborted();
     try {
       if (resolver === undefined && llm.listProviders !== undefined && !llm.listProviders().some(provider => provider.id === route.provider)) throw new DsmmMissingProviderError();
-      const call = modelRouteToCall(route);
-      const prepared = resolver === undefined ? await llm.resolveCallConfig!(call, signal) : await resolver.resolveRoute(route, signal);
+      const projected = project?.(route) ?? route;
+      const call = modelRouteToCall(projected);
+      const prepared = resolver === undefined ? await llm.resolveCallConfig!(call, signal) : await resolver.resolveRoute(projected, signal);
+      assertCurrent?.();
       if (resolver === undefined && call.customParameters !== undefined) throw new LlmError("Raw route parameters require their declared Host provider owner", "UNSUPPORTED_ROUTE_PARAMETERS");
       signal?.throwIfAborted();
       return { route: canonicalRoute(prepared), requestedRoute: canonicalRoute(route) };
     } catch (error) {
+      assertCurrent?.();
       signal?.throwIfAborted();
       if (!isUnavailableRouteFailure(error)) throw error;
       unavailable = error;
@@ -124,7 +129,7 @@ export function roleRouteRuntimeState(agent: DshAgent, settings: DsmmSettings, r
   const resolved = resolveRoleRuntimePolicy(settings, role);
   const identity = liveRolePolicyIdentity(agent, settings, role, epoch);
   const lock = identity === undefined ? undefined : roleRouteLock(agent, identity);
-  return { ...(role === undefined ? {} : { role }), strategy: agent.session.header?.origin === "subagent" ? resolved.strategy : "startup-lock", rateLimit: { ...resolved.rateLimit },
+  return { ...(role === undefined ? {} : { role }), strategy: agent.session.header?.origin === "subagent" || epoch !== undefined && settings.rootModelPolicy === "configured" && settings.modules.deepwork.enabled && role !== undefined ? resolved.strategy : "startup-lock", rateLimit: { ...resolved.rateLimit },
     ...(lock === undefined ? {} : { route: { ...lock.route } }), retries: lock?.retries ?? 0,
     rateLimitFailures: lock?.rateLimits ?? 0, switches: lock?.switches ?? 0, totalDelayMs: lock?.totalDelayMs ?? 0 };
 }
@@ -133,7 +138,7 @@ export function liveRolePolicyIdentity(agent: DshAgent, settings: DsmmSettings, 
   if (role === undefined) { agentPolicies.delete(agent); return undefined; }
   const policy = settings.roleRouting[role];
   const resolved = resolveRoleRuntimePolicy(settings, role);
-  const fields = { role, epoch, primary: policy?.primary, levels: policy?.levels,
+  const fields = { role, epoch, rootModelPolicy: settings.rootModelPolicy, deepworkEnabled: settings.modules.deepwork.enabled, primary: policy?.primary, levels: policy?.levels,
     fallbackSource: resolved.fallbackSource, fallbackRoutes: resolved.fallbackRoutes,
     strategy: resolved.strategy, rateLimit: resolved.rateLimit, modelParameters: settings.modelParameters,
     recovery: { enabled: settings.runtimeRecovery.enabled, retryOnStatusCodes: settings.runtimeRecovery.retryOnStatusCodes,
@@ -221,7 +226,7 @@ export function sameModelRoute(left: Pick<DsmmModelRoute, "provider" | "model">,
 }
 
 /** Accepted post-policy route changes are durable host/recovery ownership, not a new primary request. */
-export function persistedRoleRoute(frame: Pick<AgentRequestFrame, "agent">, primary: DsmmModelRoute | undefined, fallbacks: readonly DsmmModelRoute[] = [], identity?: string): DsmmModelRoute | undefined {
+export function persistedRoleRoute(frame: Pick<AgentRequestFrame, "agent">, primary: DsmmModelRoute | undefined, fallbacks: readonly DsmmModelRoute[] = [], identity?: string, configuredRoot = false): DsmmModelRoute | undefined {
   const currentIdentity = agentPolicies.get(frame.agent)?.identity;
   const events = policyEvents(frame);
   let matchingPolicy = false;
@@ -243,8 +248,11 @@ export function persistedRoleRoute(frame: Pick<AgentRequestFrame, "agent">, prim
       || typeof config.model !== "string" || config.model.trim() === "") continue;
     selected = modelRouteFromHeader(header);
   }
-  // A configured fallback remains exact after its adapter/default header is
-  // persisted. A later non-chain durable host route remains host-owned instead.
+  if (configuredRoot) {
+    const lock = identity === undefined ? undefined : roleRouteLock(frame.agent, identity);
+    return selected !== undefined && lock !== undefined && lock.candidateIndex >= 0 && sameExactModelRoute(selected, lock.route) ? lock.route : undefined;
+  }
+  // Native/child routes retain durable Host ownership after a matching policy.
   return selected === undefined ? undefined : [primary, ...fallbacks].find((route) => route !== undefined && sameExactModelRoute(route, selected)) ?? selected;
 }
 

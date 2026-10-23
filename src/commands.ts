@@ -12,6 +12,8 @@ export interface DeepworkCommandInput {
   message: string;
 }
 
+export type DsmmCommandDefinition = Parameters<DshCommandsRegistry["register"]>[0];
+
 export function parseDeepworkCommandInput(rawInput: string): DeepworkCommandInput {
   const message = rawInput.trim();
   return message === "off" ? { action: "off", message: "" } : { action: "on", message };
@@ -39,7 +41,7 @@ async function handleDeepworkCommand(
     : { kind: "success", text: "Leaving deepwork mode." };
 }
 
-function handleDsmmStatusCommand(
+export function handleDsmmStatusCommand(
   controller: DeepworkModeController,
   getSettings: DsmmSettingsGetter,
   invocation: DshCommandInvocation
@@ -61,30 +63,49 @@ function handleDsmmStatusCommand(
   };
 }
 
+export function createDeepworkCommandDefinition(
+  controller: DeepworkModeController,
+  getSettings: DsmmSettingsGetter,
+  handler: DsmmCommandDefinition["handler"] = invocation => handleDeepworkCommand(controller, getSettings, invocation)
+): DsmmCommandDefinition {
+  return {
+    name: getSettings().modeName,
+    description: "Enter or leave Deepwork mode",
+    input: { hint: "[off|message]" },
+    handler
+  };
+}
+
+export function createDsmmStatusCommandDefinition(
+  controller: DeepworkModeController,
+  getSettings: DsmmSettingsGetter
+): DsmmCommandDefinition {
+  return {
+    name: DSMM_STATUS_COMMAND,
+    description: "Show Deepwork status",
+    input: { hint: "[json]" },
+    handler: invocation => handleDsmmStatusCommand(controller, getSettings, invocation)
+  };
+}
+
+function commandDisposer(value: unknown): () => void {
+  return typeof value === "function" ? value as () => void : () => {};
+}
+
 export function registerDeepworkCommand(
   readyCtx: DshContext,
   controller: DeepworkModeController,
   getSettings: DsmmSettingsGetter
-): void {
+): () => void {
   const commands = readyCtx.get?.<DshCommandsRegistry>("commands") ?? readyCtx.commands;
-  commands?.register({
-    name: getSettings().modeName,
-    description: "Enter or leave Deepwork mode",
-    input: { hint: "[off|message]" },
-    handler: (invocation) => handleDeepworkCommand(controller, getSettings, invocation)
-  });
+  return commands === undefined ? () => {} : commandDisposer(commands.register(createDeepworkCommandDefinition(controller, getSettings)));
 }
 
 export function registerDsmmStatusCommand(
   readyCtx: DshContext,
   controller: DeepworkModeController,
   getSettings: DsmmSettingsGetter
-): void {
+): () => void {
   const commands = readyCtx.get?.<DshCommandsRegistry>("commands") ?? readyCtx.commands;
-  commands?.register({
-    name: DSMM_STATUS_COMMAND,
-    description: "Show Deepwork status",
-    input: { hint: "[json]" },
-    handler: (invocation) => handleDsmmStatusCommand(controller, getSettings, invocation)
-  });
+  return commands === undefined ? () => {} : commandDisposer(commands.register(createDsmmStatusCommandDefinition(controller, getSettings)));
 }

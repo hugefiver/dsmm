@@ -1,6 +1,6 @@
 # Deepwork runtime profiles
 
-DSMM 0.3.15 targets exactly DSH `0.2.1-rc.2`. See [compatibility](compatibility.md) for installation boundaries.
+DSMM 0.3.16 targets exactly DSH `0.2.1-rc.2`. See [compatibility](compatibility.md) for installation boundaries.
 
 A named Deepwork profile is a runtime-policy document, not a native deployment profile or Agent preset. Open **Settings → Deepwork Profiles** to browse and edit it. Native **Plugins → DSMM** edits deployment layers instead, as described in [settings and status](settings-status.md).
 
@@ -20,6 +20,8 @@ Browsing doesn't activate anything. **Save profile** doesn't select it or change
 The root and its resident descendants must have no running work, open turn, queued input, active tool/approval or pending delegation. An `idle` label alone does not establish this. Unprovable external-provider startup remains unavailable; coverage is limited to native services sharing the same Host lifecycle and agents registry. Successful publication invalidates command-rule memory for the exact subtree, without inheriting approvals or affecting another root. The client refreshes capabilities on native running-state transitions; the server remains the authority, and Refresh can reread other state changes.
 
 The compact Conversation header menu shows the current admission separately from the future default. **Use profile model** asks native model selection to use the admitted immutable configuration's declared main model, not a later saved draft. It doesn't write an overlay pointer or increment the admission epoch. Native model-default persistence follows the Models tab; newer manual model or effort intent, including same-value reselection, wins. `canSelectModel`, `canToggleMode` and `canApplyOverlay` have independent reasons: unavailable live Apply doesn't disable ordinary model selection or mode switching.
+
+`rootModelPolicy` is a separate deployment setting, not a named-profile field. The default `native` keeps the native model choice authoritative. With `configured`, an eligible root's requests use the effective role routing from its admitted configuration; applying a named profile can therefore change the next request's primary/fallback routes without changing the native model picker. Named profiles cannot turn this deployment policy on or off. A Web session and a TUI session in the same deployment follow the same policy. See [root routing policy](model-routing.md#root-policy-and-child-defaults).
 
 Without a current session, choose a workspace and a saved profile or deployment defaults in the header menu or Settings session scope. Choosing a profile first keeps that choice pending until a workspace is explicitly selected. Browsing, refreshing and editing profiles do not create sessions, and the first workspace is never selected automatically. On explicit selection, the native workspace service creates or reuses a blank session; DSMM retains it, blocks sending while configuration is unconfirmed, completes the existing selection transaction and only then opens the confirmed session. This does not change the future default or native model.
 

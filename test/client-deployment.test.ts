@@ -291,6 +291,30 @@ test("Global native editor preserves sparse untouched fields, bytes CAS and save
   assert.equal(controller.getSnapshot().saved, true, "a mounted valid field must not erase successful live feedback"); controller.dispose();
 });
 
+test("schema-driven root model policy selector saves explicit values and clears back to native defaults", async () => {
+  const f = fixture(), page = await compiledNativePage(f.remote);
+  try {
+    page.open(deploymentEn["module:routes"]);
+    const select = () => {
+      const field = elements(page.tree()).find(node => node.props["data-field"] === "rootModelPolicy");
+      assert.ok(field);
+      const control = elements(field).find(node => node.type === "select"); assert.ok(control); return control;
+    };
+    assert.deepEqual(elements(select()).filter(node => node.type === "option").map(node => node.props.value), ["inherit", '"native"', '"configured"']);
+    assert.equal(select().props.value, "inherit");
+    (select().props.onChange as (event: unknown) => void)({ currentTarget: { value: '"configured"' } });
+    await page.workspace.save();
+    assert.equal(resolveDeployment(f.get().global, f.get().profile).rootModelPolicy, "configured");
+    await page.core.refresh();
+    assert.equal(select().props.value, '"configured"');
+    (select().props.onChange as (event: unknown) => void)({ currentTarget: { value: "inherit" } });
+    await page.workspace.save();
+    assert.equal(Object.hasOwn(f.get().global, "rootModelPolicy"), false);
+    assert.equal(resolveDeployment(f.get().global, f.get().profile).rootModelPolicy, "native");
+    assert.equal(f.writes.length, 2);
+  } finally { page.dispose(); }
+});
+
 test("schema-driven Git scope selector saves and reloads Global values and restores defaults", async () => {
   const f = fixture(), page = await compiledNativePage(f.remote);
   const path = ["guards", "gitWriteScope"];

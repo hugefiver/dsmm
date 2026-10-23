@@ -68,6 +68,22 @@ test("Deepwork module is a strict global-only ceiling; absence/unset defaults on
   for (const invalid of [{ modules: { unknown: { enabled: false } } }, { modules: { deepwork: { unknown: false } } }, { modules: { deepwork: { enabled: "false" } } }, { modules: null }]) assert.throws(() => resolveDeployment(invalid as never, {}));
 });
 
+test("root model policy merges Global and native pins; unset restores inheritance without writing defaults", () => {
+  const global = parseGlobalConfig('{"rootModelPolicy":"configured"}');
+  assert.equal(resolveDeployment({}, {}).rootModelPolicy, "native");
+  assert.equal(resolveDeployment(global, {}).rootModelPolicy, "configured");
+  assert.equal(resolveDeployment(global, { rootModelPolicy: "native" }).rootModelPolicy, "native");
+  const cleared = editGlobalConfig(global, [{ op: "unset", path: ["rootModelPolicy"] }]);
+  assert.deepEqual(cleared, {});
+  assert.equal(resolveDeployment(cleared, {}).rootModelPolicy, "native");
+  assert.deepEqual(editGlobalConfig({}, [{ op: "set", path: ["rootModelPolicy"], value: "configured" }]), global);
+  for (const rootModelPolicy of ["automatic", false, null, 1, {}]) {
+    assert.throws(() => parseGlobalConfig(JSON.stringify({ rootModelPolicy })));
+    assert.throws(() => resolveDeployment({}, { rootModelPolicy } as never));
+    assert.throws(() => editGlobalConfig({}, [{ op: "set", path: ["rootModelPolicy"], value: rootModelPolicy }]));
+  }
+});
+
 test("two actual Loader entries inherit one global base; volatile pins/unset preserve fibers and old admissions", async () => {
   const root = mkdtempSync(join(tmpdir(), "dsmm-c0-native-"));
   const marker = join(root, ".run-owner"), owner = `c0:${root}`;

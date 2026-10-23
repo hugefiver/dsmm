@@ -244,7 +244,7 @@ export class DsmmProfileRuntime {
       return await agent.runMaintenance(async maintenanceSignal => {
         check(maintenanceSignal);
         if (hasOpenTurn(sessionEvents(agent.session))) throw new DsmmProfileError("busy", "A session turn is still open.");
-        await this.mode.selectIdle(agent, request.active, admitted.settings.defaultActive);
+        await this.mode.selectIdle(agent, request.active, admitted.settings.defaultActive, () => check(maintenanceSignal));
         const role = resolveAdmittedDsmmRole(agent, admitted.settings, this.mode.active(agent, admitted.settings.defaultActive));
         const profileModel = role === undefined ? undefined : admitted.settings.roleRouting[role]?.primary;
         const deepwork = this.mode.describe(agent, admitted.settings.defaultActive);

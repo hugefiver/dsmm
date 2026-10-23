@@ -6,7 +6,7 @@ This extends the native DSH 0.2.1-rc.2 Settings and Plugins interface, not a new
 
 The native reference packages are `dsh-client-ui-theme`, `dsh-client-ui-primitives`, `dsh-client-ui-settings-general`, `dsh-client-ui-settings-models` and `dsh-client-ui-settings-plugins`. Relevant sources are `ui-theme/src/styles/{base,design-platform,focus}.css`, `ui-primitives/src/{Button,Input}.module.css`, and the Settings/Models section CSS in their published client bundles. The values below describe the shipped default theme; installed theme overrides remain authoritative. DSMM doesn't change vendor code, theme or user configuration.
 
-DSMM 0.3.15 targets exactly DSH `0.2.1-rc.2`. Its settings extend public native slots and preserve native authentication, navigation, model selection and service ownership.
+DSMM 0.3.16 targets exactly DSH `0.2.1-rc.2`. Its settings extend public native slots and preserve native authentication, navigation, model selection and service ownership.
 
 ### Product priorities
 

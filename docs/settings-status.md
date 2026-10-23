@@ -1,6 +1,6 @@
 # Deepwork settings and status
 
-DSMM 0.3.15 targets exactly DSH `0.2.1-rc.2`. Named policy is covered in [profiles](profiles.md), routing in [model routing](model-routing.md), and child authority in [Agent presets](agent-presets.md).
+DSMM 0.3.16 targets exactly DSH `0.2.1-rc.2`. Named policy is covered in [profiles](profiles.md), routing in [model routing](model-routing.md), and child authority in [Agent presets](agent-presets.md).
 
 ## Deployment layers and native editors
 
@@ -36,6 +36,8 @@ On a mounted Host, desired-off affects new root admissions and cold role continu
 
 The inspector separates merged desired, startup-mounted/captured, next-root preview, and current-session admission. Without an actual session, current admission is unknown. Host bundle enablement also remains unknown when the public interface can't observe it. Sources, capture origins, global file version, native descriptor version and named snapshot reference aren't one acknowledgment.
 
+`rootModelPolicy` is deployment-only: Global and native-profile accept `native` (default) or `configured`; named overlays reject it. An explicit native-profile value overrides Global, and Unset restores inheritance. The policy is captured with admission rather than startup-pinned: saving changes desired configuration, not an existing Agent's captured policy. `configured` enables configuration-led routing for admitted roots with an effective DSMM role and Deepwork module enabled, regardless of whether their client is Web or TUI. It does not enable a module or grant a role. Status reports the captured value and its source only when admission is known; see [root routing policy](model-routing.md#root-policy-and-child-defaults).
+
 `presets` only carries materialization settings (`materialize`, optional `root`). The dispatcher is the only standing root; there is no per-role root switch, and named overlays cannot configure presets. See [roles and composition](agent-presets.md#roles-and-composition) for the selection roster, forced creation/resume and read-only boundaries.
 
 `permissionControl.enabled` defaults true independently of Deepwork. Permission settings are deployment-only: Global and native-profile settings may save them, while named/session overlays cannot. Only `enabled` is startup-pinned: live saves do not remount or change its admitted value, including for newly created roots; a difference is reported as `permissionControl.enabled` restart-required. A separate cold start captures the new toggle. Dynamic outside-read, web and persistent rules require runtime revision synchronization rather than restart. OFF does not disable Core guards, readonly, native sandbox/approval or tool filters. Configuration and startup admission do not establish that a permission executor is mounted or synchronized. Actual native standing `danger-full-access` is full access: DSMM adds no ask, downgrade, path permit or refusal for unknown operations or missing classification facts. Only a deterministically matched existing explicit deny blacklist may produce a native pre-approval denial. A requested mode or configured command target alone isn't effective native authority. See [native permissions](native-permissions.md).
@@ -58,7 +60,7 @@ Only relevant effective permission changes coordinate revocation. Unrelated loca
 
 `canSelectModel`, `canToggleMode` and `canApplyOverlay` describe independent actions and refusal reasons. Live overlay Apply is unavailable (`new-session-required`); save/select a future default for a new session. This doesn't disable ordinary mode changes or **Use profile model** where their own native service, idle/session identity and manual-intent checks pass. Use profile model selects from admitted immutable configuration, doesn't write a profile pointer, and respects a newer manual choice even when its value is unchanged.
 
-`/dsmm-status` reports normalized bounded state; `/dsmm-status json` returns a defensive version-1 snapshot. Status separates admitted profile/revision/epoch, actual route state, effective settings and captured module/runtime binding. Ordinary roots report native-owned effort and keep the native model tab's route, not an applied child-role primary. `profileModel` is advisory for explicit **Use profile model**, never proof that selection already happened.
+`/dsmm-status` reports normalized bounded state; `/dsmm-status json` returns a defensive version-1 snapshot. Status separates admitted profile/revision/epoch, actual route state, effective settings and captured module/runtime binding. Roots using `rootModelPolicy: "native"` report native-owned effort and keep the native model tab's route. Eligible `configured` roots report configuration-led routing and its bounded recovery state. `profileModel` is a declared route, not proof that selection or execution already happened.
 
 `dsmm-status` is reserved. Setting `modeName` to that exact value normalizes the mode command to `deepwork`, preserving the independent inspection command. Status computation doesn't select a model or contact a provider.
 

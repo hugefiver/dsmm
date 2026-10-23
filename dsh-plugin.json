@@ -1,0 +1,41 @@
+{
+  "$schema": "https://dsh.community/schemas/dsh-plugin-0.15.json",
+  "manifestVersion": "0.15",
+  "id": "com.hugefiver.dsmm",
+  "name": "DSMM",
+  "version": "0.3.16",
+  "facets": {
+    "host": {
+      "entry": "lib/index.js",
+      "apiVersion": "v1alpha1"
+    }
+  },
+  "requires": {
+    "contracts": [
+      {
+        "apiVersion": "commands.dsh/v1alpha1",
+        "kind": "Command"
+      }
+    ]
+  },
+  "permissions": [
+    {
+      "name": "commands.invoke",
+      "scope": "com.hugefiver.dsmm.manage",
+      "reason": "show DSMM status and confirm bounded Deepwork, configuration or profile actions"
+    }
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "id": "com.hugefiver.dsmm.manage",
+        "title": "Manage DSMM"
+      }
+    ]
+  },
+  "subscriptions": [],
+  "license": "LicenseRef-AAAPL",
+  "source": {
+    "repository": "https://github.com/hugefiver/dsmm"
+  }
+}

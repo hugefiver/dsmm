@@ -1,6 +1,6 @@
 # DSMM compatibility and upgrade boundaries
 
-**DSMM 0.3.15 targets exactly DSH `0.2.1-rc.2`** and Node.js 22 or later. Older SDKs and automatically drifting versions aren't supported targets.
+**DSMM 0.3.16 targets exactly DSH `0.2.1-rc.2`** and Node.js 22 or later. Older SDKs and automatically drifting versions aren't supported targets.
 
 ## Supported integration
 
@@ -22,7 +22,7 @@ Core configuration and native permissions work without a session or active Deepw
 
 Global and exact native-profile saves are independent. Native form identity/revision and base/user provenance are required; no fallback Global write or cross-layer transaction is implied. Named documents, future-default pointers and actual admission remain separate. Desired saves don't change mounted capability or a running Agent's policy. Without a session, actual admission is unknown.
 
-Save and future-default selection remain available under their own authority. Native **Use profile model** and **Deepwork mode** have independent capabilities. Use profile model consumes the admitted configuration and respects newer native manual model/effort intent, including same-value reselection. Root requests retain native assembled selection/defaults; refreshing an admission does not implicitly select its profile primary or authorize a root fallback channel. See [Profiles](profiles.md) and [settings/status](settings-status.md).
+Save and future-default selection remain available under their own authority. Native **Use profile model** and **Deepwork mode** have independent capabilities. Use profile model consumes the admitted configuration and respects newer native manual model/effort intent, including same-value reselection. With the default `rootModelPolicy: "native"`, root requests retain native assembled selection/defaults; refreshing an admission does not implicitly apply its profile primary or authorize a root fallback channel. Explicit deployment policy `configured` instead gives eligible admitted roots configuration-led primary/fallback routing. It applies equally to Web and TUI roots in that deployment, not by detecting a client; named profiles cannot override the policy. See [model routing](model-routing.md), [Profiles](profiles.md) and [settings/status](settings-status.md).
 
 Stores use separate CAS and atomic-write boundaries. Committed saves aren't rolled back in the response because observation/notification failed: report refresh-required or unsynchronized status. An unconfirmed native mutation requires authoritative reread before retry. Operator, connection and owner lifetime remain valid through precommit; client claims or loopback-looking URLs don't authorize writes.
 
@@ -50,7 +50,7 @@ Standard supported model calls use native prepared calls. Raw/custom and Pi-AI s
 
 ## Retired compatibility surfaces
 
-No old SDK branch, legacy-read host, cold-profile migration, session repair or custom-owner selector is a 0.3.15 activation path. Old libraries, captures and unmarked history aren't copied, rewritten, repaired or adopted by same-name fallback. Retired brand calibration/default-effort and MaxReasoningPresets fields reject with `deprecated-field`; edit configuration deliberately using generic routes and parameters.
+No old SDK branch, legacy-read host, cold-profile migration, session repair or custom-owner selector is a 0.3.16 activation path. Old libraries, captures and unmarked history aren't copied, rewritten, repaired or adopted by same-name fallback. Retired brand calibration/default-effort and MaxReasoningPresets fields reject with `deprecated-field`; edit configuration deliberately using generic routes and parameters.
 
 Published **0.3.0 retains its rc.1 identity**, immutable tag, package, assets and version-bound receipt grammar. Historical release controls interpret those records under their original identity, not as a runtime compatibility branch.
 

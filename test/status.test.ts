@@ -124,6 +124,67 @@ test("ordinary-root status reports native-owned model selection instead of dorma
   assert.equal(appended(), 0);
 });
 
+test("status projects captured deployment root model policy and its provenance without claiming admission when absent", () => {
+  const { agent, appended } = createAgent();
+  const settings = resolveConfig({ rootModelPolicy: "configured" });
+  const admission = { settings, profile: null, epoch: "policy-epoch", scope: "deployment-baseline" as const,
+    sources: { rootModelPolicy: "global" as const }, sourceCaptures: { fields: { rootModelPolicy: "deployment" as const } } };
+  const snapshot = createDsmmStatusSnapshot({ agent, settings, admission, modeActive: false });
+  assert.deepEqual(snapshot.rootModelPolicy, { value: "configured", source: "global", capture: "deployment" });
+  assert.equal(snapshot.effectiveSettings.rootModelPolicy, "configured");
+  assert.equal(createDsmmStatusSnapshot({ agent, settings, modeActive: false }).rootModelPolicy, undefined);
+  settings.rootModelPolicy = "native";
+  assert.equal(snapshot.rootModelPolicy?.value, "configured");
+  assert.equal(snapshot.effectiveSettings.rootModelPolicy, "configured");
+  assert.equal(appended(), 0);
+});
+
+test("admitted configured roots expose role routes and actual recovery state without treating desired policy as active", () => {
+  const settings = resolveConfig({ rootModelPolicy: "configured", roleRouting: { "dsmm-orchestrator": {
+    primary: { provider: "configured", model: "primary" },
+    fallbackRoutes: [{ provider: "configured", model: "backup" }], strategy: "rate-limit-fallback"
+  } } });
+  const { agent, appended } = createAgent();
+  const admission = { settings, profile: null, epoch: "configured-status", scope: "deployment-baseline" as const };
+  const runtimeState = { role: "dsmm-orchestrator" as const, strategy: "rate-limit-fallback" as const,
+    rateLimit: settings.runtimePolicy.rateLimit, route: { provider: "configured", model: "backup" },
+    retries: 1, rateLimitFailures: 1, switches: 1, totalDelayMs: 10 };
+  const snapshot = createDsmmStatusSnapshot({ agent, settings, admission, modeActive: true, roleRuntimeState: runtimeState });
+  assert.deepEqual(snapshot.rolePolicy.primary, settings.roleRouting["dsmm-orchestrator"]?.primary);
+  assert.deepEqual(snapshot.rolePolicy.fallbackRoutes, settings.roleRouting["dsmm-orchestrator"]?.fallbackRoutes);
+  assert.equal(snapshot.rolePolicy.strategy, "rate-limit-fallback");
+  assert.deepEqual(snapshot.rolePolicy.runtimeState, runtimeState);
+  assert.equal(snapshot.runtimeRecovery.fallbackRouteCount, 1);
+  for (const input of [
+    { agent, settings, admission, modeActive: false },
+    { agent, settings, modeActive: true },
+    { agent, settings, admission: { ...admission, settings: resolveConfig() }, modeActive: true },
+    { agent, settings: { ...settings, modules: { deepwork: { enabled: false } } }, admission, modeActive: true }
+  ]) {
+    const inactive = createDsmmStatusSnapshot(input);
+    assert.equal(inactive.rolePolicy.primary, undefined);
+    assert.deepEqual(inactive.rolePolicy.fallbackRoutes, []);
+    assert.equal(inactive.rolePolicy.strategy, "startup-lock");
+  }
+  assert.equal(appended(), 0);
+});
+
+test("configured-root actual route stays unknown before a request and then follows its native request header", () => {
+  const settings = resolveConfig({ rootModelPolicy: "configured", roleRouting: { "dsmm-orchestrator": {
+    primary: { provider: "configured", model: "primary" }
+  } } });
+  const { agent } = createAgent({ provider: "native", model: "unused-baseline" });
+  const admission = { settings, profile: null, epoch: "unrequested", scope: "deployment-baseline" as const };
+  const snapshot = () => createDsmmStatusSnapshot({ agent, settings, admission, modeActive: true });
+  assert.deepEqual(snapshot().route, { family: "unknown" });
+  assert.deepEqual(snapshot().rolePolicy.primary, { provider: "configured", model: "primary" });
+  agent.session.requestHeader = () => ({ config: { provider: "configured", model: "fallback", reasoningEffort: "high" } });
+  assert.deepEqual(snapshot().route, { provider: "configured", model: "fallback", currentReasoningEffort: "high", family: "unknown" });
+  delete agent.session.requestHeader;
+  assert.deepEqual(createDsmmStatusSnapshot({ agent, settings: resolveConfig(), modeActive: true }).route,
+    { provider: "native", model: "unused-baseline", family: "unknown" });
+});
+
 test("status formatter renders the exact bounded Deepwork summary with DW role labels", () => {
   const formatted = formatDsmmStatus(createFormatterFixture());
 

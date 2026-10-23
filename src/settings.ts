@@ -34,6 +34,7 @@ export type DsmmInvocationLevel = "normal" | "low" | "high" | "max";
 export type DsmmLevelOverride = { reasoningEffort: string; provider?: never; model?: never } | DsmmModelRoute;
 export interface DsmmInvocationOptions { level?: DsmmInvocationLevel; route?: DsmmLevelOverride }
 export type DsmmToolTopology = "per-role" | "parameterized";
+export type DsmmRootModelPolicy = "native" | "configured";
 
 export interface DsmmWorkflowSettings {
   policy: "risk-based" | "legacy";
@@ -114,6 +115,7 @@ export interface DsmmPluginConfig {
   /** Deployment-only; the mounted permission owner retains its cold-start policy. */
   permissionControl?: PermissionControlSchemaInput;
   modelParameters?: { passthrough?: boolean };
+  rootModelPolicy?: DsmmRootModelPolicy;
   locale?: DsmmLocale;
   /** Only global deployment input; native/legacy profile transport rejects it. */
   modules?: { deepwork?: { enabled?: boolean } };
@@ -138,6 +140,7 @@ export type DsmmNativeConfig = DsmmPluginConfig;
 export interface DsmmSettings {
   permissionControl: PermissionControlSettings;
   modelParameters: { passthrough: boolean };
+  rootModelPolicy: DsmmRootModelPolicy;
   locale?: DsmmLocale;
   modules: { deepwork: { enabled: boolean } };
   modeName: string;
@@ -221,6 +224,7 @@ export interface RegisterSettingsOptions {
 export const DEFAULT_DSMM_SETTINGS: DsmmSettings = {
   permissionControl: DEFAULT_PERMISSION_CONTROL,
   modelParameters: { passthrough: true },
+  rootModelPolicy: "native",
   modules: { deepwork: { enabled: true } },
   modeName: "deepwork",
   defaultActive: false,
@@ -302,6 +306,7 @@ const MODEL_ROUTE_SCHEMA = Schema.transform(Schema.any(), (input: unknown) => no
 const LEVEL_OVERRIDE_SCHEMA = Schema.union([MODEL_ROUTE_SCHEMA, Schema.object({ reasoningEffort: Schema.string().required() })]);
 const LEVELS_SCHEMA = Schema.object({ low: LEVEL_OVERRIDE_SCHEMA, high: LEVEL_OVERRIDE_SCHEMA, max: LEVEL_OVERRIDE_SCHEMA });
 const LOCALE_SCHEMA = Schema.union(DSMM_LOCALES.map(locale => Schema.const(locale)));
+const ROOT_MODEL_POLICY_SCHEMA = Schema.union([Schema.const("native"), Schema.const("configured")]);
 const RATE_LIMIT_CONFIG_SCHEMA = Schema.object(Object.fromEntries(Object.keys(DEFAULT_DSMM_RUNTIME_POLICY.rateLimit).map((key) => [key, Schema.number()])));
 const ROUTING_STRATEGY_CONFIG_SCHEMA = Schema.union([Schema.const("startup-lock"), Schema.const("rate-limit-fallback")]);
 const RUNTIME_POLICY_CONFIG_SCHEMA = Schema.object({ strategy: ROUTING_STRATEGY_CONFIG_SCHEMA, rateLimit: RATE_LIMIT_CONFIG_SCHEMA });
@@ -323,6 +328,7 @@ const ROLE_ROUTING_VALIDATION_SCHEMA = Schema.transform(Schema.any(), (input: un
   if (!isRoutingRecord(input)) return input;
   rejectDeprecatedFields(input);
   if (Object.hasOwn(input, "locale")) validateLocale(input.locale);
+  if (Object.hasOwn(input, "rootModelPolicy")) validateShape(input.rootModelPolicy, ROOT_MODEL_POLICY_SCHEMA, ["rootModelPolicy"]);
   if (isRoutingRecord(input.guards) && Object.hasOwn(input.guards, "gitWriteScope")) validateShape(input.guards.gitWriteScope, GIT_WRITE_SCOPE_SCHEMA, ["guards", "gitWriteScope"]);
   if (isRoutingRecord(input.runtimeRecovery) && Array.isArray(input.runtimeRecovery.fallbackRoutes)) {
     for (const route of input.runtimeRecovery.fallbackRoutes) {
@@ -435,6 +441,7 @@ const LSP_SCHEMA = Schema.object({
 const CONFIG_FIELDS_SCHEMA = Schema.object({
   permissionControl: permissionControlSchema,
   modelParameters: Schema.object({ passthrough: Schema.boolean().default(DEFAULT_DSMM_SETTINGS.modelParameters.passthrough) }),
+  rootModelPolicy: ROOT_MODEL_POLICY_SCHEMA.default(DEFAULT_DSMM_SETTINGS.rootModelPolicy),
   locale: LOCALE_SCHEMA,
   modeName: Schema.string().default(DEFAULT_DSMM_SETTINGS.modeName),
   section: Schema.string(),
@@ -531,6 +538,7 @@ export function validateNativeConfig(input: unknown): DsmmNativeConfig {
 export const DSMM_SETTINGS_SCHEMA = Schema.intersect([ROLE_ROUTING_VALIDATION_SCHEMA, Schema.object({
   permissionControl: permissionControlSchema,
   modelParameters: Schema.object({ passthrough: Schema.boolean().default(DEFAULT_DSMM_SETTINGS.modelParameters.passthrough) }),
+  rootModelPolicy: ROOT_MODEL_POLICY_SCHEMA.default(DEFAULT_DSMM_SETTINGS.rootModelPolicy),
   locale: LOCALE_SCHEMA,
   modules: Schema.object({ deepwork: Schema.object({ enabled: Schema.boolean().default(true) }) }),
   modeName: Schema.string().default(DEFAULT_DSMM_SETTINGS.modeName),
@@ -551,12 +559,14 @@ export const DSMM_SETTINGS_SCHEMA = Schema.intersect([ROLE_ROUTING_VALIDATION_SC
 export function resolveConfig(config: DsmmPluginConfig = {}): DsmmSettings {
   rejectDeprecatedFields(config);
   if (Object.hasOwn(config, "locale")) validateLocale(config.locale);
+  if (Object.hasOwn(config, "rootModelPolicy")) validateShape(config.rootModelPolicy, ROOT_MODEL_POLICY_SCHEMA, ["rootModelPolicy"]);
   if (config.subagents !== undefined) validateShape(config.subagents, SUBAGENTS_SCHEMA, ["subagents"]);
   if (config.modelParameters !== undefined) validateShape(config.modelParameters, CONFIG_FIELDS_SCHEMA.dict!.modelParameters!, ["modelParameters"]);
   if (config.permissionControl !== undefined) validateShape(config.permissionControl, permissionControlSchema, ["permissionControl"]);
   const settings: DsmmSettings = {
     permissionControl: resolvePermissionControl(config.permissionControl),
     modelParameters: { passthrough: config.modelParameters?.passthrough ?? DEFAULT_DSMM_SETTINGS.modelParameters.passthrough },
+    rootModelPolicy: config.rootModelPolicy ?? DEFAULT_DSMM_SETTINGS.rootModelPolicy,
     ...(config.locale === undefined ? {} : { locale: config.locale }),
     modules: { deepwork: { enabled: config.modules?.deepwork?.enabled ?? DEFAULT_DSMM_SETTINGS.modules.deepwork.enabled } },
     modeName: normalizeModeName(config.modeName),

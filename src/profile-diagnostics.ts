@@ -43,6 +43,7 @@ const roleRouting: FieldShape = { primary: route, fallbackRoutes: [route], strat
 const configFields: Record<string, FieldShape> = {
   permissionControl: schemaFieldShape(permissionControlSchema),
   modelParameters: { passthrough: null },
+  rootModelPolicy: null,
   locale: null, modeName: null, section: null, defaultActive: null, promptOrder: null,
   deepseekV4ProCalibration: null, deepseekV4ProDefaultReasoningEffort: null, deepseekFlashCalibration: null, deepseekFlashDefaultReasoningEffort: null,
   deepseekV4ProMaxReasoningPresets: null, deepseekFlashMaxReasoningPresets: null,
