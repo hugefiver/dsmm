@@ -34,6 +34,13 @@ export function draftWarnings(content: string): ProfileDiagnostic[] {
   return [diagnostic("blank-label", "label", fieldLocation(content, tree, "label"))];
 }
 
+export function issueKey(issue: ProfilesIssue): "unavailable" | "transport" | "conflict" | "validation" | "io" | "selectionConflict" | "appliedInvalid" {
+  if (issue.source === "selection") return issue.code === "conflict" ? "selectionConflict" : "appliedInvalid";
+  if (issue.kind === "assembly") return "unavailable";
+  if (issue.kind === "transport") return "transport";
+  return issue.code === "conflict" || issue.code === "validation" ? issue.code : "io";
+}
+
 export function ProfileWarnings({ warnings, t }: PropsLocale<"settings.dsmm-profiles"> & { warnings?: ProfileDiagnostic[] }) {
   return <>{profileWarnings(warnings).map(warning => <div className="dsmm-warning" key={`${warning.code}:${warning.field}`} data-dsmm-warning>
     <p>{t("warningMarker", { code: warning.code, field: warning.field })}</p>

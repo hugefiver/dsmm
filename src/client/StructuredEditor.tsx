@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import type { Ref } from "react";
 import { Button, Input } from "@deepseek-ai/dsh-client-ui-primitives";
 import type { PropsLocale } from "@deepseek-ai/dsh-client-ui-slots";
@@ -6,18 +6,17 @@ import type { ModelCatalog } from "@deepseek-ai/dsh-api-session-controller";
 import { DSMM_LOCALES } from "../profile-locale.js";
 import type { DsmmInvocationLevel, DsmmLevelOverride, DsmmModelRoute } from "../settings.js";
 import type { DsmmRateLimitPolicy, DsmmRuntimePolicyConfig, DsmmRuntimePolicySettings } from "../routing-policy.js";
-import { DSMM_RATE_LIMIT_BOUNDS, normalizeRateLimitPolicy } from "../routing-policy.js";
+import { DSMM_RATE_LIMIT_BOUNDS } from "../routing-policy.js";
 import type { ProfilesActions, ProfilesViewSnapshot } from "./controller.js";
 import { structuredDocument } from "./structured.js";
 import type { JsonPath, StructuredDocument } from "./structured.js";
 import { RETRY_FIELD_LABEL_KEYS } from "./locales.js";
-import { RoleAvailability, roleAvailability } from "./RoleAvailability.js";
 import { EditableChoice } from "./EditableChoice.js";
 
 type Locale = PropsLocale<"settings.dsmm-profiles">;
 type Edit = ProfilesActions["editPath"];
 
-function RetryNumber({ id, name, field, value, inherited, path, disabled, actions, t }: Locale & {
+export function RetryNumber({ id, name, field, value, inherited, path, disabled, actions, t }: Locale & {
   id: string; name: string; field: keyof DsmmRateLimitPolicy; value: number | undefined; inherited: number | undefined; path: JsonPath; disabled: boolean; actions: ProfilesActions;
 }) {
   const key = path.join(".");
@@ -96,7 +95,7 @@ export function RouteFields({ value, path, name, catalog, disabled, edit, editRo
   </div>;
 }
 
-function PolicyFields({ value, inherited, path, name, disabled, actions, t }: Locale & {
+export function PolicyFields({ value, inherited, path, name, disabled, actions, t }: Locale & {
   value: DsmmRuntimePolicyConfig; inherited: DsmmRuntimePolicySettings | undefined; path: JsonPath; name: string; disabled: boolean; actions: ProfilesActions;
 }) {
   const prefix = useId();
@@ -127,7 +126,7 @@ function PolicyFields({ value, inherited, path, name, disabled, actions, t }: Lo
   </div>;
 }
 
-function LevelFields({ level, value, path, catalog, disabled, actions, t }: Locale & {
+export function LevelFields({ level, value, path, catalog, disabled, actions, t }: Locale & {
   level: Exclude<DsmmInvocationLevel, "normal">; value?: DsmmLevelOverride; path: JsonPath; catalog: ModelCatalog | null; disabled: boolean; actions: ProfilesActions;
 }) {
   const prefix = useId();
@@ -213,38 +212,23 @@ export type AdvancedSettingsProps = Locale & {
   state: ProfilesViewSnapshot;
   actions: ProfilesActions;
   disabled: boolean;
-  onJumpToOrchestrator?: () => void;
+  document?: StructuredDocument | null;
+  isInvalidProjection?: boolean;
 };
 
-export function AdvancedSettings({ state, actions, disabled, onJumpToOrchestrator, t }: AdvancedSettingsProps) {
+export function AdvancedSettings({ state, actions, disabled, document: propDoc, isInvalidProjection: propInvalid, t }: AdvancedSettingsProps) {
   const prefix = useId();
-  const [selectedRole, setSelectedRole] = useState("dsmm-orchestrator");
   const editor = state.editor;
   if (editor === null) return null;
-  const rawDoc = structuredDocument(editor.content);
-  const lastValidDocRef = useRef<StructuredDocument | null>(null);
-  if (rawDoc !== null) {
-    lastValidDocRef.current = rawDoc;
-  }
-  const document = rawDoc ?? lastValidDocRef.current;
-  const isInvalidProjection = rawDoc === null;
-  if (document === null) return <p className="dsmm-hint" data-dsmm-structured-invalid>{t("rawInvalid")}</p>;
+
+  const rawDoc = propDoc !== undefined ? propDoc : structuredDocument(editor.content);
+  const isInvalidProjection = propInvalid !== undefined ? propInvalid : (rawDoc === null);
+  if (rawDoc === null) return <p className="dsmm-hint" data-dsmm-structured-invalid>{t("rawInvalid")}</p>;
+  const document = rawDoc;
 
   const effectiveDisabled = disabled || isInvalidProjection;
-
-  const roles = state.snapshot?.roles ?? [];
-  const role = roles.find((candidate) => candidate.id === selectedRole) ?? roles[0];
-  const policy = role === undefined ? undefined : document.roleRouting[role.id] ?? {};
   const baseline = state.snapshot?.editorDefaults;
-  let inherited: DsmmRuntimePolicySettings | undefined;
-  try { if (baseline !== undefined) {
-    const profileDefaults = { strategy: document.runtimePolicy.strategy ?? baseline.strategy, rateLimit: normalizeRateLimitPolicy(document.runtimePolicy.rateLimit, baseline.rateLimit) };
-    inherited = { strategy: role?.runtimePolicy?.strategy ?? profileDefaults.strategy, rateLimit: normalizeRateLimitPolicy(role?.runtimePolicy?.rateLimit, profileDefaults.rateLimit) };
-  } }
-  catch { /* Invalid effective values remain a raw/Host validation error. */ }
-  const rolePath: JsonPath = ["settings", "roleRouting", role?.id ?? ""];
-  const availability = roleAvailability(role?.availability);
-  const namedRoles = document.settings.roles as Record<string, boolean> | undefined;
+
   const topology = (document.settings.subagents as { toolTopology?: string } | undefined)?.toolTopology;
   const gitGuard = document.guards?.gitWriteGuard;
   const gitScope = document.guards?.gitWriteScope;
@@ -252,42 +236,6 @@ export function AdvancedSettings({ state, actions, disabled, onJumpToOrchestrato
 
   return <div className="dsmm-structured" data-dsmm-structured>
     {isInvalidProjection && <p className="dsmm-hint" data-dsmm-structured-invalid>{t("rawInvalid")}</p>}
-    <div className="dsmm-field"><label htmlFor={`${prefix}-role`}>{t("roleSelect")}</label><select id={`${prefix}-role`} disabled={effectiveDisabled || roles.length === 0} value={role?.id ?? ""} onChange={(event) => setSelectedRole(event.currentTarget.value)}>{roles.length === 0 && <option value="">{t("rolesUnavailable")}</option>}{roles.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.label}{candidate.enabled ? "" : ` — ${t("roleDisabled")}`}</option>)}</select></div>
-    {role !== undefined && policy !== undefined && <fieldset key={role.id} data-dsmm-role={role.id}><legend>{role.label}</legend>
-      <RoleAvailability value={role.availability} t={t} />
-      <div className="dsmm-field"><label htmlFor={`${prefix}-role-enabled`}>{t("namedRole", { name: role.label })}</label>
-        <select id={`${prefix}-role-enabled`} value={namedRoles?.[role.id] === undefined ? "" : String(namedRoles[role.id])} disabled={effectiveDisabled} aria-describedby={`${prefix}-role-hint`} onChange={event => actions.editPath(["settings", "roles", role.id], event.currentTarget.value === "" ? undefined : event.currentTarget.value === "true")}>
-          <option value="">{t("inherit")}</option><option value="true" disabled={availability === undefined || !availability.startupAvailable || !availability.deploymentEnabled || availability.reason === "module-off"}>{t("enabled")}</option>
-          <option value="false" disabled={availability === undefined || availability.required}>{t("disabled")}</option>
-        </select><p id={`${prefix}-role-hint`} className="dsmm-hint">{t("namedRoleHint")}</p>
-      </div>
-      <PolicyFields t={t} value={policy} inherited={inherited} path={rolePath} name={role.label} disabled={effectiveDisabled} actions={actions} />
-      {role.id === "dsmm-orchestrator" ? <div className="dsmm-field">
-        <p className="dsmm-hint">{t("orchestratorInBasicNotice")}</p>
-        {onJumpToOrchestrator && <Button type="button" variant="outline" onClick={onJumpToOrchestrator}>{t("orchestratorJumpToBasic")}</Button>}
-        <p className="dsmm-hint">{t("orchestratorLevels")}</p>
-      </div> : <>
-        <div className="dsmm-field"><label htmlFor={`${prefix}-primary-mode`}>{t("primaryMode", { name: role.label })}</label><select id={`${prefix}-primary-mode`} disabled={effectiveDisabled} value={policy.primary === undefined ? "inherit" : "explicit"} onChange={(event) => actions.editPath([...rolePath, "primary"], event.currentTarget.value === "inherit" ? undefined : { provider: "", model: "" })}><option value="inherit">{t("inheritRoute")}</option><option value="explicit">{t("configuredRoute")}</option></select></div>
-        {policy.primary !== undefined && <RouteFields t={t} value={policy.primary} path={[...rolePath, "primary"]} name={t("primaryName", { name: role.label })} catalog={state.catalog} disabled={effectiveDisabled} edit={actions.editPath} editRoute={actions.editRoute} />}
-        <p className="dsmm-hint">{t("effortChangeHint")}</p>
-        <p className="dsmm-hint">{t("normalLevel")}</p>
-        <p className="dsmm-hint">{t("levelsHint")}</p>
-        {(["low", "high", "max"] as const).map(level => <LevelFields key={level} level={level} value={policy.levels?.[level]} path={[...rolePath, "levels", level]} catalog={state.catalog} disabled={effectiveDisabled} actions={actions} t={t} />)}
-      </>}
-      <div className="dsmm-field"><label htmlFor={`${prefix}-fallback-mode`}>{t("fallbackMode", { name: role.label })}</label><select id={`${prefix}-fallback-mode`} disabled={effectiveDisabled} value={policy.fallbackRoutes === undefined ? "inherit" : "explicit"} onChange={(event) => actions.editPath([...rolePath, "fallbackRoutes"], event.currentTarget.value === "inherit" ? undefined : [])}><option value="inherit">{t("inheritChain")}</option><option value="explicit">{t("configuredChain")}</option></select></div>
-      {policy.fallbackRoutes?.length === 0 && <p className="dsmm-hint">{t("emptyChain")}</p>}
-      {policy.fallbackRoutes?.map((candidate: DsmmModelRoute, index: number) => {
-        const name = t("fallbackName", { name: role.label, index: index + 1 });
-        return <fieldset key={index}><legend>{name}</legend><RouteFields t={t} value={candidate} path={[...rolePath, "fallbackRoutes", index]} name={name} catalog={state.catalog} disabled={effectiveDisabled} edit={actions.editPath} editRoute={actions.editRoute} />
-          <div className="dsmm-actions"><Button type="button" variant="outline" disabled={effectiveDisabled || index === 0} onClick={() => actions.moveFallback(role.id, index, index - 1)}>{t("moveUp", { name })}</Button><Button type="button" variant="outline" disabled={effectiveDisabled || index === policy.fallbackRoutes!.length - 1} onClick={() => actions.moveFallback(role.id, index, index + 1)}>{t("moveDown", { name })}</Button><Button type="button" variant="outline" disabled={effectiveDisabled} onClick={() => actions.editPath([...rolePath, "fallbackRoutes", index], undefined)}>{t("removeFallback", { name })}</Button></div>
-        </fieldset>;
-      })}
-      <Button type="button" variant="outline" disabled={effectiveDisabled || (policy.fallbackRoutes?.length ?? 0) >= 32} onClick={() => {
-        if (policy.fallbackRoutes === undefined) actions.editPath([...rolePath, "fallbackRoutes"], [{ provider: "", model: "" }]);
-        else actions.editPath([...rolePath, "fallbackRoutes", policy.fallbackRoutes.length], { provider: "", model: "" });
-      }}>{t("addFallback", { name: role.label })}</Button>
-    </fieldset>}
-
     <fieldset><legend>{t("profileDefaults")}</legend><PolicyFields t={t} value={document.runtimePolicy} inherited={baseline} path={["settings", "runtimePolicy"]} name={t("profileDefaults")} disabled={effectiveDisabled} actions={actions} /></fieldset>
 
     <fieldset className="dsmm-git-guard"><legend>{t("gitWriteGuard")}</legend>

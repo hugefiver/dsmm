@@ -1,6 +1,6 @@
 # Deepwork runtime profiles
 
-DSMM 0.3.12 targets exactly DSH `0.2.1-rc.2`. See [compatibility](compatibility.md) for installation boundaries.
+DSMM 0.3.13 targets exactly DSH `0.2.1-rc.2`. See [compatibility](compatibility.md) for installation boundaries.
 
 A named Deepwork profile is a runtime-policy document, not a native deployment profile or Agent preset. Open **Settings → Deepwork Profiles** to browse and edit it. Native **Plugins → DSMM** edits deployment layers instead, as described in [settings and status](settings-status.md).
 
@@ -21,29 +21,39 @@ The compact Conversation header menu shows the current admission separately from
 
 ## Named profiles interface layout
 
-The redesigned Named Profiles page (`.dsmm-profiles.dsmm-named-profiles`) organizes editing into a scannable single-column layout:
+The redesigned Named Profiles page (`.dsmm-profiles.dsmm-named-profiles`) organizes editing into a streamlined, scannable flow with a wide multi-agent configuration dialog:
 
 1. **Header browse row** — Select profile, New draft, and Refresh inventory buttons alongside a real-time status badge (`data-dsmm-editor-state`) tracking dirty, saved, refresh-required, and applied states.
 2. **Effective summary card** — Visible summary of future default (with inline Set as future default button) and current session admission (with a quick-locate button targeting the session settings section).
-3. **Secondary actions** — Collapsed disclosure containing future default reset ("新会话使用插件默认" / "Use baseline for future sessions") and current-session scope controls.
+3. **Secondary actions** — Collapsed disclosure containing future default reset ("新会话使用插件默认" / "Use baseline for future sessions") and current-session scope controls, preserving four independent transactions (Save profile, Set as future default, Session admission, and Model-only activation).
 4. **Basic settings** — Flat, uncollapsed section in normal flow:
    - Profile name (`label`) with optional omit action.
    - Profile ID (`id`), locked for saved revisions.
-   - Orchestrator primary model (`roleRouting.dsmm-orchestrator.primary` only), with provider/model/effort selection and a clear notice that this primary model governs the main coordinating agent.
+   - Orchestrator primary model shortcut (`roleRouting.dsmm-orchestrator.primary` only), with provider/model/effort selection and note that orchestrator levels are not provided.
+   - "Configure all Agent models" ("配置全部 Agent 模型") button opening the Multi-Agent Dialog.
    - Business output language (`settings.locale`).
    - Deepwork default active (`settings.defaultActive`).
    - If raw JSONC syntax is invalid, a clear notice is shown here with a button to expand and focus the JSONC source.
-5. **Advanced settings** — Collapsed `<details>` disclosure:
-   - Role models & availability: Per-role primary route, invocation levels (`low`, `high`, `max`), and ordered fallbacks with add/remove/move actions. For `dsmm-orchestrator`, explains that the primary model is configured in Basic settings with a jump button. Switching roles preserves invalid numeric drafts and keeps saving blocked until those fields are corrected or explicitly discarded.
-   - Retry policy: Strategy selection and rate-limit numeric overrides.
-   - Profile defaults: Default strategy and rate-limit bounds.
+5. **Multi-Agent Dialog (`ProfileModelsDialog`)** — Wide responsive modal dialog (~1040px max width, internal scroll) reusing DSH Modal primitives:
+   - Background inert isolation applied to document body siblings while open.
+   - Dialog filter bar with role search input (by role name/ID) and toggle for explicit model overrides only (including explicit empty fallback chains `[]`).
+   - Role cards listing each role from `snapshot.roles` with inline primary route (provider, model, reasoning effort).
+   - Expandable calling levels (`low`, `high`, `max`) with accurate configuration summary (absent for orchestrator).
+   - Expandable fallback chains (up to 32 items with safe focus management on add/move/remove).
+   - Collapsed non-model role settings (`enabled`, `retry`) with inheritance summary using known data.
+   - Single JSONC draft shared with main page; closing dialog via Esc or close button preserves dirty/invalid drafts without extra discard confirmation.
+6. **Advanced execution settings** — Collapsed `<details>` disclosure for global execution settings:
+   - Profile defaults: Default strategy and rate-limit bounds (`settings.runtimePolicy`).
    - Git write protection: Sparse `settings.guards.gitWriteGuard` (`ask` | `deny` | `off`) and `settings.guards.gitWriteScope` (`all-writes` | `high-risk`). When guard is `off`, the scope control is disabled with an explanatory note ("保护已关闭，检查范围暂不生效"), while Unset/inherit remains accessible.
-   - Subagent tools: Per-role tool topology configuration.
-6. **Advanced JSONC source editor** — Collapsed `<details className="dsmm-advanced">` disclosure:
+   - Subagent tools: `settings.subagents.toolTopology` (`per-role` | `parameterized`).
+7. **Advanced JSONC source editor** — Collapsed `<details className="dsmm-advanced">` disclosure:
    - Full JSONC source editor preserving comments, whitespace, and unprojected parameters.
    - User-triggered validation refusals expand disclosures and select the exact UTF-16 character range with reduced-motion support.
-7. **Save bar** — In normal document flow at the bottom:
+8. **Save bar with Actionable Save-Lock Locator** — In normal document flow at the bottom:
    - Status message and blocking issues.
+   - When save is locked due to invalid fields, actionable locator buttons directly navigate to the target:
+     - For role-scoped invalid fields, automatically opens the dialog, clears filters, expands the target details group, and focuses the invalid field.
+     - For ID or unmapped errors, focuses the field or expands JSONC with exact UTF-16 character range selection.
    - Save button (enabled only when dirty and valid).
    - Discard button (triggers confirmation when dirty or when invalid fields exist).
    - Reload button (available when clean).

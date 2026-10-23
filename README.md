@@ -2,7 +2,7 @@
 
 DSMM (`@dsmm/dsmm`) adds native configuration, role delegation and child controls to DeepSeek Harness. **DSMM** is the Plugins page and package title; **Deepwork** is its optional workflow module. It isn't an OpenCode compatibility layer.
 
-**DSMM 0.3.12 targets exactly DSH `0.2.1-rc.2`** and Node.js 22 or later. The maintained source repository is [hugefiver/dsmm](https://github.com/hugefiver/dsmm).
+**DSMM 0.3.13 targets exactly DSH `0.2.1-rc.2`** and Node.js 22 or later. The maintained source repository is [hugefiver/dsmm](https://github.com/hugefiver/dsmm).
 
 ## Configuration and profiles
 

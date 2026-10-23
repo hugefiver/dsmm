@@ -1,25 +1,36 @@
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Button, Input } from "@deepseek-ai/dsh-client-ui-primitives";
 import type { InjectFace, PropsLocale } from "@deepseek-ai/dsh-client-ui-slots";
-import type { ProfilesActions, ProfilesController, ProfilesIssue, ProfilesViewSnapshot } from "./controller.js";
+import type { ProfilesActions, ProfilesController, ProfilesViewSnapshot } from "./controller.js";
 import { canReconcileSelection } from "./controller.js";
 import { AdvancedSettings, RouteFields } from "./StructuredEditor.js";
+import { ProfileModelsDialog } from "./ProfileModelsDialog.js";
 import { SessionScope, SessionScopeFeedback } from "./SessionProfiles.js";
 import { sessionProfileLabels } from "./session-labels.js";
 import { structuredDocument } from "./structured.js";
 import type { StructuredDocument } from "./structured.js";
-import { draftWarnings, IssueDetails, ProfileWarnings } from "./diagnostics.js";
+import { draftWarnings, IssueDetails, issueKey, ProfileWarnings } from "./diagnostics.js";
 import { configurationVersionState, sourceRelationship } from "./configuration-display.js";
 import { DSMM_LOCALES } from "../profile-locale.js";
+import { DSMM_RATE_LIMIT_BOUNDS } from "../routing-policy.js";
+import type { ProfileDiagnosticLocation } from "../profile-types.js";
 
 export type ProfilesInjected = ProfilesActions & { hooks: { profiles: ProfilesController["store"] } };
 export type ProfilesSectionProps = InjectFace<ProfilesInjected> & PropsLocale<"settings.dsmm-profiles">;
 
-function issueKey(issue: ProfilesIssue): "unavailable" | "transport" | "conflict" | "validation" | "io" | "selectionConflict" | "appliedInvalid" {
-  if (issue.source === "selection") return issue.code === "conflict" ? "selectionConflict" : "appliedInvalid";
-  if (issue.kind === "assembly") return "unavailable";
-  if (issue.kind === "transport") return "transport";
-  return issue.code === "conflict" || issue.code === "validation" ? issue.code : "io";
+function locateGlobalField(container: HTMLElement, field: string): HTMLElement | null {
+  const path = field.replace(/^settings\./, "");
+  const selectors: Record<string, string> = {
+    "runtimePolicy.strategy": "select[id$='-strategy']",
+    "guards.gitWriteGuard": "select[id$='-git-guard']",
+    "guards.gitWriteScope": "select[id$='-git-scope']",
+    "subagents.toolTopology": "select[id$='-topology']",
+  };
+  const rateLimit = /^runtimePolicy\.rateLimit\.([a-zA-Z]+)$/.exec(path);
+  const selector = rateLimit && Object.hasOwn(DSMM_RATE_LIMIT_BOUNDS, rateLimit[1])
+    ? `input[data-dsmm-policy-field='${rateLimit[1]}']`
+    : Object.hasOwn(selectors, path) ? selectors[path] : undefined;
+  return selector === undefined ? null : container.querySelector<HTMLElement>(selector);
 }
 
 /** One native settings.section; policy selection is never coupled to browsing. */
@@ -38,8 +49,20 @@ export function ProfilesSection(props: ProfilesSectionProps) {
   const cancelRef = useRef<HTMLButtonElement>(null);
   const hadConfirmation = useRef(false);
   const initiatorRef = useRef<HTMLElement | null>(null);
+  const dialogInitiatorRef = useRef<HTMLElement | null>(null);
   const orchestratorRef = useRef<HTMLDivElement>(null);
   const sessionScopeRef = useRef<HTMLDivElement>(null);
+
+  const [modelsDialogOpen, setModelsDialogOpen] = useState(false);
+  const [targetRole, setTargetRole] = useState<string | null>(null);
+  const [targetRoleField, setTargetRoleField] = useState<string | null>(null);
+  const pendingDialogFocus = useRef<{
+    kind: "trigger" | "jsonc";
+    editorEpoch: number;
+    validationEpoch: number;
+    issue: ProfilesViewSnapshot["issue"];
+    trigger: HTMLElement | null;
+  } | null>(null);
 
   const advancedOpenRef = useRef(false);
   const jsoncOpenRef = useRef(false);
@@ -56,12 +79,64 @@ export function ProfilesSection(props: ProfilesSectionProps) {
   const invalid = state.issue?.kind === "domain" && state.issue.code === "validation";
   const idInvalid = invalid && state.issue?.field === "id" && state.issue.location === undefined && editor?.revision === null && !editorDisabled;
   const structuredDoc = editor === null ? null : structuredDocument(editor.content);
-  const lastValidBasicDocRef = useRef<StructuredDocument | null>(null);
-  if (structuredDoc !== null) {
-    lastValidBasicDocRef.current = structuredDoc;
+  const lastValidBasicDocRef = useRef<{ id: string; epoch: number; doc: StructuredDocument } | null>(null);
+  if (editor !== null && structuredDoc !== null) {
+    lastValidBasicDocRef.current = { id: editor.id, epoch: state.editorEpoch, doc: structuredDoc };
   }
-  const basicDoc = structuredDoc ?? lastValidBasicDocRef.current;
+  const basicDoc = structuredDoc ?? (lastValidBasicDocRef.current !== null && lastValidBasicDocRef.current.id === editor?.id && lastValidBasicDocRef.current.epoch === state.editorEpoch ? lastValidBasicDocRef.current.doc : null);
   const rawInvalid = editor !== null && structuredDoc === null;
+
+  function focusJsonc(location?: ProfileDiagnosticLocation): boolean {
+    if (advancedRef.current !== null) {
+      advancedRef.current.open = true;
+      jsoncOpenRef.current = true;
+    }
+    const input = editorRef.current;
+    if (input === null) return false;
+    const reducedMotion = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    input.scrollIntoView?.({ behavior: reducedMotion ? "auto" : "smooth", block: "nearest" });
+    input.focus();
+    if (input.ownerDocument.activeElement !== input) return false;
+    if (location !== undefined && location.offset + location.length <= input.value.length) {
+      input.setSelectionRange(location.offset, location.offset + location.length);
+    }
+    return true;
+  }
+
+  function focusGlobalField(field: string): boolean {
+    const container = advancedSettingsRef.current;
+    if (container === null) return false;
+    const target = locateGlobalField(container, field);
+    if (target === null) return false;
+    container.open = true;
+    advancedOpenRef.current = true;
+    const reducedMotion = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    target.scrollIntoView?.({ behavior: reducedMotion ? "auto" : "smooth", block: "nearest" });
+    target.focus();
+    return target.ownerDocument.activeElement === target;
+  }
+
+  function closeModelsDialog(kind: "trigger" | "jsonc") {
+    pendingDialogFocus.current = { kind, editorEpoch: state.editorEpoch, validationEpoch: state.validationEpoch,
+      issue: state.issue, trigger: dialogInitiatorRef.current };
+    setModelsDialogOpen(false);
+    setTargetRole(null);
+    setTargetRoleField(null);
+  }
+
+  // Passive effect cleanup restores Modal isolation before the new focus destination runs.
+  useEffect(() => {
+    if (modelsDialogOpen) return;
+    const pending = pendingDialogFocus.current;
+    if (pending === null) return;
+    pendingDialogFocus.current = null;
+    if (pending.editorEpoch !== state.editorEpoch || pending.validationEpoch !== state.validationEpoch || pending.issue !== state.issue) return;
+    if (pending.kind === "jsonc") {
+      if (focusJsonc(pending.issue?.location)) handledValidation.current = pending.validationEpoch;
+    } else if (pending.trigger?.isConnected) {
+      pending.trigger.focus();
+    }
+  }, [modelsDialogOpen, state.editorEpoch, state.validationEpoch, state.issue]);
 
   useEffect(() => {
     if (state.pendingEditor !== null) {
@@ -79,31 +154,40 @@ export function ProfilesSection(props: ProfilesSectionProps) {
 
   useEffect(() => {
     if (state.busy === null && state.validationEpoch > handledValidation.current && state.issue?.kind === "domain" && state.issue.code === "validation") {
-      handledValidation.current = state.validationEpoch;
       const reducedMotion = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       const scrollOpt: ScrollIntoViewOptions = { behavior: reducedMotion ? "auto" : "smooth", block: "nearest" };
 
-      if (state.issue.location === undefined && state.issue.field === "id" && inputRef.current !== null
+      // Case 1: ID field
+      if (state.issue.location === undefined && (state.issue.field === "id" || state.issue.field === "newId") && inputRef.current !== null
         && !inputRef.current.disabled && !inputRef.current.readOnly) {
+        handledValidation.current = state.validationEpoch;
         if (typeof inputRef.current.scrollIntoView === "function") inputRef.current.scrollIntoView(scrollOpt);
         inputRef.current.focus();
-      } else {
-        if (advancedRef.current !== null) {
-          advancedRef.current.open = true;
-          jsoncOpenRef.current = true;
-        }
-        const input = editorRef.current;
-        if (input !== null) {
-          if (typeof input.scrollIntoView === "function") input.scrollIntoView(scrollOpt);
-          input.focus();
-          const location = state.issue.location;
-          if (location !== undefined && location.offset + location.length <= input.value.length) {
-            input.setSelectionRange(location.offset, location.offset + location.length);
-          }
-        }
+        return;
       }
+
+      // Case 2: Role field that maps to snapshot role
+      const field = state.issue.field ?? "";
+      const roleMatch = /^(?:settings\.)?(?:roleRouting|roles)\.([a-zA-Z0-9_-]+)(?:\.|$)/.exec(field);
+      const roleId = roleMatch?.[1];
+      if (roleId && snapshot?.roles?.some(r => r.id === roleId)) {
+        setTargetRole(roleId);
+        setTargetRoleField(field);
+        setModelsDialogOpen(true);
+        return;
+      }
+
+      // Case 3: Global setting in advanced settings
+      if (focusGlobalField(field)) {
+        handledValidation.current = state.validationEpoch;
+        return;
+      }
+
+      // Case 4: Unmapped Host diagnostic or missing role in inventory -> JSONC fallback with UTF16 offset/length
+      if (modelsDialogOpen) closeModelsDialog("jsonc");
+      else if (focusJsonc(state.issue.location)) handledValidation.current = state.validationEpoch;
     }
-  }, [state.issue, state.busy, state.validationEpoch]);
+  }, [state.issue, state.busy, state.validationEpoch, snapshot?.roles]);
 
   const relationship = editor?.revision != null && editor.id === snapshot?.selectedId ? sourceRelationship(snapshot, editor.revision) : "changed";
   const applied = relationship === "current";
@@ -280,6 +364,25 @@ export function ProfilesSection(props: ProfilesSectionProps) {
               <p className="dsmm-hint">{t("effortChangeHint")}</p>
             </div>
 
+            <div className="dsmm-field dsmm-configure-models-field">
+              <label>{t("configureAllAgentModels")}</label>
+              <p className="dsmm-hint">{t("modelsDialogDesc")}</p>
+              <div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="dsmm-open-models-dialog-btn"
+                  disabled={editorDisabled || structuredDoc === null}
+                  onClick={(event) => {
+                    dialogInitiatorRef.current = event.currentTarget;
+                    setModelsDialogOpen(true);
+                  }}
+                >
+                  {t("configureAllAgentModels")}
+                </Button>
+              </div>
+            </div>
+
             <div className="dsmm-field">
               <label htmlFor={`${prefix}-locale`}>{t("businessLocale")}</label>
               <select
@@ -331,11 +434,8 @@ export function ProfilesSection(props: ProfilesSectionProps) {
             state={state}
             actions={props}
             disabled={editorDisabled}
-            onJumpToOrchestrator={() => {
-              const reducedMotion = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-              orchestratorRef.current?.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth" });
-              orchestratorRef.current?.querySelector<HTMLElement>("select, input")?.focus();
-            }}
+            document={basicDoc}
+            isInvalidProjection={rawInvalid}
             t={t}
           />
         </div>
@@ -357,16 +457,163 @@ export function ProfilesSection(props: ProfilesSectionProps) {
         </div>
       </details>
 
+      <ProfileModelsDialog
+        open={modelsDialogOpen}
+        onClose={() => closeModelsDialog("trigger")}
+        state={state}
+        actions={props}
+        disabled={editorDisabled}
+        document={basicDoc}
+        isInvalidProjection={rawInvalid}
+        targetRoleId={targetRole}
+        targetField={targetRoleField}
+        onTargetLocated={() => {
+          handledValidation.current = state.validationEpoch;
+          setTargetRole(null);
+          setTargetRoleField(null);
+        }}
+        onJumpToJsonc={() => closeModelsDialog("jsonc")}
+        t={t}
+      />
+
       <div className="dsmm-save-bar">
+        {(() => {
+          const isSaveLocked = (state.dirty || state.invalidFields.length > 0) && !editorDisabled && snapshot !== null && (state.invalidFields.length > 0 || rawInvalid || invalid);
+          if (!isSaveLocked) return null;
+          return (
+            <div className="dsmm-save-lock-reason" role="status">
+              <span className="dsmm-save-lock-text">
+                {rawInvalid
+                  ? t("rawInvalid")
+                  : state.invalidFields.length > 0
+                  ? t("saveLockedReason", { count: state.invalidFields.length })
+                  : t("validation")}
+              </span>
+              <div className="dsmm-save-lock-action">
+                {rawInvalid && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      if (advancedRef.current !== null) {
+                        advancedRef.current.open = true;
+                        jsoncOpenRef.current = true;
+                      }
+                      const reducedMotion = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+                      editorRef.current?.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth" });
+                      editorRef.current?.focus();
+                    }}
+                  >
+                    {t("jumpToJsonc")}
+                  </Button>
+                )}
+                {!rawInvalid && state.invalidFields.length > 0 && (() => {
+                  const firstInvalid = state.invalidFields[0];
+                  const roleMatch = /^(?:settings\.)?(?:roleRouting|roles)\.([a-zA-Z0-9_-]+)(?:\.|$)/.exec(firstInvalid);
+                  const roleId = roleMatch?.[1];
+                  if (roleId) {
+                    return (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => {
+                          dialogInitiatorRef.current = e.currentTarget;
+                          setTargetRole(roleId);
+                          setTargetRoleField(firstInvalid);
+                          setModelsDialogOpen(true);
+                        }}
+                      >
+                        {t("jumpToField")}: {firstInvalid}
+                      </Button>
+                    );
+                  }
+                  return (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        if (!focusGlobalField(firstInvalid)) focusJsonc(state.issue?.location);
+                      }}
+                    >
+                      {t("jumpToField")}: {firstInvalid}
+                    </Button>
+                  );
+                })()}
+                {!rawInvalid && state.invalidFields.length === 0 && invalid && (() => {
+                  if (state.issue?.field === "id" || state.issue?.field === "newId") {
+                    return (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const reducedMotion = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+                          inputRef.current?.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth" });
+                          inputRef.current?.focus();
+                        }}
+                      >
+                        {t("jumpToField")}: ID
+                      </Button>
+                    );
+                  }
+                  const roleMatch = /^(?:settings\.)?(?:roleRouting|roles)\.([a-zA-Z0-9_-]+)(?:\.|$)/.exec(state.issue?.field ?? "");
+                  const roleId = roleMatch?.[1];
+                  if (roleId && snapshot?.roles?.some(r => r.id === roleId)) {
+                    return (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => {
+                          dialogInitiatorRef.current = e.currentTarget;
+                          setTargetRole(roleId);
+                          setTargetRoleField(state.issue?.field ?? null);
+                          setModelsDialogOpen(true);
+                        }}
+                      >
+                        {t("jumpToRole")}: {roleId}
+                      </Button>
+                    );
+                  }
+                  return (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        if (advancedRef.current !== null) {
+                          advancedRef.current.open = true;
+                          jsoncOpenRef.current = true;
+                        }
+                        const reducedMotion = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+                        editorRef.current?.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth" });
+                        editorRef.current?.focus();
+                        const location = state.issue?.location;
+                        if (location !== undefined && editorRef.current && location.offset + location.length <= editorRef.current.value.length) {
+                          editorRef.current.setSelectionRange(location.offset, location.offset + location.length);
+                        }
+                      }}
+                    >
+                      {t("jumpToJsonc")}
+                    </Button>
+                  );
+                })()}
+              </div>
+            </div>
+          );
+        })()}
         <div className="dsmm-actions">
-          <Button type="button" variant="primary" disabled={editorDisabled || !state.dirty || snapshot === null || state.invalidFields.length > 0} onClick={() => { void props.save(); }}>{t(state.busy === "save" ? "saving" : "save")}</Button>
+          <Button type="button" variant="primary" disabled={editorDisabled || !state.dirty || snapshot === null || state.invalidFields.length > 0 || rawInvalid} onClick={() => { void props.save(); }}>{t(state.busy === "save" ? "saving" : "save")}</Button>
           <Button type="button" variant="outline" disabled={editorDisabled || (!state.dirty && state.invalidFields.length === 0)} onClick={(event) => { initiatorRef.current = event.currentTarget; props.discard(); }}>{t("discard")}</Button>
           {editor.revision !== null && !state.dirty && <Button type="button" variant="outline" disabled={disabled} onClick={(event) => { initiatorRef.current = event.currentTarget; void props.reload(); }}>{t("reload")}</Button>}
         </div>
       </div>
     </div>}
 
-    {state.issue !== null && <div className="dsmm-issue" id={`${prefix}-issue`} role="alert"><p>{t(issueKey(state.issue))}</p><IssueDetails issue={state.issue} t={t} /></div>}
+    {state.issue !== null && !modelsDialogOpen && <div className="dsmm-issue" id={`${prefix}-issue`} role="alert"><p>{t(issueKey(state.issue))}</p><IssueDetails issue={state.issue} t={t} /></div>}
     <p className="dsmm-status" role="status" aria-live="polite" aria-atomic="true">{state.busy === "refresh" && snapshot === null ? t("loading") : state.busy === "read" ? t("reading") : notice}</p>
   </section>;
 }

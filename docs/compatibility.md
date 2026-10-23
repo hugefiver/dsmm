@@ -1,6 +1,6 @@
 # DSMM compatibility and upgrade boundaries
 
-**DSMM 0.3.12 targets exactly DSH `0.2.1-rc.2`** and Node.js 22 or later. Older SDKs and automatically drifting versions aren't supported targets.
+**DSMM 0.3.13 targets exactly DSH `0.2.1-rc.2`** and Node.js 22 or later. Older SDKs and automatically drifting versions aren't supported targets.
 
 ## Supported integration
 
@@ -9,6 +9,12 @@ Official AgentRegistry, SubagentRuntime and JSONL namespace plugins own executio
 Native Web surfaces are Plugins bundle configuration, Settings Profiles, the compact Conversation menu and delegation call views. CLI/headless use native deployment and tools; headless doesn't select Agent presets. TUI and Desktop retain their own carriers and exposed UI capabilities; Web controls aren't necessarily exposed in TUI.
 
 `preset-skills` is internal Agent-scoped installation, not a public Loader plugin. DSMM-managed external LSP stays disabled even with stored `lsp.enabled:true`; native DSH LSP and independently configured MCP remain unaffected. See [LSP boundary](lsp.md).
+
+### Conversation process summaries
+
+DSH `0.2.1-rc.2` classifies message-level process summaries by tool name: only `subagent` and `subagent_*` enter its subagent category. DSMM delegation tools therefore appear under the generic tools summary even when their individual call cards display the native subagent icon. The separate turn-level delegation classifier has the same name restriction.
+
+The public tool-view slot controls individual call cards, not these summary classifiers. This Host version exposes no dedicated classification contribution or process-group header extension; DSMM retains the native summary behavior. Correct subagent grouping requires a public tool-category contribution consumed by both classifiers, or native recognition of DSMM delegation tools. Recheck in-progress and completed summaries during an authorized DSH upgrade; card appearance alone is not evidence of correct grouping.
 
 ## Configuration and actions
 
@@ -44,7 +50,7 @@ Standard supported model calls use native prepared calls. Raw/custom and Pi-AI s
 
 ## Retired compatibility surfaces
 
-No old SDK branch, legacy-read host, cold-profile migration, session repair or custom-owner selector is a 0.3.12 activation path. Old libraries, captures and unmarked history aren't copied, rewritten, repaired or adopted by same-name fallback. Retired brand calibration/default-effort and MaxReasoningPresets fields reject with `deprecated-field`; edit configuration deliberately using generic routes and parameters.
+No old SDK branch, legacy-read host, cold-profile migration, session repair or custom-owner selector is a 0.3.13 activation path. Old libraries, captures and unmarked history aren't copied, rewritten, repaired or adopted by same-name fallback. Retired brand calibration/default-effort and MaxReasoningPresets fields reject with `deprecated-field`; edit configuration deliberately using generic routes and parameters.
 
 Published **0.3.0 retains its rc.1 identity**, immutable tag, package, assets and version-bound receipt grammar. Historical release controls interpret those records under their original identity, not as a runtime compatibility branch.
 

@@ -175,15 +175,16 @@ async function validationEffectHarness() {
   const require = createRequire(import.meta.url);
   function NativeInput() { throw new Error("Ref/effect test does not replace a native browser rendering test"); }
   const { ProfilesSection } = await clientModule<typeof import("../src/client/ProfilesSection.js")>("ProfilesSection.tsx", {
-    react: { ...require("react"), useId: () => "validation-focus", useRef: (current: unknown) => ({ current }), useEffect: (effect: () => unknown) => effects.push(effect) },
-    "@deepseek-ai/dsh-client-ui-primitives": { Input: NativeInput, Button: () => null },
+    react: { ...require("react"), useId: () => "validation-focus", useRef: (current: unknown) => ({ current }), useEffect: (effect: () => unknown) => effects.push(effect), useState: <T>(initial: T) => [typeof initial === "function" ? (initial as () => T)() : initial, () => {}] },
+    "@deepseek-ai/dsh-client-ui-primitives": { Input: NativeInput, Button: () => null, Modal: () => null },
   });
   return (controller: InstanceType<typeof ProfilesController>) => {
     effects.length = 0;
     const nodes = treeElements(ProfilesSection({ ...controller.actions, useProfiles: select => select(controller.store.getSnapshot()), t: key => key }));
     const focus = { id: 0, editor: 0, active: "save" };
-    const rawInput = { value: controller.store.getSnapshot().editor!.content, invalid: false, selectionStart: 0, selectionEnd: 0,
-      focus() { focus.editor++; focus.active = "jsonc"; }, setSelectionRange(start: number, end: number) { this.selectionStart = start; this.selectionEnd = end; } };
+    const ownerDocument: { activeElement: unknown } = { activeElement: null };
+    const rawInput = { ownerDocument, value: controller.store.getSnapshot().editor!.content, invalid: false, selectionStart: 0, selectionEnd: 0,
+      focus() { focus.editor++; focus.active = "jsonc"; ownerDocument.activeElement = this; }, setSelectionRange(start: number, end: number) { this.selectionStart = start; this.selectionEnd = end; } };
     const requestId = { disabled: false, readOnly: false, invalid: false, focus() { focus.id++; if (!this.disabled && !this.readOnly) focus.active = "id"; } };
     const advanced = { open: false };
     for (const node of nodes) {

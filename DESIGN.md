@@ -6,7 +6,7 @@ This extends the native DSH 0.2.1-rc.2 Settings and Plugins interface, not a new
 
 The native reference packages are `dsh-client-ui-theme`, `dsh-client-ui-primitives`, `dsh-client-ui-settings-general`, `dsh-client-ui-settings-models` and `dsh-client-ui-settings-plugins`. Relevant sources are `ui-theme/src/styles/{base,design-platform,focus}.css`, `ui-primitives/src/{Button,Input}.module.css`, and the Settings/Models section CSS in their published client bundles. The values below describe the shipped default theme; installed theme overrides remain authoritative. DSMM doesn't change vendor code, theme or user configuration.
 
-DSMM 0.3.12 targets exactly DSH `0.2.1-rc.2`. Its settings extend public native slots and preserve native authentication, navigation, model selection and service ownership.
+DSMM 0.3.13 targets exactly DSH `0.2.1-rc.2`. Its settings extend public native slots and preserve native authentication, navigation, model selection and service ownership.
 
 ### Product priorities
 
@@ -361,31 +361,41 @@ Native `SettingsFormModel`/`configForms` manage the host plugin-config document,
 
 ### Implemented Reusable Patterns
 
-#### Named profiles: scannable single-column layout
+#### Named profiles: scannable single-column layout with Multi-Agent Dialog
 
-The named profiles editor is scoped under `.dsmm-profiles.dsmm-named-profiles` to prevent leaking layout or style overrides to deployment pages or permissions panels. The surface is organized into a clear single-column flow:
+The named profiles editor is scoped under `.dsmm-profiles.dsmm-named-profiles` to prevent leaking layout or style overrides to deployment pages or permissions panels. The surface is organized into a streamlined single-column flow with a dedicated Multi-Agent Dialog:
 
 1. **Header browse row** — Lists saved labels, IDs, and immutable revisions alongside New draft and Refresh inventory buttons. A live status badge (`data-dsmm-editor-state`) reflects dirty, saved, refresh-required, and applied states. Opening another profile or refreshing checks `dirty || invalidFields.length > 0`; unsaved edits trigger explicit discard confirmation with focus restoration to the initiating trigger upon cancellation or Escape.
 2. **Effective summary** — Compact card displaying future default selection (with inline "Set as future default" action) and current session admission (with a quick-locate action targeting session settings).
-3. **Secondary actions** — Collapsed disclosure containing future default reset ("新会话使用插件默认" / "Use baseline for future sessions") and current-session scope controls (`SessionScope`).
+3. **Secondary actions** — Collapsed disclosure containing future default reset ("新会话使用插件默认" / "Use baseline for future sessions") and current-session scope controls (`SessionScope`), preserving four independent transactions (Save profile, Set as future default, Session admission, and Model-only activation).
 4. **Basic settings** — Flat, uncollapsed section in normal flow:
    - Profile name (`label`) with optional omit action.
    - Profile ID (`id`), locked on saved revisions.
-   - Orchestrator primary model (`settings.roleRouting["dsmm-orchestrator"].primary` only), configured directly here with provider, model, and reasoning effort controls.
+   - Orchestrator primary model shortcut (`settings.roleRouting["dsmm-orchestrator"].primary` only), configured directly here with provider, model, and reasoning effort controls, noting that orchestrator calling levels are not provided.
+   - "Configure all Agent models" ("配置全部 Agent 模型") button opening the responsive Multi-Agent Dialog.
    - Business output language (`settings.locale`).
    - Deepwork default active toggle (`settings.defaultActive`).
    - When raw JSONC syntax is malformed, displays a prominent syntax notice and a direct jump action to the JSONC editor.
-5. **Advanced settings** — Collapsed `<details>` disclosure:
-   - Role models & availability: Per-role primary route, invocation levels (`low`, `high`, `max`), and ordered fallbacks with add/remove/move actions. For `dsmm-orchestrator`, points back to Basic settings to avoid duplicate inputs. Switching roles preserves invalid numeric drafts and keeps saving blocked until those fields are corrected or explicitly discarded.
-   - Retry policy: Strategy selection and rate-limit numeric overrides.
-   - Profile defaults: Default strategy and rate-limit bounds.
+5. **Multi-Agent Dialog (`ProfileModelsDialog`)** — Wide responsive modal dialog (~1040px max width, internal scroll) reusing DSH Modal primitives:
+   - Background inert isolation applied to document body siblings while open.
+   - Dialog filter bar with role search input (by role name/ID) and toggle for explicit model overrides only (including explicit empty fallback chains `[]`).
+   - Role cards listing each role from `snapshot.roles` with inline primary route (provider, model, reasoning effort).
+   - Expandable calling levels (`low`, `high`, `max`) with accurate configuration summary (absent for orchestrator).
+   - Expandable fallback chains (up to 32 items with safe focus management on add/move/remove).
+   - Collapsed non-model role settings (`enabled`, `retry`) with inheritance summary using known data.
+   - Single JSONC draft shared with main page; closing dialog via Esc or close button preserves dirty/invalid drafts without extra discard confirmation.
+6. **Advanced execution settings** — Collapsed `<details>` disclosure for global execution settings:
+   - Profile defaults: Default strategy and rate-limit bounds (`settings.runtimePolicy`).
    - Git write protection: Sparse `settings.guards.gitWriteGuard` (`ask` | `deny` | `off`) and `settings.guards.gitWriteScope` (`all-writes` | `high-risk`). When the guard is `off`, the scope control is disabled with an explanatory hint ("保护已关闭，检查范围暂不生效"), while Unset/inherit remains accessible.
-   - Subagent tools: Per-role tool topology configuration.
-6. **Advanced JSONC source editor** — Collapsed `<details className="dsmm-advanced">` disclosure:
+   - Subagent tools: `settings.subagents.toolTopology` (`per-role` | `parameterized`).
+7. **Advanced JSONC source editor** — Collapsed `<details className="dsmm-advanced">` disclosure:
    - Direct JSONC text editing preserving original comments, formatting, and unprojected parameters.
    - Validation failures expand necessary disclosures, scroll into view with `prefers-reduced-motion: reduce` support, focus the input, and select the precise UTF-16 character range.
-7. **Save bar** — In normal document flow at the bottom:
+8. **Save bar with Actionable Save-Lock Locator** — In normal document flow at the bottom:
    - Status message and blocking issues.
+   - When save is locked due to invalid fields, actionable locator buttons directly navigate to the target:
+     - For role-scoped invalid fields, automatically opens the dialog, clears filters, expands the target details group, and focuses the invalid field.
+     - For ID or unmapped errors, focuses the field or expands JSONC with exact UTF-16 character range selection.
    - Save button (enabled only when dirty and valid).
    - Discard button (triggers confirmation when dirty or when invalid fields exist).
    - Reload button (available when clean).

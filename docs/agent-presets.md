@@ -1,6 +1,6 @@
 # Deepwork Agent presets and child control
 
-DSMM 0.3.12 targets exactly DSH `0.2.1-rc.2`. Native package composition and callable admission are separate requirements.
+DSMM 0.3.13 targets exactly DSH `0.2.1-rc.2`. Native package composition and callable admission are separate requirements.
 
 ## Roles and composition
 

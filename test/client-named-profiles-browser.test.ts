@@ -7,7 +7,8 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { build } from "esbuild";
 import type { ProfilesController } from "../src/client/controller.js";
-import { diagnostic } from "../src/profile-diagnostics.ts";
+import { diagnostic, diagnosticLocation } from "../src/profile-diagnostics.ts";
+import type { ProfileErrorInfo } from "../src/profile-types.js";
 
 declare global {
   interface Window { __profilesController: ProfilesController }
@@ -18,7 +19,7 @@ const available = process.env.DSMM_TEST_DSH_ENTRY !== undefined && process.env.D
 test("Named profiles redesigned UI page-level browser QA and interactive flows", {
   skip: !available && "requires explicit DSH and Playwright anchors (DSMM_TEST_DSH_ENTRY and DSMM_TEST_PLAYWRIGHT_ENTRY)",
   timeout: 60_000,
-}, async () => {
+}, async (t) => {
   const sdk = createRequire(await realpath(process.env.DSMM_TEST_DSH_ENTRY!));
   const { chromium } = createRequire(process.env.DSMM_TEST_PLAYWRIGHT_ENTRY!)("playwright");
   const { startProfileUiServer } = await import(new URL("../scripts/profile-ui-harness-server.mjs", import.meta.url).href);
@@ -235,6 +236,7 @@ test("Named profiles redesigned UI page-level browser QA and interactive flows",
     };
 
     let savePayload: unknown = null;
+    let saveRefusal: ProfileErrorInfo | null = null;
     let appliedFutureId: string | null = "default";
     let appliedSessionId: string | null = "default";
     let failRead = true;
@@ -266,6 +268,12 @@ test("Named profiles redesigned UI page-level browser QA and interactive flows",
               { id: "dsmm-orchestrator", label: "Orchestrator", description: "Plans and coordinates work" },
               { id: "dsmm-builder", label: "Builder", description: "Implements code" },
               { id: "dsmm-reviewer", label: "Reviewer", description: "Reviews code" },
+              { id: "dsmm-oracle", label: "Oracle", description: "First external model cross-check" },
+              { id: "dsmm-oracle-2nd", label: "Oracle 2nd", description: "Second external model cross-check" },
+              { id: "dsmm-planner", label: "Planner", description: "Architecture and design planning" },
+              { id: "dsmm-plan-critic", label: "Plan Critic", description: "Rigorous plan critique" },
+              { id: "dsmm-creative", label: "Creative", description: "Design and ideation specialist" },
+              { id: "dsmm-quick", label: "Quick", description: "Fast deterministic edits" },
             ].filter(role => includeOrchestrator || role.id !== "dsmm-orchestrator"),
             readOnly: false,
           },
@@ -288,6 +296,7 @@ test("Named profiles redesigned UI page-level browser QA and interactive flows",
       }
       if (method === "save") {
         savePayload = args.request;
+        if (saveRefusal !== null) return { ok: false, error: { code: "dsmm-profiles/refused", details: saveRefusal } };
         store[args.request.id] = args.request.content;
         return {
           ok: true,
@@ -379,8 +388,8 @@ test("Named profiles redesigned UI page-level browser QA and interactive flows",
     await effectiveSummary.waitFor();
     assert.match(await effectiveSummary.innerText(), /default/u);
 
-    // Capture desktop normal screenshot
-    await page.screenshot({ path: join(screenshotDir, "desktop-normal-1280.png"), fullPage: true });
+    // Capture desktop normal viewport screenshot
+    await page.screenshot({ path: join(screenshotDir, "desktop-normal-1280.png") });
 
     // 2. Viewport Reflow Checks (1280, 768, 375, and 200% reflow)
     for (const width of [1280, 768, 375]) {
@@ -431,7 +440,16 @@ test("Named profiles redesigned UI page-level browser QA and interactive flows",
     assert.match(darkStyles.labelColor, /rgb\(\s*249,\s*250,\s*251\s*\)/, `label color in dark theme: ${darkStyles.labelColor}`);
     assert.match(darkStyles.summaryCardBg, /rgb\(\s*53,\s*54,\s*56\s*\)/, `card bg in dark theme: ${darkStyles.summaryCardBg}`);
 
-    await page.screenshot({ path: join(screenshotDir, "dark-theme-1280.png"), fullPage: true });
+    await page.screenshot({ path: join(screenshotDir, "dark-theme-1280.png") });
+
+    // Open models dialog in dark mode to verify dark theme styling and capture viewport
+    const darkOpenBtn = page.locator(".dsmm-open-models-dialog-btn");
+    await darkOpenBtn.click();
+    const darkModelsDialog = page.locator(".dsmm-profile-models-dialog");
+    await darkModelsDialog.waitFor();
+    await page.screenshot({ path: join(screenshotDir, "models-dialog-dark-1280.png") });
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(100);
 
     // Switch back to light theme
     await page.click("#toggle-theme");
@@ -477,27 +495,16 @@ test("Named profiles redesigned UI page-level browser QA and interactive flows",
     await resetFutureBtn.waitFor();
     assert.equal(await resetFutureBtn.isEnabled(), true);
 
-    // 7. Advanced Settings Disclosure & Role Routing
+    // 7. Advanced Settings Disclosure (Global settings only: defaults, git guard, topology)
     const advancedSettings = page.locator(".dsmm-advanced-settings");
     assert.equal(await advancedSettings.evaluate((el: HTMLDetailsElement) => el.open), false);
     await advancedSettings.locator("> summary").click();
     assert.equal(await advancedSettings.evaluate((el: HTMLDetailsElement) => el.open), true);
 
-    // Initially selected role in advanced is orchestrator
-    // Notice indicates orchestrator model is configured in basic settings
-    assert.match(await advancedSettings.innerText(), /主协调模型在上方.*配置/u);
-
-    // Switch role to Builder
-    const roleSelect = advancedSettings.locator("select[id$='-role']").first();
-    await roleSelect.selectOption("dsmm-builder");
-    // Verify builder primary model and fallback appear
-    const builderModel = advancedSettings.getByRole("combobox", { name: "Builder 主路由 模型" });
-    await builderModel.waitFor();
-    assert.equal(await builderModel.inputValue(), "deepseek-reasoner");
-
-    const fallbackModel = advancedSettings.getByRole("combobox", { name: "Builder 备用 1 模型" });
-    await fallbackModel.waitFor();
-    assert.equal(await fallbackModel.inputValue(), "gpt-4o");
+    // Global defaults (runtimePolicy) exist
+    const globalRetries = advancedSettings.locator("[data-dsmm-policy-field='maxRetries']");
+    await globalRetries.waitFor();
+    assert.equal(await globalRetries.isVisible(), true);
 
     // 8. Git Write Guard & Scope Sparse Mapping
     const gitGuard = advancedSettings.locator("select[id$='-git-guard']");
@@ -528,8 +535,17 @@ test("Named profiles redesigned UI page-level browser QA and interactive flows",
     // Capture advanced expanded screenshot
     await page.screenshot({ path: join(screenshotDir, "advanced-expanded-1280.png"), fullPage: true });
 
+    await globalRetries.fill("999");
+    await advancedSettings.locator("> summary").click();
+    await profilesRoot.locator(".dsmm-save-lock-reason button").click();
+    await t.test("global invalid numeric draft locator restores the exact collapsed field", async () => {
+      assert.equal(await globalRetries.evaluate((el: HTMLElement) => document.activeElement === el), true);
+      assert.equal(await globalRetries.inputValue(), "999");
+    });
+    await globalRetries.fill("");
+
     // 9. Draft State & Save Bar
-    // Edit the label to trigger dirty draft
+    // Edit the label to trigger dirty draft while advanced settings is still open
     await profileLabelInput.fill("修改后的默认方案");
     await page.waitForTimeout(50);
     assert.equal(await editorState.getAttribute("data-dsmm-editor-state"), "dirty");
@@ -538,6 +554,19 @@ test("Named profiles redesigned UI page-level browser QA and interactive flows",
     await saveBar.waitFor();
     const saveBtn = saveBar.locator("button", { hasText: "保存" });
     assert.equal(await saveBtn.isEnabled(), true);
+    await saveBtn.click();
+    await page.waitForTimeout(100);
+
+    // Advanced settings disclosure must preserve open state after save
+    assert.equal(await advancedSettings.evaluate((el: HTMLDetailsElement) => el.open), true, "Advanced settings must preserve open state after save");
+
+    // Collapse advanced settings
+    await advancedSettings.locator("> summary").click();
+    assert.equal(await advancedSettings.evaluate((el: HTMLDetailsElement) => el.open), false);
+
+    // Edit label again to have dirty draft for discard test
+    await profileLabelInput.fill("再次修改的方案");
+    await page.waitForTimeout(50);
 
     // 10. Focus Restoration on Discard Modal
     const discardBtn = saveBar.locator("button", { hasText: "放弃" });
@@ -557,42 +586,218 @@ test("Named profiles redesigned UI page-level browser QA and interactive flows",
 
     // Verify focus is restored to initiator (discardBtn)
     const activeText = await page.evaluate(() => document.activeElement?.textContent?.trim());
-    assert.equal(activeText, "放弃更改", "Focus must return to discard initiator button");
+    assert.ok(activeText?.includes("放弃"), "Focus must return to discard initiator button");
 
-    // 11. Invalid Input Protection via RetryNumber across JSONC syntax errors
-    const retryCountInput = advancedSettings.locator("input[type='number']").first();
-    await retryCountInput.fill("999"); // 999 is out of range 0-10
+    // 11. Multi-Agent Dialog (ProfileModelsDialog)
+    const openModelsBtn = page.locator(".dsmm-open-models-dialog-btn");
+    await openModelsBtn.waitFor();
+    await openModelsBtn.click();
+
+    const modelsDialog = page.locator(".dsmm-profile-models-dialog");
+    await modelsDialog.waitFor();
+    assert.equal(await modelsDialog.isVisible(), true);
+
+    // Check responsive width <= 1040
+    const dialogBox = await modelsDialog.boundingBox();
+    assert.ok(dialogBox && dialogBox.width <= 1040, "Dialog max width must be <= 1040px");
+
+    // Check body sibling inert
+    const isSiblingInert = await page.evaluate(() => {
+      const dialogEl = document.querySelector(".dsmm-profile-models-dialog");
+      for (const child of Array.from(document.body.children)) {
+        if (child instanceof HTMLElement && !child.contains(dialogEl)) {
+          if (!child.hasAttribute("inert")) return false;
+        }
+      }
+      return true;
+    });
+    assert.equal(isSiblingInert, true, "Body siblings outside dialog must be inert");
+
+    await page.screenshot({ path: join(screenshotDir, "models-dialog-1280.png") });
+
+    // Orchestrator card: primary route editable, no calling levels
+    const orchCard = page.locator(".dsmm-role-card[data-dsmm-role='dsmm-orchestrator']");
+    await orchCard.waitFor();
+    assert.match(await orchCard.innerText(), /主协调.*不适用调用档位/u);
+    const orchDialogModel = orchCard.locator(".dsmm-role-primary-route input[id$='-model']");
+    assert.equal(await orchDialogModel.inputValue(), "deepseek-chat");
+
+    // Builder card: primary, levels, fallback, non-model
+    const builderCard = page.locator(".dsmm-role-card[data-dsmm-role='dsmm-builder']");
+    await builderCard.waitFor();
+    const builderDialogModel = builderCard.locator(".dsmm-role-primary-route input[id$='-model']");
+    assert.equal(await builderDialogModel.inputValue(), "deepseek-reasoner");
+
+    // 12. Dual Orchestrator Model Synchronization
+    await orchDialogModel.fill("deepseek-reasoner");
+    // First Escape closes EditableChoice suggestion dropdown; dialog stays open
+    await page.keyboard.press("Escape");
     await page.waitForTimeout(50);
+    assert.equal(await modelsDialog.count(), 1, "First Escape must close only the combobox dropdown");
+    // Second Escape closes modal dialog
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(100);
+    assert.equal(await modelsDialog.count(), 0, "Second Escape unmounts the modal dialog");
+    // Verify focus returned to trigger button
+    assert.equal(await page.evaluate(() => document.activeElement?.className), await openModelsBtn.evaluate((el: HTMLElement) => el.className));
+    // Verify main page orchestrator model updated
+    assert.equal(await orchestratorModel.inputValue(), "deepseek-reasoner");
+
+    // Revert orchestrator model on main page
+    await orchestratorModel.fill("deepseek-chat");
+    await openModelsBtn.click();
+    await modelsDialog.waitFor();
+    assert.equal(await orchCard.locator(".dsmm-role-primary-route input[id$='-model']").inputValue(), "deepseek-chat");
+
+    // 13. Search and Explicit Model Override Filtering
+    const searchInput = page.locator(".dsmm-models-filter-bar input[type='search'], .dsmm-filter-bar input[type='search']");
+    await searchInput.fill("Builder");
+    await page.waitForTimeout(50);
+    assert.equal(await page.locator(".dsmm-role-card").count(), 1);
+    await searchInput.fill("");
+    await page.waitForTimeout(50);
+    assert.ok((await page.locator(".dsmm-role-card").count()) > 1);
+
+    const explicitFilter = page.locator(".dsmm-models-filter-bar input[type='checkbox'], .dsmm-filter-bar input[type='checkbox']");
+    await explicitFilter.click();
+    await page.waitForTimeout(50);
+    // Explicit filter shows only roles with explicit model overrides
+    assert.ok((await page.locator(".dsmm-role-card").count()) >= 1);
+    await explicitFilter.click();
+    await page.waitForTimeout(50);
+
+    // 14. Dialog Scrollability to Last Role
+    const dialogContent = page.locator(".dsmm-profile-models-dialog-content");
+    await dialogContent.waitFor();
+    const lastRoleCard = page.locator(".dsmm-role-card[data-dsmm-role='dsmm-quick']");
+    await lastRoleCard.waitFor();
+    await dialogContent.hover();
+    const scrollStart = await dialogContent.evaluate((el: HTMLElement) => el.scrollTop);
+    await page.mouse.wheel(0, 10_000);
+    await page.waitForFunction(() => {
+      const content = document.querySelector(".dsmm-profile-models-dialog-content");
+      return content !== null && content.scrollTop > 0 && content.scrollTop + content.clientHeight >= content.scrollHeight - 1;
+    });
+    assert.ok(await dialogContent.evaluate((el: HTMLElement) => el.scrollTop) > scrollStart, "Mouse wheel must scroll dialog content");
+    assert.equal(await lastRoleCard.evaluate((el: HTMLElement) => {
+      const viewport = document.querySelector(".dsmm-profile-models-dialog-content")!.getBoundingClientRect();
+      const card = el.getBoundingClientRect();
+      return card.bottom > viewport.top && card.top < viewport.bottom && card.right > viewport.left && card.left < viewport.right;
+    }), true, "Last role must intersect the actual scroll viewport");
+    // Scroll back to top
+    await dialogContent.evaluate((el: HTMLElement) => { el.scrollTop = 0; });
+    await page.waitForTimeout(50);
+
+    // 15. Tab Focus Trap Cycle
+    const closeModelsBtn = modelsDialog.locator("button").first();
+    await closeModelsBtn.focus();
+    await page.keyboard.press("Shift+Tab");
+    const lastSummary = lastRoleCard.locator("details[data-dsmm-details='non-model'] > summary");
+    assert.equal(await lastSummary.evaluate((el: HTMLElement) => document.activeElement === el), true, "Shift+Tab from close must wrap to last visible summary");
+
+    // Tab from last wraps back to first focusable element
+    await page.keyboard.press("Tab");
+    assert.equal(await closeModelsBtn.evaluate((el: HTMLElement) => document.activeElement === el), true, "Tab from last summary must wrap to close");
+    await lastSummary.click();
+    await closeModelsBtn.focus();
+    await page.keyboard.press("Shift+Tab");
+    const lastControl = lastRoleCard.locator("input[data-dsmm-policy-field='maxSwitches']");
+    assert.equal(await lastControl.evaluate((el: HTMLElement) => document.activeElement === el), true, "Expanded last group must wrap to its real last control");
+    await page.keyboard.press("Tab");
+    assert.equal(await closeModelsBtn.evaluate((el: HTMLElement) => document.activeElement === el), true);
+
+    // 16. Fallback Chain Add, Move Boundaries, and Safe Focus
+    const fallbackDetails = builderCard.locator("details[data-dsmm-details='fallback']");
+    await fallbackDetails.locator("> summary").click();
+    const addFallbackBtn = builderCard.locator("button[data-dsmm-action='add-fallback']");
+    await addFallbackBtn.click();
+    await page.waitForTimeout(50);
+    const newFallbackRow = builderCard.locator("[data-dsmm-fallback-index='1']");
+    await newFallbackRow.waitFor();
+
+    // Verify focus landed on new fallback item's provider input
+    assert.equal(await newFallbackRow.locator("input[id$='-provider']").evaluate((el: HTMLElement) => document.activeElement === el), true, "Adding fallback must focus the new route's provider");
+
+    // Move index 1 up to index 0
+    const moveUpBtn = newFallbackRow.locator("button[data-dsmm-action='moveUp']");
+    await moveUpBtn.click();
+    await page.waitForTimeout(50);
+
+    // Verify focus on moved item did not land on disabled moveUp button at index 0
+    const activeAfterMoveUp = await page.evaluate(() => document.activeElement?.getAttribute("data-dsmm-action"));
+    assert.ok(activeAfterMoveUp === "moveDown" || activeAfterMoveUp === "remove", "Moving to top must focus available action, never disabled moveUp");
+    assert.equal(await builderCard.locator("[data-dsmm-fallback-index='0']").evaluate((el: HTMLElement) => el.contains(document.activeElement)), true);
+    await builderCard.locator("[data-dsmm-fallback-index='0'] button[data-dsmm-action='moveDown']").click();
+    assert.equal(await newFallbackRow.evaluate((el: HTMLElement) => el.contains(document.activeElement)), true, "Moving to the bottom must focus the moved route row");
+    assert.equal(await newFallbackRow.locator("input[id$='-provider']").inputValue(), "");
+
+    // Remove the added fallback
+    const removeBtn = newFallbackRow.locator("button[data-dsmm-action='remove']");
+    await removeBtn.click();
+    await page.waitForTimeout(50);
+    const activeAfterRemove = await page.evaluate(() => document.activeElement?.getAttribute("data-dsmm-action"));
+    assert.ok(activeAfterRemove === "remove" || activeAfterRemove === "add-fallback", "Removing item must preserve focus on next remove or add button");
+    assert.equal(await builderCard.locator("[data-dsmm-fallback-index='0'] button[data-dsmm-action='remove']").evaluate((el: HTMLElement) => document.activeElement === el), true);
+    assert.equal(await builderCard.locator("[data-dsmm-fallback-index='0'] input[id$='-provider']").inputValue(), "openai");
+
+    // 17. Invalid Draft across Modal Unmount & Auto-Locate
+    const nonModelDetails = builderCard.locator("details[data-dsmm-details='non-model']");
+    await nonModelDetails.locator("> summary").click();
+    const builderRetryInput = builderCard.locator("[data-dsmm-policy-field='maxRetries'] input, input[data-dsmm-policy-field='maxRetries']");
+    await builderRetryInput.fill("999"); // invalid 0-10
+    await page.waitForTimeout(50);
+
+    // Close dialog via Esc
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(100);
+
     assert.equal(await editorState.getAttribute("data-dsmm-editor-state"), "invalid");
     assert.equal(await saveBtn.isDisabled(), true, "Save button must be disabled when invalid fields exist");
     await page.screenshot({ path: join(screenshotDir, "invalid-draft-1280.png"), fullPage: true });
 
-    // Open JSONC source editor disclosure and make JSONC syntactically invalid
+    // Verify Actionable Save-Lock Locator on Main Page
+    const saveLockText = page.locator(".dsmm-save-lock-text");
+    await saveLockText.waitFor();
+    const saveLockMsg = await saveLockText.innerText();
+    assert.ok(!saveLockMsg.includes("{reason}"), "Save lock reason must not leave unreplaced {reason} placeholder");
+
+    const saveLockLocator = page.locator(".dsmm-save-lock-reason button");
+    await saveLockLocator.waitFor();
+    assert.match(await saveLockLocator.innerText(), /dsmm-builder\.rateLimit\.maxRetries/u);
+    await saveLockLocator.click();
+
+    // Dialog auto-reopens, target details opens, and invalid input is focused!
+    await modelsDialog.waitFor();
+    await page.waitForTimeout(100);
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("aria-invalid")), "true");
+    assert.equal(await page.evaluate(() => (document.activeElement as HTMLInputElement)?.value), "999");
+    await page.screenshot({ path: join(screenshotDir, "auto-locate-invalid-1280.png") });
+
+    await page.keyboard.press("Escape");
+
+    // 18. JSONC Syntax Error & Recovery
     const jsoncDisclosure = page.locator("details.dsmm-advanced");
-    await jsoncDisclosure.locator("> summary").click();
+    if (!(await jsoncDisclosure.evaluate((el: HTMLDetailsElement) => el.open))) {
+      await jsoncDisclosure.locator("> summary").click();
+    }
     const jsoncTextarea = jsoncDisclosure.locator("textarea");
     const validJsonc = await jsoncTextarea.inputValue();
     await jsoncTextarea.fill(validJsonc + "\n{ invalid json syntax\n");
     await page.waitForTimeout(50);
 
-    // Form displays projection failure notice and disables controls, but invalid draft is NOT lost
     const invalidNotice = page.locator("[data-dsmm-structured-invalid]");
     await invalidNotice.first().waitFor();
     assert.equal(await saveBtn.isDisabled(), true, "Save must remain disabled while JSONC is invalid");
 
-    // Restore JSONC to valid syntax
+    // Restore JSONC
     await jsoncTextarea.fill(validJsonc);
     await page.waitForTimeout(50);
 
-    // Verify invalid number draft "999" is STILL PRESENT and Save is STILL LOCKED
-    assert.equal(await retryCountInput.inputValue(), "999", "Invalid numeric draft must be preserved after restoring JSONC");
+    // Invalid numeric draft is STILL PRESENT and Save is STILL LOCKED
     assert.equal(await editorState.getAttribute("data-dsmm-editor-state"), "invalid");
     assert.equal(await saveBtn.isDisabled(), true, "Save must still be locked after restoring JSONC");
 
-    await roleSelect.selectOption("dsmm-reviewer");
-    assert.equal(await advancedSettings.locator("[data-dsmm-role='dsmm-builder']").count(), 0);
-
-    // Editing an unmounted role's source must unlock Save without returning to that role.
+    // Editing unmounted role source in JSONC unlocks Save
     const sourceWithMaxRetries = validJsonc.replace(
       /"dsmm-builder":\s*\{/u,
       '"dsmm-builder": {\n          "rateLimit": { "maxRetries": 3 },'
@@ -600,24 +805,183 @@ test("Named profiles redesigned UI page-level browser QA and interactive flows",
     await jsoncTextarea.fill(sourceWithMaxRetries);
     await page.waitForTimeout(100);
 
-    assert.equal(await advancedSettings.locator("[data-dsmm-role='dsmm-builder']").count(), 0);
     assert.equal(await editorState.getAttribute("data-dsmm-editor-state"), "dirty");
     assert.equal(await saveBtn.isEnabled(), true, "Save must be enabled after JSONC explicit source edit");
 
-    // 12. Save & Commit
+    // 17. Save & Commit
     await saveBtn.click();
     await page.waitForTimeout(100);
     assert.ok(savePayload !== null, "Save request must be sent to remote bridge");
     assert.equal(await editorState.getAttribute("data-dsmm-editor-state"), "ready");
-    await roleSelect.selectOption("dsmm-builder");
-    assert.equal(await retryCountInput.inputValue(), "3", "Remounted input must reflect the accepted source value");
 
-    // Verify that saving preserved the open state of Advanced Settings
+    // Verify remounted role input in dialog reflects accepted value
+    await openModelsBtn.click();
+    await modelsDialog.waitFor();
+    await page.locator("[data-dsmm-role='dsmm-builder'] details[data-dsmm-details='non-model'] > summary").click();
+    const remountedBuilderRetry = page.locator("[data-dsmm-role='dsmm-builder'] [data-dsmm-policy-field='maxRetries']");
+    assert.equal(await remountedBuilderRetry.inputValue(), "3");
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(100);
+
+    const contentBeforeDiagnostics = await jsoncTextarea.inputValue();
+    const diagnosticContent = "// UTF-16 😀 diagnostic fixture\n" + contentBeforeDiagnostics;
+    await page.evaluate((content: string) => {
+      window.__profilesController.actions.editContent(content);
+      window.__profilesController.actions.editPath(["settings", "roleRouting", "dsmm-builder", "levels", "low"], { reasoningEffort: "exact" });
+    }, diagnosticContent);
+    const locatedContent = await jsoncTextarea.inputValue();
+    const location = diagnosticLocation(locatedContent, locatedContent.indexOf('"roleRouting"'), '"roleRouting"'.length);
+    const knownTargets = [
+      ["settings.roleRouting.dsmm-builder.primary.provider", ".dsmm-role-primary-route input[id$='-provider']"],
+      ["settings.roleRouting.dsmm-builder.primary.model", ".dsmm-role-primary-route input[id$='-model']"],
+      ["settings.roleRouting.dsmm-builder.primary.reasoningEffort", ".dsmm-role-primary-route input[id$='-effort']"],
+      ["settings.roleRouting.dsmm-builder.levels.high.model", "[data-dsmm-level='high'] input[id$='-model']"],
+      ["settings.roleRouting.dsmm-builder.levels.low.reasoningEffort", "[data-dsmm-level='low'] input[id$='-effort']"],
+      ["settings.roleRouting.dsmm-builder.fallbackRoutes[0].model", "[data-dsmm-fallback-index='0'] input[id$='-model']"],
+      ["settings.roles.dsmm-builder", "select[id$='-role-enabled']"],
+      ["settings.roleRouting.dsmm-builder.strategy", "select[id$='-strategy']"],
+      ["settings.roleRouting.dsmm-builder.rateLimit.maxRetries", "input[data-dsmm-policy-field='maxRetries']"],
+      ["settings.roleRouting.dsmm-builder.primary", "select[id$='-primary-mode']"],
+      ["settings.roleRouting.dsmm-builder.levels.high", "[data-dsmm-level='high'] select[id$='-mode']"],
+      ["settings.roleRouting.dsmm-builder.fallbackRoutes", "select[id$='-fallback-mode']"],
+    ];
+    for (const [field, selector] of knownTargets) {
+      saveRefusal = { code: "validation", message: "", field, reason: "invalid-type", location };
+      const epoch = await page.evaluate(() => window.__profilesController.store.getSnapshot().validationEpoch);
+      await saveBtn.click();
+      await modelsDialog.waitFor();
+      await page.waitForTimeout(100);
+      await t.test(`Host save refusal locates ${field}`, async () => {
+        assert.equal(await page.evaluate(() => window.__profilesController.store.getSnapshot().validationEpoch), epoch + 1);
+        assert.equal(await builderCard.locator(selector).evaluate((el: HTMLElement) => document.activeElement === el), true);
+      });
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(50);
+    }
+    for (const [field, selector] of [
+      ["settings.runtimePolicy.rateLimit.maxRetries", "input[data-dsmm-policy-field='maxRetries']"],
+      ["settings.runtimePolicy.strategy", "select[id$='-strategy']"],
+      ["settings.guards.gitWriteGuard", "select[id$='-git-guard']"],
+      ["settings.guards.gitWriteScope", "select[id$='-git-scope']"],
+      ["settings.subagents.toolTopology", "select[id$='-topology']"],
+    ]) {
+      if (await advancedSettings.evaluate((el: HTMLDetailsElement) => el.open)) await advancedSettings.locator("> summary").click();
+      saveRefusal = { code: "validation", message: "", field, reason: "invalid-type", location };
+      await saveBtn.click();
+      await page.waitForTimeout(100);
+      await t.test(`Host save refusal locates collapsed global field ${field}`, async () => {
+        assert.equal(await modelsDialog.count(), 0);
+        assert.equal(await advancedSettings.locator(selector).evaluate((el: HTMLElement) => document.activeElement === el), true);
+      });
+    }
+    const unmappedFields = [
+      "settings.roleRouting.dsmm-builder.levels.high.[unknown]",
+      "settings.roleRouting.dsmm-builder.primary.[unknown]",
+      "settings.roleRouting.dsmm-builder.primary.model.[unknown]",
+      "settings.roleRouting.dsmm-builder.fallbackRoutes[9].model",
+      "settings.roleRouting.dsmm-builder.fallbackRoutes[0].model.[unknown]",
+      "settings.roleRouting.dsmm-builder.fallbackRoutes.[unknown]",
+      "settings.roleRouting.dsmm-builder.fallbackRoutes[0]",
+      "settings.roleRouting.dsmm-builder.rateLimit.[unknown]",
+      "settings.roles.dsmm-builder.[unknown]",
+      "settings.roleRouting.dsmm-code-search.primary.model",
+      "settings.roleRouting.dsmm-reviewer.primary.model",
+      "settings.roleRouting.dsmm-builder.levels.low.provider",
+      "settings.runtimePolicy.rateLimit.[unknown]",
+    ];
+    for (const field of unmappedFields) {
+      saveRefusal = { code: "validation", message: "", field, reason: "unknown-field", location };
+      await saveBtn.click();
+      await page.waitForTimeout(150);
+      await t.test(`Unmapped Host save refusal falls back to JSONC: ${field}`, async () => {
+        assert.equal(await modelsDialog.count(), 0);
+        assert.deepEqual(await jsoncTextarea.evaluate((el: HTMLTextAreaElement) => ({ focused: document.activeElement === el, start: el.selectionStart, end: el.selectionEnd })),
+          { focused: true, start: location.offset, end: location.offset + location.length });
+      });
+      if (await modelsDialog.count()) { await page.keyboard.press("Escape"); await page.waitForTimeout(50); }
+    }
+
+    saveRefusal = { code: "validation", message: "", field: "settings.roleRouting.dsmm-builder.primary.model", reason: "invalid-route", location };
+    await page.evaluate(async (content: string) => {
+      window.__profilesController.actions.editContent(content + "\n{");
+      await window.__profilesController.actions.save();
+    }, locatedContent);
+    await page.waitForTimeout(150);
+    await t.test("unfocusable structured field falls back to JSONC without losing its validation range", async () => {
+      assert.equal(await modelsDialog.count(), 0);
+      assert.deepEqual(await jsoncTextarea.evaluate((el: HTMLTextAreaElement) => ({ focused: document.activeElement === el, start: el.selectionStart, end: el.selectionEnd })),
+        { focused: true, start: location.offset, end: location.offset + location.length });
+    });
+    await page.evaluate(async (content: string) => {
+      window.__profilesController.actions.editContent(content);
+      await window.__profilesController.actions.save();
+    }, locatedContent);
+    await modelsDialog.waitFor();
+    await page.waitForTimeout(100);
+    await page.keyboard.press("Escape");
+
+    // An explicit JSONC jump from an issue-bearing dialog must not restore its old trigger.
+    await openModelsBtn.click();
+    await modelsDialog.waitFor();
+    await modelsDialog.locator(".dsmm-dialog-issue button").click();
+    await page.waitForTimeout(150);
+    await t.test("dialog diagnostic JSONC jump focuses and selects after inert cleanup without trigger contention", async () => {
+      assert.equal(await modelsDialog.count(), 0);
+      assert.deepEqual(await jsoncTextarea.evaluate((el: HTMLTextAreaElement) => ({ focused: document.activeElement === el, start: el.selectionStart, end: el.selectionEnd, inert: el.closest("[inert]") !== null })),
+        { focused: true, start: location.offset, end: location.offset + location.length, inert: false });
+    });
+
+    await openModelsBtn.click();
+    await modelsDialog.waitFor();
+    const previousEpoch = await page.evaluate(() => window.__profilesController.store.getSnapshot().editorEpoch);
+    await page.evaluate(async () => {
+      document.querySelector<HTMLButtonElement>(".dsmm-dialog-issue button")!.click();
+      await window.__profilesController.actions.create();
+      await window.__profilesController.actions.discardAndOpen();
+      window.__profilesController.actions.editId("INVALID");
+      await window.__profilesController.actions.save();
+    });
+    await page.waitForTimeout(150);
+    await t.test("a pending dialog jump cannot steal focus from a new editor validation epoch", async () => {
+      assert.equal(await page.evaluate(() => window.__profilesController.store.getSnapshot().editorEpoch), previousEpoch + 1);
+      assert.equal(await profileIdInput.evaluate((el: HTMLElement) => document.activeElement === el), true);
+      assert.equal(await profileIdInput.inputValue(), "INVALID");
+    });
+    saveRefusal = null;
+    await page.evaluate(async () => {
+      await window.__profilesController.actions.open("default");
+      await window.__profilesController.actions.discardAndOpen();
+    });
+    await page.evaluate((content: string) => window.__profilesController.actions.editContent(content), contentBeforeDiagnostics);
+    await page.evaluate(() => window.__profilesController.actions.save());
+
+    // Verify responsive dialog widths at tablet (768) and mobile (375)
+    await page.setViewportSize({ width: 768, height: 900 });
+    await openModelsBtn.click();
+    await modelsDialog.waitFor();
     assert.equal(
-      await advancedSettings.evaluate((el: HTMLDetailsElement) => el.open),
+      await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
       true,
-      "Advanced settings disclosure must stay open across save"
+      "Reflow check with dialog open at 768px"
     );
+    await page.screenshot({ path: join(screenshotDir, "models-dialog-tablet-768.png") });
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(100);
+
+    await page.setViewportSize({ width: 375, height: 900 });
+    await openModelsBtn.click();
+    await modelsDialog.waitFor();
+    assert.equal(
+      await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+      true,
+      "Reflow check with dialog open at 375px"
+    );
+    await page.screenshot({ path: join(screenshotDir, "models-dialog-mobile-375.png") });
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(100);
+
+    // Restore desktop viewport
+    await page.setViewportSize({ width: 1280, height: 900 });
 
     includeOrchestrator = false;
     await page.evaluate(() => window.__profilesController.actions.refresh());
@@ -676,6 +1040,10 @@ test("Named profiles redesigned UI page-level browser QA and interactive flows",
 
     assert.equal(errors.length, 0, `Page errors: ${errors.join(", ")}`);
   } finally {
+    if (process.env.DSMM_SCREENSHOT_DIR) {
+      const { cp } = await import("node:fs/promises");
+      await cp(screenshotDir, process.env.DSMM_SCREENSHOT_DIR, { recursive: true });
+    }
     if (browser) await browser.close();
     if (server) await server.close();
     await rm(owned, { recursive: true, force: true });

@@ -1,6 +1,6 @@
 # Runtime recovery and route strategies
 
-DSMM 0.3.12 targets exactly DSH `0.2.1-rc.2`.
+DSMM 0.3.13 targets exactly DSH `0.2.1-rc.2`.
 
 ## Independent role strategies
 
