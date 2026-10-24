@@ -188,4 +188,4 @@ jobs:
             "$RUNNER_TEMP/dsmm-release/SHA256SUMS.txt" \
             --repo "$GITHUB_REPOSITORY" --verify-tag \
             --title "DSMM ${DSMM_VERSION}" \
-            --notes "DSMM ${DSMM_VERSION}. Requires DSH 0.2.1-rc.2."
+            --notes "DSMM ${DSMM_VERSION}. Requires DSH >=0.2.1-rc.2 <0.3.0."

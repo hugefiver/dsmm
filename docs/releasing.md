@@ -48,6 +48,6 @@ after either surface is published is a partial release, not authorization to mov
 or recreate the tag, republish the npm version, or replace an asset. Report the
 exact workflow result and use a separately authorized new version/tag.
 
-Publication does not install DSMM. Installation requires matching DSH
-`0.2.1-rc.2` and separate authorization, and must preserve accounts, credentials,
+Publication does not install DSMM. Installation requires DSH
+`>=0.2.1-rc.2 <0.3.0` and separate authorization, and must preserve accounts, credentials,
 history and unrelated configuration.

@@ -7,7 +7,8 @@ not read a parent or sibling repository.
 ## Toolchain
 
 Use Node.js 24 for CI/release and pnpm 11.9.0. The package still supports Node.js
-22 or later at runtime and targets exactly DSH `0.2.1-rc.2`. Do not change the npm
+22 or later at runtime and supports DSH `>=0.2.1-rc.2 <0.3.0`, with rc.2 as the
+development dependency baseline. Do not change the npm
 name `@dsmm/dsmm`, package version, or DSH dependency line as part of routine
 maintenance unless the release or compatibility scope explicitly requires it.
 

@@ -1,6 +1,6 @@
 # DSMM compatibility and upgrade boundaries
 
-**DSMM 0.3.16 targets exactly DSH `0.2.1-rc.2`** and Node.js 22 or later. Older SDKs and automatically drifting versions aren't supported targets.
+**DSMM 0.3.17 supports DSH `>=0.2.1-rc.2 <0.3.0`** and Node.js 22 or later. Official DSH rc.3 gives `engines.dsh` precedence over peer ranges. DSH dependencies, peerDependencies and devDependencies remain pinned to rc.2 as the development baseline; versions outside the declared Host range aren't supported.
 
 ## Supported integration
 
@@ -50,12 +50,12 @@ Standard supported model calls use native prepared calls. Raw/custom and Pi-AI s
 
 ## Retired compatibility surfaces
 
-No old SDK branch, legacy-read host, cold-profile migration, session repair or custom-owner selector is a 0.3.16 activation path. Old libraries, captures and unmarked history aren't copied, rewritten, repaired or adopted by same-name fallback. Retired brand calibration/default-effort and MaxReasoningPresets fields reject with `deprecated-field`; edit configuration deliberately using generic routes and parameters.
+No old SDK branch, legacy-read host, cold-profile migration, session repair or custom-owner selector is a 0.3.17 activation path. Old libraries, captures and unmarked history aren't copied, rewritten, repaired or adopted by same-name fallback. Retired brand calibration/default-effort and MaxReasoningPresets fields reject with `deprecated-field`; edit configuration deliberately using generic routes and parameters.
 
 Published **0.3.0 retains its rc.1 identity**, immutable tag, package, assets and version-bound receipt grammar. Historical release controls interpret those records under their original identity, not as a runtime compatibility branch.
 
 ## Installation boundaries
 
-Evaluate an authorized built artifact in an isolated home/profile as in the [README](../README.md#use-a-local-artifact). Real Desktop/TUI/CLI plugin installation needs exact authorization and the matching rc.2 Host; it doesn't authorize upgrading the Host, touching credentials/history or copying a Desktop profile into another carrier.
+Evaluate an authorized built artifact in an isolated home/profile as in the [README](../README.md#use-a-local-artifact). Real Desktop/TUI/CLI plugin installation needs exact authorization and a DSH Host satisfying `>=0.2.1-rc.2 <0.3.0`; it doesn't authorize upgrading the Host, touching credentials/history or copying a Desktop profile into another carrier.
 
-Desktop plugin installation follows publication and requires the exact rc.2 Host; it doesn't authorize a Host upgrade. [Release controls](releasing.md) define publication and delivery. [Fake-IP fetch](web-fetch-fakeip.md) owns network details and limits; shell rejection remains unresolved. [Native permissions](native-permissions.md) defines approval scope.
+Desktop plugin installation follows publication and uses the Desktop-owned carrier within that Host range; it doesn't authorize a Host upgrade. [Release controls](releasing.md) define publication and delivery. [Fake-IP fetch](web-fetch-fakeip.md) owns network details and limits; shell rejection remains unresolved. [Native permissions](native-permissions.md) defines approval scope.

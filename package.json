@@ -1,6 +1,6 @@
 {
   "name": "@dsmm/dsmm",
-  "version": "0.3.16",
+  "version": "0.3.17",
   "description": "Native Deepwork roles, routing, profiles, and permission controls for DeepSeek Harness.",
   "author": "Hugefiver",
   "license": "LicenseRef-AAAPL",
@@ -128,7 +128,7 @@
   },
   "engines": {
     "node": ">=22",
-    "dsh": "0.2.1-rc.2"
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
   },
   "dependencies": {
     "@deepseek-ai/dsh-web-fetch-http": "0.2.1-rc.2",

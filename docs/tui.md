@@ -1,6 +1,6 @@
 # 在 dsh-TUI 中使用 DSMM
 
-TUI 适配面向 `@deepseek-harness-tui/dsh-tui` **0.16.1** 的公开接口，并要求实际 DSH 运行时为 **`0.2.1-rc.2`**。需要包含此适配的 DSMM 构建；接口核对不能替代真实终端联调。
+TUI 适配面向 `@deepseek-harness-tui/dsh-tui` **0.16.1** 的公开接口，并要求实际 DSH 运行时满足 **`>=0.2.1-rc.2 <0.3.0`**。需要包含此适配的 DSMM 构建；接口核对不能替代真实终端联调。
 
 ## 加载位置
 
