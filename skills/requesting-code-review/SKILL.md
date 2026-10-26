@@ -92,7 +92,7 @@ An optional or redundant review child that is unavailable, times out, or returns
 
 ## Rerunning Review
 
-Rerun only reviews affected by substantive changes to code, new files, requirements, acceptance criteria, constraints, or relevant evidence. Do not rerun because formatting, narration, status wording, or unrelated files changed.
+Rerun only reviews affected by a newly identified or resolved blocker, substantive changes to code, new files, requirements, acceptance criteria or constraints, or relevant new evidence. Do not rerun because formatting, narration, status wording, repeated doubts, unchanged uncertainty, or unrelated files changed. A validated unresolved blocker still prevents dependent completion; repeated review does not clear it.
 
 When a substantive fix changes the reviewed area, send the updated current diff or range and affected evidence. Reuse a continuation only while it remains the same review objective and context is reliable; otherwise start a fresh focused review.
 

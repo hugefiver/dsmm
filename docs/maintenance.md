@@ -40,6 +40,35 @@ base Deepwork prompt, run `pnpm run generate:roles`. CI uses
 `pnpm run check:roles` and fails if `agent-presets/` or `prompts/deepwork.md` is
 stale. Generated assets are package resources, not an alternate source of truth.
 
+Model guidance is subordinate to the selected role and native DSH host contract.
+Kimi models share one current-generation `deepwork/kimi.md` calibration; older
+generations have no separately maintained prompt. Gemini 4.x, including Argon,
+receives a guarded `gemini-4` additive layer based on generic Gemini guidance.
+Prompt selection does not change provider, effort, fallback chains or DSH model
+capabilities.
+
+Effective Deepwork activation includes a short brainstorming orientation. Full
+brainstorming remains a native skill loaded only when material uncertainty calls
+for discovery or design; explicit mode-off and native skill controls remain
+authoritative. Standing role, authorization and workflow rules do not depend on
+loading the full skill. Planning and execution reviews continue for concrete
+blocker or evidence progress, not unchanged doubts or repeated same-cause failures.
+Harness failures and unmet requirements remain explicit rather than being treated
+as product failures or successful completion.
+
+Frontend work follows brief → build → subtract → verify. Small edits preserve
+existing styles and required content; visual QA uses comparable real before/after
+states, separates defects from taste, and discloses missing evidence. Research
+reporting loads the native `report-fidelity` skill on demand for source support, units, derived
+calculations, quotations and translation meaning, without mandatory ledgers or
+large-workflow requirements for simple questions. These local adaptations preserve
+DSH ownership of tasks, lifecycle, permissions and persistence.
+
+The `report-fidelity` skill follows native metadata discovery, lazy body loading,
+and the normal skill setting. Historical child captures without that setting keep
+it disabled; new captures retain their captured value independently of later
+parent settings, without changing the child's authority ceiling.
+
 ## Frontend resources and provenance
 
 The full `skills/frontend/` tree is maintained in this repository and shipped in

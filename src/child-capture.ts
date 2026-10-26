@@ -24,7 +24,8 @@ export interface ChildAuthorityCeiling {
   allowRouteOverride: boolean;
   maxDepth: number;
 }
-export type ChildRuntimePolicyCapture = Pick<DsmmSettings, "modules" | "roleRouting" | "runtimePolicy" | "workflow" | "guards" | "runtimeRecovery" | "defaultActive" | "skills"> & {
+export type ChildRuntimePolicyCapture = Pick<DsmmSettings, "modules" | "roleRouting" | "runtimePolicy" | "workflow" | "guards" | "runtimeRecovery" | "defaultActive"> & {
+  skills: Omit<DsmmSettings["skills"], "report-fidelity"> & Partial<Pick<DsmmSettings["skills"], "report-fidelity">>;
   subagents: Pick<DsmmSettings["subagents"], "enableRunInBackground" | "backgroundMode">;
 };
 export type HistoricalChildRuntimePolicyCapture = ChildRuntimePolicyCapture & {
@@ -199,7 +200,7 @@ export function parseChildAdmissionCapture(input: unknown): ChildAdmissionCaptur
   const { modules, skills, subagents, ...overlay } = execution;
   validateProfileOverlay(overlay);
   object(modules, ["deepwork"]); boolean(object((modules as Record<string, unknown>).deepwork, ["enabled"]).enabled);
-  const skillMap = object(skills, CAPTURE_SKILLS);
+  const skillMap = object(skills, CAPTURE_SKILLS, ["report-fidelity"]);
   Object.values(skillMap).forEach(boolean);
   const background = object(subagents, ["enableRunInBackground", "backgroundMode"]);
   boolean(background.enableRunInBackground);
@@ -256,6 +257,7 @@ export function admissionFromChildCapture(input: ChildAdmissionCapture, nativeSu
   const capture = parseChildAdmissionCapture(input);
   const { locale: _locale, ...substrate } = nativeSubstrate;
   const settings = resolveConfig({ ...substrate, ...executionPolicy(capture.runtimePolicyCapture),
+    skills: { "report-fidelity": false, ...capture.runtimePolicyCapture.skills },
     modelParameters: { passthrough: capture.version === 1 || capture.modelParameterPolicy.mode !== "native-defaults" },
     roles: Object.fromEntries(DSMM_ROLE_IDS.map(role => [role, capture.authorityCeiling.roles.includes(role)])),
     ...(capture.locale === undefined ? {} : { locale: capture.locale }), subagents: { ...capture.runtimePolicyCapture.subagents,

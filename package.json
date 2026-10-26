@@ -1,6 +1,6 @@
 {
   "name": "@dsmm/dsmm",
-  "version": "0.3.17",
+  "version": "0.3.18",
   "description": "Native Deepwork roles, routing, profiles, and permission controls for DeepSeek Harness.",
   "author": "Hugefiver",
   "license": "LicenseRef-AAAPL",

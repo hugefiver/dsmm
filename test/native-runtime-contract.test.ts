@@ -206,8 +206,37 @@ async function providerFixture() {
   const provider = registerBundledSkills(agent.ctx, agent.ctx.get("skills")!, { agent: adapterAgent(agent), controller, getSettings: () => settings,
     async load(name, signal) { reads++; await beforeRead?.(); return readBundledSkill(name, signal); } });
   const view = { scope: agent, cwd: agent.session.header.cwd };
-  return { ...f, agent, view, provider, reads: () => reads, holdRead(fn: (() => Promise<void>) | undefined) { beforeRead = fn; } };
+  return { ...f, agent, view, provider, settings, reads: () => reads, holdRead(fn: (() => Promise<void>) | undefined) { beforeRead = fn; } };
 }
+
+test("report-fidelity native catalog lists metadata and gets the packaged body on demand", async () => {
+  const f = await providerFixture();
+  try {
+    const catalog = await f.ctx.skills.snapshot(f.view);
+    const metadata = catalog.skills.find(skill => skill.name === "report-fidelity");
+    assert.ok(metadata);
+    assert.equal(f.reads(), 0);
+    assert.equal("content" in metadata, false);
+    const loaded = await f.ctx.skills.get("report-fidelity", f.view);
+    assert.ok(loaded);
+    assert.equal(loaded?.name, "report-fidelity");
+    assert.equal(f.reads(), 1);
+    assert.ok(loaded.content.length > 0);
+    assert.equal(loaded.resourceBase?.kind, "directory");
+    if (loaded.resourceBase?.kind !== "directory") throw new Error("bundled skill needs a directory base");
+    assert.ok((await readFile(join(loaded.resourceBase.path, "SKILL.md"), "utf8")).length > 0);
+    f.settings.skills["report-fidelity"] = false;
+    f.provider.invalidate();
+    assert.equal((await f.ctx.skills.list(f.view)).some(skill => skill.name === "report-fidelity"), false);
+    assert.equal(await f.ctx.skills.get("report-fidelity", f.view), undefined);
+    f.settings.skills["report-fidelity"] = true;
+    f.settings.defaultActive = false;
+    f.provider.invalidate();
+    assert.equal((await f.ctx.skills.list(f.view)).some(skill => skill.name === "report-fidelity"), false);
+    assert.equal(await f.ctx.skills.get("report-fidelity", f.view), undefined);
+    assert.equal(f.reads(), 1);
+  } finally { await f.dispose(); }
+});
 
 test("another isolated native registry cannot permanently poison cached bundled candidates", async () => {
   const f = await providerFixture();

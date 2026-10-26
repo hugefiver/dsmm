@@ -126,7 +126,7 @@ For complex implementation of product business logic or behavior, return the com
 
 Treat acknowledgements and status labels as informational, not evidence. Judge the returned analysis and cited evidence. Correct a substantive blocker, rebut it with concrete evidence, or escalate it for clarification before implementation. Non-blocking improvements do not hold implementation, and an unavailable, timed-out, or merely acknowledging critic does not manufacture approval or erase an unresolved blocker.
 
-If review finds a substantive issue, update the plan and rerun only the affected review when the review input changed materially. Formatting, narration, status wording, or other non-substantive edits do not stale a sound review. Do not impose a fixed iteration count or continue an open-ended loop; escalate when a blocker cannot be resolved from evidence.
+If review finds a substantive issue, update the plan and rerun only the affected review when a blocker was newly identified or resolved, or relevant new evidence or another substantive input could change the conclusion. Formatting, narration, status wording, a repeated concern, or unchanged uncertainty does not stale a sound review or create progress. Do not impose a fixed iteration count or continue an open-ended loop; stop and escalate when a blocker cannot be resolved from evidence.
 
 ## Execution Handoff
 

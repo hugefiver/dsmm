@@ -44,4 +44,4 @@ Assignment content (not a tool-call schema; send through a permitted callable na
     status label alone is not review evidence.
 ```
 
-Rerun only the affected review when substantive inputs change enough to affect its conclusion. Editorial or formatting changes alone do not invalidate the prior analysis, and review must not become an open-ended loop.
+Rerun only the affected review when a blocker is newly identified or resolved, or relevant new evidence or another substantive input could affect its conclusion. Editorial changes, repeated concerns, and unchanged uncertainty do not invalidate prior analysis or justify an open-ended loop; stop and escalate an unresolved blocker.

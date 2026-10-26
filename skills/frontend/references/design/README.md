@@ -23,36 +23,39 @@ The declared curated fixed-pin resources are bundled and must be complete. For b
 
 When actually available, use the `open-design` skill when the request explicitly mentions Open Design, Claude Design alternatives, design-system libraries, or a brand/style that is not covered by this skill's curated reference set. Treat Open Design as the expanded reference library; keep this skill responsible for routing discipline, design-system gating, and frontend execution quality.
 
-## Phase 0 — Design System Gate (MANDATORY, runs before routing)
+## Phase 0 — Design System Gate & Workflow (Brief → Build → Subtract → Verify)
 
-Before touching any UI code, before routing to any reference, before even thinking about aesthetics — run this gate.
+Before touching UI code, ground the task in the core four-stage workflow:
 
-### Check: Does the project have a `DESIGN.md`?
+### 1. BRIEF — Define Intent & Scope Upfront
+- **Clarify intent**: user goal, primary action (if any), information hierarchy, and required content (inputs, fields, table columns, essential copy).
+- **Internal tools, dashboards, reports, and charts**: default to restrained, clear, content-first typography, structured alignment, and dense data layouts. Expressive branding, lavish atmosphere, and elaborate motion are strictly opt-in for landing pages, marketing surfaces, and branded consumer experiences.
+- **Small adjustments**: for localized changes to existing UI, inspect touched tokens or adjacent styled components directly. Do not force creating a full `DESIGN.md`, research logs, or a whole-page redesign for localized changes.
 
+### 2. DESIGN SYSTEM CHECK
+#### Does the project have a `DESIGN.md`?
 **Search for it:** Look at project root, then `docs/`, then `src/`. Any file named `DESIGN.md`, `design-system.md`, or `design-tokens.md`.
 
-#### If NO design system exists → CREATE ONE FIRST
-
-1. Read `design-system-architecture.md` — it defines the exact structure.
-2. Explore the project: what is the product domain? Who are the users? What feeling should it evoke?
-3. If the project has existing UI code, **extract** the implicit system (colors, fonts, spacing already in use) rather than inventing from scratch.
-4. If the project is greenfield, **ask the user one question**: "What should this feel like?" — or infer from context.
-5. For greenfield UI, start `DESIGN.md` with `## 0. Research Log`: record 2-3 relevant local Layer B/design candidates, the selected Layer A + Layer B and rationale, and any optional evidence from `ui-ux-db`, a user-provided image, or a local mockup. If a source/tool is unavailable or irrelevant, record why; do not force network research.
-6. Write `DESIGN.md` at project root following the nine-section structure from the reference.
-7. **Do not proceed to any component implementation until `DESIGN.md` exists and is committed to context.**
-
 #### If YES design system exists → READ IT, FOLLOW IT
-
-1. Read the entire `DESIGN.md` into context.
+1. Read the `DESIGN.md` tokens into context.
 2. Every color, font size, spacing value, and component pattern you produce MUST reference tokens from this file.
 3. If you need a token that doesn't exist, **add it to `DESIGN.md` first**, then use it.
 4. Never introduce raw hex codes, arbitrary px values, or ad-hoc component patterns that bypass the system.
 
-**This gate is non-negotiable. No design system = no UI work. Period.**
+#### If NO design system exists
+- **For localized edits / existing codebases**: extract implicit tokens (colors, fonts, spacing already in use) or adhere to adjacent styled components.
+- **For greenfield product UI**:
+  1. Read `design-system-architecture.md` — it defines the exact structure.
+  2. Explore the project: product domain, user persona, intended atmosphere.
+  3. Start `DESIGN.md` with `## 0. Research Log`: record 2-3 relevant local Layer B/design candidates, the selected Layer A + Layer B and rationale, and any optional evidence from `ui-ux-db`, a user-provided image, or a local mockup. If a source/tool is unavailable or irrelevant, record why; do not force network research.
+  4. Write `DESIGN.md` at project root following the structure from the reference before implementing product screens.
 
-### Primitive Showcase Gate (MANDATORY for greenfield product UI)
-
+### Primitive Showcase Gate (for greenfield product UI)
 Before building a product screen, add the intended primitives and states to `DESIGN.md` Section 5 under `Planned Showcase Primitives`. This is a pre-implementation verification checklist, not reusable component documentation. Verify each relevant primitive in a component showcase or equivalent state page: default, hover, focus, disabled, loading, empty, and error. Keep component documentation only for implemented reusable patterns used 2+ times. For runnable UI, retain real-browser validation at 375 / 768 / 1280px; when a runnable surface is unavailable, state exactly which states and breakpoints were not verified rather than claiming the gate passed.
+
+### 3. SUBTRACT — Prune Decorative Noise
+- Prune superfluous borders, redundant nested containers, decorative gradients, visual noise, and pointless animations that do not aid hierarchy or state transitions.
+- **Hard invariant**: NEVER delete, omit, or merge required content (user inputs, forms, data columns, essential copy, actions) to fit a visual layout or buy performance points. Subtraction applies strictly to decorative excess, not content.
 
 
 ## Phase 0.5 — React Dev Tooling Capability Gate
@@ -212,40 +215,47 @@ Once references are loaded, before writing any UI code:
 | "Stop using placeholders" | Add `output-skill.md` to current stack |
 | "Also output a DESIGN.md doc" | Add `stitch-skill.md` to current stack |
 
-## Phase Final — Design QA (MANDATORY, runs after implementation)
+## Phase Final — Design QA & Visual QA (MANDATORY, runs after implementation)
 
-After implementation is complete, **before declaring the task done**, run a real browser-based Design QA.
+After implementation is complete, **before declaring the task done**, run visual quality assurance following the detailed protocol in **`../visual-qa.md`**.
 
-### Why
+### Core Visual QA Protocol
 
-Code that "looks correct" in an editor is not verified. Colors render differently, spacing collapses, fonts fail to load, responsive breakpoints break, states are missing. The only way to know is to SEE it in a real browser.
+Code that "looks correct" in an editor is not verified. Colors render differently, spacing collapses, fonts fail to load, responsive breakpoints break, states are missing. Verify on the rendered surface.
 
-### How
+1. **Fixed-State Baseline**:
+   - For modifications to existing UI, capture a real baseline BEFORE making code edits. Lock route, view state, viewports (375 / 768 / 1280px), theme (light/dark), test data, and scroll position.
+   - Post-change screenshots MUST be captured with identical parameters.
+   - **No fake baselines**: If baseline was not captured prior to code edits, do not fabricate one or disguise post-change captures as baselines; disclose baseline absence honestly and verify the post-change state on its own merits.
 
-Use a **run-owned temporary empty browser profile or isolated empty context** for every Design QA run. **Do not sign in to any browser, vendor, site, or account, including disposable or test accounts.** **Do not import, copy, reuse, or sync user browser settings, extensions, cookies, authentication, or storage state.** If a state cannot be reached anonymously, **report authentication as a verification limitation**; do not attach to a live browser or claim that the blocked state was verified.
+2. **Defect vs. Taste**:
+   - Prioritize objective defects (layout breaks, clipped text, alignment bugs, contrast/a11y violations, broken interactions, missing required content) over subjective taste (minor radius/shade nuance).
+   - Do not churn on subjective aesthetic preferences. Localize fixes to affected components.
 
-1. **Launch the app** in a real browser (use `agent-browser` skill or the project's dev server + screenshot tool).
-2. **Take screenshots** at key breakpoints: mobile (375px), tablet (768px), desktop (1280px).
-3. **Walk the design system checklist** visually:
-   - [ ] Colors match `DESIGN.md` palette — no off-brand colors visible
-   - [ ] Typography hierarchy is clear — headings, body, captions are visually distinct
-   - [ ] Spacing rhythm feels consistent — no cramped or floating elements
-   - [ ] Interactive states work — hover every button, focus every input, toggle every switch
-   - [ ] Empty, loading, and error states exist and look intentional
-   - [ ] Dark mode (if declared in `DESIGN.md`) works completely
-   - [ ] No layout overflow, no horizontal scroll on mobile
-   - [ ] Motion/animation feels smooth — no jank, no missing transitions
-4. **If anything fails**, fix it and re-check. Do not report "done" with visual bugs.
-5. **If you cannot launch a browser** (e.g. no dev server, CI-only environment), state this explicitly and list what you would check. Never silently skip QA.
+3. **Distinguish Harness Failures from Product Defects**:
+   - Check test harness conditions (CDP timeout, missing browser binary, auth walls, render timeouts) before attributing failures to product code. Harness failures do not prove product failure or success.
 
-### QA Report
+4. **Browser Isolation & Safety Boundaries**:
+   - Use a **run-owned temporary empty browser profile or isolated empty context** for every verification run.
+   - **Strictly NO login**: Do not sign in to any browser, vendor, site, or account, including disposable or test accounts.
+   - **NO user state reuse**: Do not import, copy, reuse, or sync user browser settings, extensions, cookies, authentication, or storage state.
+   - If a page is authentication-gated, **report authentication as a verification limitation** rather than attempting to bypass or authenticate.
+   - **NO autonomous software installs**: Never install browser software, binaries, or npm packages autonomously.
 
-After passing QA, write a short summary:
-- Breakpoints tested
+5. **Bounded Progress**:
+   - Only re-verify when there is concrete progress (new defect identified, defect fixed, or new diagnostic evidence).
+   - If repeated attempts produce the same symptom without new diagnostic insight, stop and disclose the blocker.
+   - Avoid fixed review count quotas, dual-oracle rituals, or synthetic status ledgers.
+
+### Visual QA Report Format
+
+After passing QA, provide a concise summary:
+- Surfaces and breakpoints tested (375 / 768 / 1280px)
+- Baseline status (captured before edit / unavailable)
 - States verified (hover, focus, disabled, loading, error, empty)
-- Design system compliance: all tokens traced back to `DESIGN.md`
-- Issues found and fixed during QA
-- Screenshot evidence (attach or describe)
+- Design system compliance: all tokens traced back to `DESIGN.md` or existing token scales
+- Objective defects found and fixed during QA
+- Unverified boundaries or harness limitations disclosed honestly
 
 
 ## Final notes

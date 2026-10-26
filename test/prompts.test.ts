@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { BASE_DEEPWORK_PROMPT, SOURCE_ROLE_CATALOG, buildDeepworkPrompt, buildRolePersona, promptModelVariants } from "../lib/prompts.js";
+import { BASE_DEEPWORK_PROMPT, SOURCE_ROLE_CATALOG, buildDeepworkPrompt, buildRolePersona } from "../lib/prompts.js";
 import { DSMM_ROLES } from "../lib/roles.js";
 import { DEFAULT_DSMM_SETTINGS } from "../lib/settings.js";
 
@@ -109,26 +109,6 @@ test("all source role/category bodies assemble once and category family blocks s
       const base = source.replace(/\r?\n?<model-calibration model="([^"]+)">\r?\n([\s\S]*?)\r?\n<\/model-calibration>\r?\n?/gu, "\n").trim();
       assert.ok(role.persona.includes(base), role.id);
     } else assert.ok(role.persona.includes(row.description), role.id);
-  }
-});
-
-test("source family selection is additive, planner-first, exact Opus orchestrator-only, and never changes routes", () => {
-  assert.deepEqual(promptModelVariants("planner", "gpt-6.1-sol"), ["planner", "gpt"]);
-  assert.deepEqual(promptModelVariants("orchestrator", "us.anthropic.claude-opus-5-20260901"), ["claude-opus-5"]);
-  assert.deepEqual(promptModelVariants("reviewer", "claude-opus-5"), []);
-  assert.deepEqual(promptModelVariants("orchestrator", "claude-opus-50"), []);
-  assert.deepEqual(promptModelVariants("builder", "gpt-5.5-codex"), ["codex", "gpt"]);
-  assert.deepEqual(promptModelVariants("builder", "kimi-for-coding"), ["kimi-k27"]);
-  assert.deepEqual(promptModelVariants("builder", "kimi-for-coding-highspeed"), ["kimi-k27"]);
-  assert.deepEqual(promptModelVariants("builder", "kimi-k2.8-preview"), ["kimi-k27"]);
-  assert.deepEqual(promptModelVariants("builder", "kimi-k2.6"), []);
-  assert.deepEqual(promptModelVariants("builder", "swe-2-fast"), ["swe-2"]);
-  for (const model of ["gpt-6.1-sol", "gemini-3.1-pro", "glm-5.2", "kimi-k2.7", "swe-2", "claude-opus-5", "gpt-5.5-codex"]) {
-    const route = Object.freeze({ provider: "fixture", model });
-    const prompt = buildDeepworkPrompt(DEFAULT_DSMM_SETTINGS, { selectedPreset: "dsmm-planner", route });
-    assert.match(prompt, /# Deepwork Planner Injection/u);
-    assert.doesNotMatch(prompt, /# CLAUDE OPUS 5 EXECUTION CALIBRATION/u);
-    assert.deepEqual(route, { provider: "fixture", model });
   }
 });
 

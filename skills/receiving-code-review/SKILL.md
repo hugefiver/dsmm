@@ -35,7 +35,7 @@ Code review requires technical evaluation, not emotional performance.
 1. Read the complete substantive feedback.
 2. Restate or clarify the technical requirement when needed.
 3. Verify the claim against current code, requirements, and evidence.
-4. Classify it as a product defect, evidence gap, optional improvement, incorrect finding, or decision that changes approved intent.
+4. Classify it as a product defect, harness/tool/environment failure, evidence gap, optional improvement, incorrect finding, or decision that changes approved intent.
 5. Apply the smallest justified correction or push back with evidence.
 6. Rerun only affected verification and review surfaces.
 
@@ -73,6 +73,7 @@ Push back with code, requirements, test results, or protocol/platform evidence w
 ## Product Findings vs Evidence Findings
 
 - **Product defect:** Correct the implementation with the smallest change that preserves approved intent.
+- **Harness/tool/environment failure:** Repair the owned verification surface when authorized, or report the unavailable evidence; do not change product behavior or weaken a valid check to make it pass.
 - **Evidence gap:** Add or rerun the evidence needed to establish the claim; do not rewrite product behavior unless investigation reveals a real defect.
 - **Optional improvement:** Record or defer it according to scope and value; it does not block a proven result.
 - **Intent-changing proposal:** Return it to the decision owner rather than silently broadening scope.
@@ -91,7 +92,7 @@ Judge tests against final valid requirements, functionality, and external interf
 
 ## Follow-Up Review
 
-Rerun only the review lanes affected by substantive changes to code, new files, requirements, acceptance criteria, constraints, or relevant evidence. Do not rerun review for formatting, narration, labels, or unrelated changes.
+Rerun only the review lanes affected by a newly identified or resolved blocker, substantive changes to code, new files, requirements, acceptance criteria or constraints, or relevant new evidence. Do not rerun review for formatting, narration, labels, repeated concerns, unchanged uncertainty, or unrelated changes. Stop and escalate rather than repeating the same no-progress review; unresolved required findings remain incomplete while independent authorized work may continue only when it does not depend on them.
 
 An optional or redundant reviewer that times out, acknowledges without analysis, or adds no evidence does not block a result already established by sufficient current evidence. A review explicitly required by the user or governing process still must be completed, and substantive unresolved high-impact risks remain blockers.
 

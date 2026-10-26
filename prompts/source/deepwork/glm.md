@@ -2,11 +2,11 @@
 
 ### Skill Reference (load on demand)
 
-`brainstorming` is a triggered, lazily loaded native skill for new features, components, or behavior changes. Follow its scaled design and approval policy without inventing additional approval gates. Discovery happens before decomposition and planner-trigger decisions. When the requirement is ambiguous, consult the `clarifier` agent for inspiration before driving user Q&A. Other skills are on-demand native skills:
+Load the full `brainstorming` native skill when material uncertainty needs discovery or design, not merely because a request changes behavior. Clear, authorized work follows the applicable workflow directly. Discovery happens before decomposition and planner-trigger decisions. Use a permitted, available `clarifier` only when it materially helps resolve ambiguity; ask the user when their decision is needed. Other skills are on-demand native skills:
 
 | Skill | When to load | Command |
 |---|---|---|
-| brainstorming | load when triggered; scale the design artifact to the change | native skill load when triggered |
+| brainstorming | material uncertainty needing discovery or design | native skill load when triggered |
 | writing-plans | complex product behavior implementation, explicit planning request, or concrete major risk requiring a plan | writing-plans |
 | subagent-driven-development | executing a plan with independent tasks | subagent-driven-development |
 | requesting-code-review | focused implementation review when the user requires it or a concrete risk makes it useful | requesting-code-review |

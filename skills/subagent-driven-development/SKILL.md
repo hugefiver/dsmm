@@ -110,7 +110,7 @@ Several independent, low-judgment edits of the same kind may share one brief. St
 
 Continue the same worker session for a bounded correction to the same goal when the host exposes a continuation handle and its context remains valid. Otherwise start a fresh worker with the necessary correction context.
 
-After a correction, rerun only affected checks or reviews plus any integration check whose substantive input changed. Do not restart a full review for formatting, narration, status wording, or other changes that cannot affect the reviewed outcome. Escalate rather than retry blindly after repeated no-progress attempts.
+After a correction, rerun only affected checks or reviews plus any integration check whose substantive input changed. A newly identified or resolved blocker or relevant new evidence can justify another affected pass; formatting, narration, status wording, repeated doubts, or unchanged uncertainty cannot. When the same check fails consecutively for the same reason and no new diagnostic basis exists, stop blind retries, identify whether the failure belongs to the product or the harness/tool/environment, and state the unmet requirement and needed input or capability. Continue independent authorized work only when it does not depend on the blocker.
 
 ## Model Selection
 
@@ -137,6 +137,8 @@ Do not poll aggressively, sleep, or repeatedly ask for status. While you have lo
 
 Choose evidence that can demonstrate the requested behavior or invariant. Depending on the change, this can include focused deterministic tests, existing regression tests, typechecks, builds, runtime probes, inspection of generated output, or protocol/security checks.
 
+Keep product failures separate from harness, tool, fixture, and environment failures. If the harness did not exercise the product behavior, report the evidence gap; do not change product behavior or weaken a valid check merely to obtain green output. An unresolved required failure remains incomplete even when other authorized work can proceed independently.
+
 Workers run lightweight local checks for their substantive changes; the controller owns integration and consolidated global/heavy verification, not a full-suite run per small task. Apply brainstorming's material-relevance reuse rule: unrelated code, dependency, or environment changes don't invalidate passing evidence; changes affecting tested behavior or interfaces require only affected checks and explicit coverage gaps. Required safety, release, pre-commit, and user-mandated checks remain binding.
 
 Do not impose a universal RED gate, test transcript, scenario count, or full-suite run for every task. Add or run tests where a plausible deterministic regression seam warrants them. Never weaken real safeguards or substitute an acknowledgement for evidence.
@@ -159,7 +161,7 @@ This is outcome verification, not a mandatory full reviewer pass after each task
 
 When independent review is useful, provide the reviewer with the goal, acceptance criteria, current diff or committed range including new files, relevant verification evidence, and global constraints. Add focused context for a known concern without pre-judging the conclusion. Do not paste accumulated session history or require a fixed packet schema, receipt, or first-line verdict.
 
-Reviewers inspect the actual change and evidence; they should not rerun expensive checks without a reason. Treat their findings according to technical merit. Re-request only the affected review when substantive code, requirements, evidence, or constraints changed. An editorial prompt change does not stale otherwise applicable review analysis.
+Reviewers inspect the actual change and evidence; they should not rerun expensive checks without a reason. Treat their findings according to technical merit. Re-request only the affected review for a newly identified or resolved blocker, a substantive correction, or relevant new evidence or constraints. An editorial prompt change, repeated concern, or unchanged uncertainty does not stale otherwise applicable review analysis.
 
 ## When Review Is Useful
 
@@ -171,7 +173,7 @@ Review is not unconditional. A proven low-risk result need not wait for an optio
 
 Use the `receiving-code-review` skill. Fix validated blocking defects or missing required evidence. Group related findings into a coherent correction rather than spawning one worker per comment. Push back with code, requirements, or evidence when a finding is incorrect or would change approved intent.
 
-After a substantive fix, rerun affected evidence and reviews. Do not rerun unaffected reviews. Preserve the approved goal and constraints; escalate feedback that would change scope, acceptance, safety/data guarantees, public APIs/protocols, permissions, or irreversible behavior.
+After a substantive fix, rerun affected evidence and any review whose blocker or supporting evidence changed. Do not rerun unaffected reviews. Preserve the approved goal and constraints; escalate feedback that would change scope, acceptance, safety/data guarantees, public APIs/protocols, permissions, or irreversible behavior.
 
 ## Prompt Templates
 

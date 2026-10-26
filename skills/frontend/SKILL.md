@@ -26,8 +26,9 @@ This file is a router, not a rulebook. The rules live in three rulesets under `r
 
 | Request involves… | Read |
 |---|---|
-| ANY UI implementation, styling, redesign, mockup, or visual decision | `references/design/README.md` FIRST. It enforces two mandatory gates — the Design System Gate (a `DESIGN.md` must exist before any component is written) and the React Dev Tooling Gate (inspect already available react-grab / react-scan / react-doctor; installation requires separate authorization) — then routes to the taste and brand references below. |
-| Writing or modifying frontend code, OR auditing performance / SEO / accessibility / quality | ALSO `references/perfection/README.md`. Lighthouse 100 in every category, measured on real Playwright Chromium (never the `lighthouse` CLI), achieved through architecture — never by dropping animations or hiding content. |
+| ANY UI implementation, styling, redesign, mockup, or visual decision | `references/design/README.md` FIRST. Governs the Brief → Build → Subtract → Verify workflow: restrained defaults for internal tools/dashboards/reports/charts; small adjustments inspect touched tokens/components without forcing `DESIGN.md`; subtracts decorative clutter while strictly preserving required content; checks already available React dev tooling without unauthorized installs; routes to taste/brand references. |
+| Writing or modifying frontend code, OR auditing performance / SEO / accessibility / quality | ALSO `references/perfection/README.md`. Lighthouse 100 in every category, measured on real Playwright Chromium (never the `lighthouse` CLI), achieved through architecture — never by dropping animations or hiding/deleting required content. |
+| Visual QA, before/after verification, screenshot audits, UI defect triage, or checking responsive breakpoints | `references/visual-qa.md`. Enforces fixed-state before/after comparison, defect vs. taste distinction, bounded progress, and distinguishing harness failures from product defects. |
 | Looking up a concrete style, color palette, font pairing, chart type, landing-page structure, or UX guideline — or generating a project design system from keywords | `references/ui-ux-db/README.md`. A searchable CSV database with a CLI; a lookup tool, not a posture. Load on demand; `design` stays the source of truth for taste and the `DESIGN.md` contract. |
 
 **For implementation work, design + perfection load together.** A page that hits Lighthouse 100 but looks like AI slop has failed; a page that looks beautiful but ships a 2 MB bundle has failed. Both win or neither does.
@@ -116,21 +117,36 @@ For non-writing lookup, use the same resolved script and confirmed project conte
 | "Premium SaaS hero like Stripe" | `design/README.md` + `design/stripe.md` + `design/soft-skill.md` + `perfection/README.md` |
 | "Aside-style agent-browser landing" | `design/README.md` + `design/aside.md` + `design/taste-skill.md` + `perfection/README.md` |
 | "Clone this site" / "rebuild `<url>`" | `design/README.md` + `design/clone-from-url.md` + `perfection/README.md` |
-| "Improve this existing dashboard" | `design/README.md` + `design/redesign-skill.md` + `perfection/README.md` |
+| "Improve this existing dashboard" | `design/README.md` + `design/redesign-skill.md` + `references/visual-qa.md` + `perfection/README.md` |
+| "Internal tool" / "dashboard" / "report layout" | `design/README.md` (brief + restrained default) + `design/minimalist-skill.md` + `references/visual-qa.md` |
+| "Visual QA this page" / "check before and after" | `references/visual-qa.md` |
 | "Polish these interactions" / "add motion and states" | `design/README.md` + `design/interaction-skill.md` + the selected style/brand reference + `perfection/README.md` |
 | "Audit my site" / "make this page faster" | `perfection/README.md` (+ `perfection/react-perf-tooling.md` if React) |
 | "Mockup image of a fintech app" — no code | `design/imagegen-frontend-mobile.md` (+ a Layer B brand if named) |
 | "What palette/fonts fit a wellness brand?" | `ui-ux-db/README.md` → search CLI |
 | "Set up this React project" | `design/README.md` + `design/react-dev-tooling-skill.md` |
 
-## Shared axioms (all three rulesets agree — apply always)
+## Shared axioms (all rulesets agree — apply always)
 
-- **No design system = no UI work.** `DESIGN.md` exists before components do; every color, font size, and spacing value traces back to a token in it. For greenfield UI, its `## 0. Research Log` records the local design candidates and selected direction before product screens are built.
+- **Brief → Build → Subtract → Verify workflow**:
+  - Clarify user goal, primary action, information hierarchy, and required content upfront.
+  - Internal tools, dashboards, reports, and charts default to restrained, clear, content-first layouts; expressive atmosphere is opt-in.
+  - For small adjustments, inspect touched tokens or adjacent styled components directly without forcing `DESIGN.md` or full-page redesigns.
+  - Subtraction removes decorative excess; NEVER delete, omit, or merge required content (fields, inputs, columns, copy) to fit a layout or buy points.
+- **Visual QA uses fixed-state before/after**:
+  - Lock route, view state, viewport (375 / 768 / 1280px), theme, test data, and scroll position before editing.
+  - Never fake or back-date a baseline if pre-change capture was missed; disclose baseline absence honestly.
+  - Distinguish objective defects from subjective taste; prioritize defect resolution over aesthetic churning.
+  - Distinguish test harness failures from product defects; disclose limitations honestly.
+- **Browser isolation & security boundaries**:
+  - Use a run-owned temporary empty browser profile or isolated context only.
+  - Strictly NO login or account use (including disposable or test accounts).
+  - NEVER copy, import, or reuse user browser profiles, cookies, extensions, or storage.
+  - NEVER install browser binaries or software packages autonomously.
+  - If a surface is authentication-gated, report authentication as a verification limitation rather than attempting to bypass or authenticate.
 - **Never weaken UX to buy points.** No dropping animations, hiding content, or simplifying interactions for a score or a deadline.
 - **No emojis as icons.** SVG icon sets only (Lucide, Heroicons, Radix, Phosphor).
 - **GPU-composited animation only** — `transform`, `opacity`, `filter`; never animate layout properties.
-- **Verify in a real browser before declaring done.** Screenshots at 375 / 768 / 1280px; hover, focus, loading, empty, and error states all exercised.
-- Browser QA and extraction use a **run-owned temporary empty browser profile or isolated empty context**. **Do not sign in to any browser, vendor, site, or account, including disposable or test accounts.** **Do not import, copy, reuse, or sync user browser settings, extensions, cookies, authentication, or storage state.** If the required page is authentication-gated, **report authentication as a verification limitation** rather than attaching to a live browser or bypassing the boundary.
 
 ## When to load something else instead
 

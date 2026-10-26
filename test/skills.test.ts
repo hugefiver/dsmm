@@ -6,8 +6,8 @@ import { DSMM_SKILL_NAMES as SETTINGS_SKILL_NAMES, resolveConfig } from "../lib/
 import { DSMM_SKILL_NAMES, MVP_SKILL_NAMES, enabledSkillNames,
   bundledSkillMetadata, parseSkillMarkdown, readBundledSkill } from "../lib/skills.js";
 
-test("all fourteen canonical skills share configurable lazy metadata/body inventory", () => {
-  assert.deepEqual(DSMM_SKILL_NAMES, ["brainstorming", "writing-plans", "requesting-code-review", "receiving-code-review", "subagent-driven-development", "dispatching-parallel-agents", "remove-ai-slops", "debugging", "frontend", "git-master", "ast-grep", "coding-agent-sessions", "init-deep", "using-git-worktrees"]);
+test("canonical skills share configurable lazy metadata/body inventory", () => {
+  assert.deepEqual(DSMM_SKILL_NAMES, ["brainstorming", "writing-plans", "requesting-code-review", "receiving-code-review", "subagent-driven-development", "dispatching-parallel-agents", "remove-ai-slops", "debugging", "frontend", "git-master", "ast-grep", "coding-agent-sessions", "init-deep", "using-git-worktrees", "report-fidelity"]);
   assert.equal(MVP_SKILL_NAMES, DSMM_SKILL_NAMES); assert.equal(SETTINGS_SKILL_NAMES, DSMM_SKILL_NAMES);
 });
 
@@ -18,7 +18,7 @@ test("parseSkillMarkdown extracts frontmatter and body and rejects invalid entri
 });
 
 test("enabledSkillNames preserves canonical order and deployment disablement", () => {
-  assert.deepEqual(enabledSkillNames(resolveConfig({ skills: { "writing-plans": false, "remove-ai-slops": false, debugging: false } })), DSMM_SKILL_NAMES.filter((name) => !["writing-plans", "remove-ai-slops", "debugging"].includes(name)));
+  assert.deepEqual(enabledSkillNames(resolveConfig({ skills: { "writing-plans": false, "remove-ai-slops": false, debugging: false, "report-fidelity": false } })), DSMM_SKILL_NAMES.filter((name) => !["writing-plans", "remove-ai-slops", "debugging", "report-fidelity"].includes(name)));
 });
 
 test("metadata inventory agrees with packaged frontmatter without carrying bodies", async () => {

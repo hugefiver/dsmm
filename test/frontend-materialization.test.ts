@@ -162,8 +162,12 @@ test("actual tarball ships every frontend resource and native skill resourceBase
       symlinkSync(installed, join(staged, "node_modules/@deepseek-ai", name), "junction");
     }
     const module = await import(pathToFileURL(join(staged, "lib/skills.js")).href);
-    const loaded = await module.readBundledSkill("frontend", new AbortController().signal);
-    assert.deepEqual(loaded.resourceBase, { kind: "directory", path: join(staged, "skills/frontend") });
+    for (const name of ["frontend", "brainstorming", "report-fidelity"]) {
+      const loaded = await module.readBundledSkill(name, new AbortController().signal);
+      assert.equal(loaded.name, name);
+      assert.ok(loaded.content.trim().length > 0);
+      assert.deepEqual(loaded.resourceBase, { kind: "directory", path: join(staged, "skills", name) });
+    }
     assert.equal(checkFrontendAssets(staged).outcome, "ready");
     assert.equal(readdirSync(directory).filter((file) => file.endsWith(".tgz")).length, 1);
   } finally { cleanup(directory); }

@@ -32,9 +32,11 @@ Performance is decided at architecture and code-quality level. Bundle size, rend
 
 For EVERY failing audit, trace it back to a SPECIFIC line of code or a SPECIFIC build-config choice. Fix it at the source. No band-aids.
 
-### 4. NEVER WEAKEN UX TO BUY POINTS.
+### 4. NEVER WEAKEN UX OR DELETE REQUIRED CONTENT TO BUY POINTS.
 
 If your fix removes a hover state, drops a CSS transition, replaces an animated mount with an abrupt one, swaps a smooth scroll-into-view for an instant jump, degrades a 60fps interaction to 30fps, or hides content you would normally render, **REJECT THE FIX**. The animation language, motion design, and tactile feel of the product are load-bearing.
+
+**Required Content Invariant**: Performance optimizations and visual subtractions must **NEVER** delete, omit, or merge required content (user inputs, forms, data columns, essential copy, actions) to simplify layout or boost scores. Subtraction applies strictly to decorative excess and wasteful rendering, never to required functional or informational content.
 
 Find another way:
 
@@ -62,30 +64,30 @@ Use the design ruleset:
 
 ### 6. DESIGN SYSTEM COMPLIANCE IS NOT OPTIONAL.
 
-The design ruleset (`../design/README.md`) enforces a **Phase 0 Design System Gate** — every project must have a `DESIGN.md` before any UI work begins. This skill enforces the other side: **every audit must verify compliance.**
+The design ruleset (`../design/README.md`) enforces a **Phase 0 Design System Gate** — every project must follow design system tokens. This skill enforces the other side: **every audit must verify compliance.**
 
 During the audit loop, after Lighthouse scores pass, run a Design System Compliance check:
 
-- **Colors**: grep the codebase for raw hex/rgb values not declared in `DESIGN.md`. Each is a violation.
-- **Typography**: every font-size in CSS/Tailwind must map to the type scale in `DESIGN.md`. No arbitrary sizes.
+- **Colors**: grep the codebase for raw hex/rgb values not declared in `DESIGN.md` or existing design tokens. Each is a violation.
+- **Typography**: every font-size in CSS/Tailwind must map to the declared type scale. No arbitrary sizes.
 - **Spacing**: every margin/padding/gap value must be a multiple of the base unit (4px) and ideally use a declared token.
-- **Components**: any component used 2+ times must be documented in `DESIGN.md` Section 5. If it isn't, add it.
+- **Components**: for greenfield UI, verify documented components in `DESIGN.md` Section 5. For localized edits or existing components without a root `DESIGN.md`, verify compliance against touched tokens or adjacent styled components.
 - **Depth**: if `DESIGN.md` says "borders-only", there must be zero `box-shadow` declarations. If "tonal-shift", zero borders for surface separation.
 
 A page that scores Lighthouse 100 but uses 14 undeclared hex codes and 8 magic spacing values is **NOT DONE**. The design system is the architecture — Lighthouse measures the performance of that architecture.
 
 ### 7. REACT-SPECIFIC PERF TOOLING IS PART OF THE AUDIT.
 
-If the project ships React, Lighthouse alone does NOT see render-layer issues by component. You MUST also run:
+If the project ships React and the tools are already installed, Lighthouse alone does NOT see render-layer issues by component. Run available tooling:
 
-- **`react-doctor`** (static): cheapest. `npx react-doctor@latest --json` before any browser audit. Treat perf-category findings as audit failures.
-- **`react-scan/lite`** (runtime, headless): injected via `page.addInitScript` in the Playwright run. Drain its `onEvent` stream and fail the audit if any commit is classified `unnecessary`.
+- **`react-doctor`** (static): cheapest. Run static analysis before any browser audit if installed. Treat perf-category findings as audit failures.
+- **`react-scan/lite`** (runtime, headless): injected via `page.addInitScript` in the Playwright run if available. Drain its `onEvent` stream and fail the audit if any commit is classified `unnecessary`.
 
 The full recipe — including the Playwright + `playwright-lighthouse` + `react-scan/lite` integration, the per-route render budget assertion, and the React-specific root-cause checklist that EXTENDS the one below — lives in **[react-perf-tooling.md](react-perf-tooling.md)**. Read it before any React audit.
 
 Lighthouse 100 with `react-scan` reporting 30+ unnecessary renders per route is **NOT DONE**. Both gates must clear: synthetic score AND render quality. The synthetic score lies under real load if the React layer is thrashing.
 
-For initial install of react-scan + react-doctor (and react-grab) in a fresh React project, the canonical install snippets live in `../design/react-dev-tooling-skill.md`. Use them if the project doesn't yet have the tools wired.
+Use already-installed project dependencies. Never execute unauthorized package installation commands. If tools are not installed in the project, report the unverified render-perf coverage rather than installing packages autonomously.
 
 ## AUDIT WORKFLOW
 

@@ -12,17 +12,18 @@ const activation = `<dsmm-deepwork-mode>
 Use this workflow only while the \`{{modeName}}\` mode is effectively active. This is an opt-in boundary: ordinary presets default off; DW roles default on, but explicit off wins and retains only persona/access. Never force common workflow or skills on merely from a role name.
 \`workflow.policy=risk-based\` follows the source workflow below. Explicit \`workflow.policy=legacy\` retains the configured \`strictGates\`, \`reviewCap\` and \`finalReviewPolicy\` gates; it is compatibility policy, not extra authorization. Role scope, output and terminal delegation policy are authoritative over all workflow/model guidance.
 Skills are native metadata and lazy bodies, never automatically injected. Load matching skills only through the actual native skill catalog. Treat \`[dsmm safety]\` messages as binding feedback. Implementing does not authorize a commit; a commit does not authorize push/tag/rebase/release.
+Understand the requested outcome and relevant facts first. Load the full \`brainstorming\` skill through the native catalog when material uncertainty needs discovery or design; clear, authorized work proceeds directly through the applicable workflow. Ask only for a material scope, acceptance, security, data, API/protocol, permission or irreversible-action decision, missing input that would materially change delivery, or an explicit checkpoint. Role-first boundaries and orchestrator-owned planner/critic responsibilities remain unchanged.
 </dsmm-deepwork-mode>`;
 
 export const BASE_DEEPWORK_PROMPT = [activation, asset("deepwork/default.md"), asset("shared/shell-safety.md"), asset("shared/dsh-host-contract.md")].join("\n\n---\n\n");
 
-// Prompt-only matching follows src/intent/model-family.ts, not model routing.
+// Prompt-only matching is independent of model-family routing and effort parameters.
 function modelName(fullId: string): string {
   const name = fullId.slice(fullId.lastIndexOf("/") + 1).toLowerCase();
   const vendors: Record<string, RegExp> = { openai: /^(?:gpt-|o\d|chatgpt-|codex-)/u, anthropic: /^claude-/u, google: /^gemini-/u, zhipu: /^glm-/u, deepseek: /^deepseek-/u };
   const parts = name.split("."), direct = parts.slice(1).join("."), regional = parts.slice(2).join(".");
   if (vendors[parts[0]]?.test(direct)) return direct;
-  if (/^(?:[a-z]{2}|[a-z]{2}-[a-z]+-\d+)$/u.test(parts[0]) && vendors[parts[1]]?.test(regional)) return regional;
+  if (/^(?:global|[a-z]{2}|[a-z]{2}-[a-z]+-\d+)$/u.test(parts[0]) && vendors[parts[1]]?.test(regional)) return regional;
   return name;
 }
 
@@ -30,8 +31,9 @@ export function promptModelVariants(role: string | undefined, model: string): st
   const name = modelName(model);
   const gpt = name.includes("gpt") || model.toLowerCase().includes("codex");
   const opus = /^claude-opus-5(?:[-.]5)?(?:$|[-.](?:20\d{6}(?:[-.][a-z0-9]+)*|[a-z][a-z0-9-]*))$/iu.test(name.replace(/^global\.anthropic\./iu, "").replace(/@default$/iu, ""));
-  const kimi = ["kimi-for-coding", "kimi-for-coding-highspeed"].includes(name) || /^(?:kimi-k2[.-]?[78]|k2[-.]?p[78])(?:$|[-_.])/u.test(name);
-  const additive = gpt ? ["gpt"] : kimi ? ["kimi-k27"] : /^swe-2(?:[-.]|$)/u.test(name) ? ["swe-2"] : [];
+  const kimi = /^kimi(?:$|[-_.])/u.test(name) || /^k2[-.]?p[5-8](?:$|[-_.])/u.test(name);
+  const gemini4 = /^gemini-4(?:\.\d+)*(?:$|[-_])/u.test(name);
+  const additive = gpt ? ["gpt"] : kimi ? ["kimi"] : gemini4 ? ["gemini-4"] : /^swe-2(?:[-.]|$)/u.test(name) ? ["swe-2"] : [];
   const base = role === "planner" ? "planner" : role === "orchestrator" && opus ? "claude-opus-5"
     : model.toLowerCase().includes("codex") ? "codex" : gpt ? "gpt" : name.startsWith("gemini-") ? "gemini" : name.includes("glm") ? "glm" : "default";
   return [...new Set([base, ...additive])].filter((variant) => variant !== "default");
@@ -46,7 +48,7 @@ export function roleModelCalibration(role: SourceRoleContent | undefined, model:
     const family = model.toLowerCase().includes("codex") || name.includes("gpt") ? "gpt" : name.startsWith("gemini-") ? "gemini" : name.includes("glm") ? "glm" : name.includes("claude") ? "claude" : "unknown";
     // Categories carry only their own family layer + additive model calibration,
     // not the base-agent Gemini/GLM/planner workflow variants.
-    return [category.calibrations.get(family), ...layers.filter((_layer, index) => ["gpt", "kimi-k27", "swe-2"].includes(variants[index]))].filter(Boolean).join("\n\n---\n\n");
+    return [category.calibrations.get(family), ...layers.filter((_layer, index) => ["gpt", "kimi", "gemini-4", "swe-2"].includes(variants[index]))].filter(Boolean).join("\n\n---\n\n");
   }
   return layers.join("\n\n---\n\n");
 }

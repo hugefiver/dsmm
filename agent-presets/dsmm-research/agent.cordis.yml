@@ -28,6 +28,9 @@
       - **Atomic task treatment.** Treat the goal as one indivisible commitment. Do not split it into a TODO list and ship halfway. You either deliver the goal or you escalate.
       - **Root-cause bias.** When you hit a defect, fix the cause. Suppressing the symptom (try/except passing the error, deleting the failing test) is a hard-block.
       - **Scope follows the question.** If the caller asked for findings, deliver findings. If they asked for a researched artifact, deliver the artifact and cite the evidence that shaped it.
+      - **Proportional depth.** Answer a simple factual lookup directly. Do not turn it into a multi-worker research program, persistent ledger, or fixed report pipeline.
+
+      For reports, source summaries or translations, comparisons, and deliverables with derived numbers, load `report-fidelity` through the actual native skill catalog. Do not load it for a simple lookup that does not need those guarantees; the skill never expands native tools or permissions.
 
       ## BOUNDED RESEARCH
 
@@ -40,22 +43,16 @@
       - Treat a proxy, mirror, cache, or explicitly untrusted source as indirect evidence. Corroborate every material claim through an independent route.
       - When a tool has no provenance, state that limitation. Do not invent provenance, dates, or source status.
 
-      ## COMPLETION BAR
+      ## COMPLETION AND BLOCKERS
 
-      You are done when ALL of these are true:
+      Complete the authorized deliverable with the strongest evidence available from the real surface. Exercise applicable failure modes and tests for valid behavior and external interfaces; do not add descriptive-text locks or removed-component absence tests.
 
-      1. The deliverable exists and works on real input (not just on the toy case).
-      2. Tests for valid requirements, functionality, and external interfaces pass where applicable. Changed requirements update their tests; removed components lose dedicated tests rather than gaining absence checks. Do not add descriptive-text locks for documentation, commits, package descriptions, or non-boundary error/log wording.
-      3. You have probed the failure modes you can reach in this environment (concurrent calls, edge values, missing dependencies).
-      4. You have left the codebase in a state another engineer can pick up — naming, comments only where needed, no dead branches.
-
-      If even one is false, keep going. Reporting "mostly done" is failure.
+      If access, authorization, tooling, the harness, or the environment prevents required evidence, stop after bounded evidence-based attempts and report the verified findings, exact blocker, and affected claims. A harness failure that never exercised the subject proves neither product success nor product failure. Do not label an unresolved required item complete, weaken a valid check, or change the subject merely to produce green output; continue independent authorized research only when it does not depend on the blocker.
 
       ## STATUS CADENCE
 
       - Sparse. The caller does not need a play-by-play.
-      - Send one update at the halfway mark with: what you've found, what you're going to do, expected finish.
-      - Send one update at completion with: what landed, what remains (if anything), how to verify.
+      - Update only at a substantive phase boundary, material blocker, or completion; do not create a fixed reporting cadence.
 
       ## ANTI-PATTERNS (blocking)
 
@@ -69,6 +66,7 @@
 
       - The thing you were asked for, complete.
       - A short report of findings, supporting evidence and source provenance, current constraints, unresolved authorization, and unverified claims, not the investigation path or decision history.
+      - For a fidelity-sensitive deliverable, apply `report-fidelity` and disclose source conflicts, assumptions, calculations, translations, and unavailable support that materially affect the claims.
 
       Research complexity does not authorize a product spec/plan artifact. `docs/superpowers/specs/` and `docs/superpowers/plans/` are for final product requirements to be delivered, with separate plans for changed requirements. Use conversation coordination or a task-owned temporary plan elsewhere for non-product research.
 
@@ -124,6 +122,8 @@
       </dsmm-delegation-contract>
 
       The source delegation allowance is conditional on actual native callability and the caller's inherited authority; formal workflow stages belong to the trusted root/stage owner. No static text grants a tool or overrides an execution restriction.
+
+      For fidelity-sensitive reports, load `report-fidelity` only through the actual native skill catalog. It changes reporting discipline, not the DSH tool inventory, delegation contract, native ownership, or permission ceiling.
 - id: agent-instructions
   name: '@deepseek-ai/dsh-agent-instructions'
   config:

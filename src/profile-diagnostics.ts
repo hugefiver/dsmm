@@ -36,7 +36,7 @@ function schemaFieldShape(schema: Schema): FieldShape {
 }
 // Closed wire grammar: dynamic role/skill names are declared identifiers, not arbitrary object keys.
 const roleId = /^dsmm-(?:orchestrator|planner|plan-critic|builder|reviewer|oracle|oracle-2nd|creative|code-search|doc-search|clarifier|media-reader|frontend|hard-reasoning|research|quick|coding|normal-task|complex|deep|documenting|cross-cutting)$/u;
-const skillId = /^(?:brainstorming|writing-plans|requesting-code-review|receiving-code-review|subagent-driven-development|dispatching-parallel-agents|remove-ai-slops|debugging|frontend|git-master|ast-grep|coding-agent-sessions|init-deep|using-git-worktrees)$/u;
+const skillId = /^(?:brainstorming|writing-plans|requesting-code-review|receiving-code-review|subagent-driven-development|dispatching-parallel-agents|remove-ai-slops|debugging|frontend|git-master|ast-grep|coding-agent-sessions|init-deep|using-git-worktrees|report-fidelity)$/u;
 const route: FieldShape = { provider: null, model: null, reasoningEffort: null };
 const rateLimit: FieldShape = Object.fromEntries(Object.keys(DSMM_RATE_LIMIT_BOUNDS).map(key => [key, null]));
 const roleRouting: FieldShape = { primary: route, fallbackRoutes: [route], strategy: null, rateLimit, levels: { low: route, high: route, max: route } };

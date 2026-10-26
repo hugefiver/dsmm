@@ -37,3 +37,5 @@ This contract overrides any skill, model calibration, generated-adapter compatib
 </dsmm-delegation-contract>
 
 The source delegation allowance is conditional on actual native callability and the caller's inherited authority; formal workflow stages belong to the trusted root/stage owner. No static text grants a tool or overrides an execution restriction.
+
+For fidelity-sensitive reports, load `report-fidelity` only through the actual native skill catalog. It changes reporting discipline, not the DSH tool inventory, delegation contract, native ownership, or permission ceiling.

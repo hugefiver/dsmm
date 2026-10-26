@@ -21,7 +21,8 @@ export const DSMM_SKILL_NAMES = [
   "ast-grep",
   "coding-agent-sessions",
   "init-deep",
-  "using-git-worktrees"
+  "using-git-worktrees",
+  "report-fidelity"
 ] as const;
 export const MVP_SKILL_NAMES = DSMM_SKILL_NAMES;
 export type DsmmSkillName = (typeof DSMM_SKILL_NAMES)[number];
@@ -46,7 +47,8 @@ export const DSMM_SKILL_DESCRIPTIONS: Record<DsmmAvailableSkillName, string> = {
   "ast-grep": "Use ast-grep (sg) only when the task explicitly requires exact syntax-tree matching or a deterministic codemod that simpler rg/LSP lookup cannot express reliably. Examples: rewrite a specific call/import shape, strip `as any`, find empty catch blocks, or scan/apply YAML rules. Do not trigger for ordinary repository discovery, symbol navigation, text search, or one-off lookups that rg/LSP can answer.",
   "coding-agent-sessions": "MUST USE when asked to find, read, list, search, inspect, fetch, export, or reconstruct coding-agent sessions across Codex, Claude Code/Desktop, OpenCode, Senpi/pi, oh-my-pi (omp), gajae-code (gjc), OpenClaw, Factory Droid, Amp, Gemini/Kimi/Qwen CLIs, Codebuff, Roo/Kilo/Cline, Kodu, Cursor CLI, Aider, Aside browser-agent sessions, or unknown local agent logs. Covers transcripts, session IDs, rollout JSONL, state SQLite, Claude projects/pre-compact histories, OpenCode messages/parts, child/subagent linkage, cwd/model/time/token filters, archives, and cost clues. Expands fuzzy recall into parallel query lanes and first probes known stores so absent platforms are skipped cheaply. Triggers: coding agent sessions, Codex/Claude/OpenCode/Senpi/pi/oh-my-pi/omp/gajae-code/gjc/OpenClaw/Droid/Amp/Kodu/Cursor/Aider/Aside sessions, transcript search, session history, session ID, read transcript, token usage, subagent sessions, what did I do yesterday, did we already do this.",
   "init-deep": "(builtin) Initialize hierarchical AGENTS.md knowledge base",
-  "using-git-worktrees": "Use ONLY when the user explicitly asks to use a git worktree for isolated feature work. Do not auto-trigger. Creates a linked worktree, sets up the project, and verifies a clean baseline before development begins."
+  "using-git-worktrees": "Use ONLY when the user explicitly asks to use a git worktree for isolated feature work. Do not auto-trigger. Creates a linked worktree, sets up the project, and verifies a clean baseline before development begins.",
+  "report-fidelity": "Use for reports, source summaries or translations, comparisons, and deliverables with derived numbers that require precise sourcing and faithful meaning; not for simple factual lookups."
 };
 // END SOURCE SKILL METADATA
 export const BUNDLED_SKILL_RANK = 600;

@@ -4,11 +4,11 @@
 
 ### Skill Reference (load on demand)
 
-`brainstorming` is a triggered, lazily loaded native skill for new features, components, or behavior changes. Follow its scaled design and approval policy without inventing additional approval gates. Discovery happens before decomposition and planner-trigger decisions. Use a permitted, available `clarifier` only when it materially helps resolve ambiguity; ask the user when their decision is needed. Other skills are on-demand native skills:
+Load the full `brainstorming` native skill when material uncertainty needs discovery or design, not merely because a request changes behavior. Clear, authorized work follows the applicable workflow directly. Discovery happens before decomposition and planner-trigger decisions. Use a permitted, available `clarifier` only when it materially helps resolve ambiguity; ask the user when their decision is needed. Other skills are on-demand native skills:
 
 | Skill | When to load | Command |
 |---|---|---|
-| brainstorming | load when triggered; scale the design artifact to the change | native skill load when triggered |
+| brainstorming | material uncertainty needing discovery or design | native skill load when triggered |
 | writing-plans | complex product behavior implementation, explicit planning request, or concrete major risk requiring a plan | writing-plans |
 | subagent-driven-development | executing a plan with independent tasks | subagent-driven-development |
 | requesting-code-review | focused implementation review when the user requires it or a concrete risk makes it useful | requesting-code-review |
@@ -114,7 +114,7 @@ Load only skills whose triggers match. Delegate only to profiles exposed by the 
 | User explicitly requests a planning/critic skip | Acknowledge the active request; preserve security, data, API/protocol, permission, and irreversible-action boundaries |
 | Research/explanation can already be answered from sufficient evidence | Stop retrieval and answer; do not call planner |
 
-**AFTER A COMPLEX PRODUCT PLAN RETURNS:** the orchestrator sends it to `plan-critic`. A non-product plan alone does not trigger criticism. Correct a substantive blocker, rebut it with concrete evidence, or escalate it before implementation; non-blocking improvements do not hold implementation. Re-review only affected conclusions after substantive changes, without hashes, fixed receipts, or open-ended loops. Then use the plan as a coordination aid, allowing equivalent details or ordering that preserve the approved contract.
+**AFTER A COMPLEX PRODUCT PLAN RETURNS:** the orchestrator sends it to `plan-critic`. A non-product plan alone does not trigger criticism. Correct a substantive blocker, rebut it with concrete evidence, or escalate it before implementation; non-blocking improvements do not hold implementation. Re-review only affected conclusions for a newly identified or resolved blocker or relevant new evidence; wording changes and repeated concerns are not progress. Do not require hashes, fixed receipts, or open-ended loops. Then use the plan as a coordination aid, allowing equivalent details or ordering that preserve the approved contract.
 
 When useful and available, dispatch the planner through the current admitted native role/category schema with the gathered context and user request.
 
