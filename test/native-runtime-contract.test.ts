@@ -209,31 +209,38 @@ async function providerFixture() {
   return { ...f, agent, view, provider, settings, reads: () => reads, holdRead(fn: (() => Promise<void>) | undefined) { beforeRead = fn; } };
 }
 
-test("report-fidelity native catalog lists metadata and gets the packaged body on demand", async () => {
+for (const name of ["report-fidelity", "avoid-ai-slop"] as const) test(`${name} native catalog lists metadata and gets the packaged body on demand`, async () => {
   const f = await providerFixture();
   try {
     const catalog = await f.ctx.skills.snapshot(f.view);
-    const metadata = catalog.skills.find(skill => skill.name === "report-fidelity");
+    const metadata = catalog.skills.find(skill => skill.name === name);
     assert.ok(metadata);
     assert.equal(f.reads(), 0);
     assert.equal("content" in metadata, false);
-    const loaded = await f.ctx.skills.get("report-fidelity", f.view);
+    assert.equal((await f.ctx.skills.list(f.view)).some(skill => skill.name === name), true);
+    assert.equal(f.reads(), 0);
+    const loaded = await f.ctx.skills.get(name, f.view);
     assert.ok(loaded);
-    assert.equal(loaded?.name, "report-fidelity");
+    assert.equal(loaded?.name, name);
     assert.equal(f.reads(), 1);
     assert.ok(loaded.content.length > 0);
     assert.equal(loaded.resourceBase?.kind, "directory");
     if (loaded.resourceBase?.kind !== "directory") throw new Error("bundled skill needs a directory base");
     assert.ok((await readFile(join(loaded.resourceBase.path, "SKILL.md"), "utf8")).length > 0);
-    f.settings.skills["report-fidelity"] = false;
+    f.settings.skills[name] = false;
     f.provider.invalidate();
-    assert.equal((await f.ctx.skills.list(f.view)).some(skill => skill.name === "report-fidelity"), false);
-    assert.equal(await f.ctx.skills.get("report-fidelity", f.view), undefined);
-    f.settings.skills["report-fidelity"] = true;
+    assert.equal((await f.ctx.skills.list(f.view)).some(skill => skill.name === name), false);
+    assert.equal(await f.ctx.skills.get(name, f.view), undefined);
+    f.settings.skills[name] = true;
     f.settings.defaultActive = false;
     f.provider.invalidate();
-    assert.equal((await f.ctx.skills.list(f.view)).some(skill => skill.name === "report-fidelity"), false);
-    assert.equal(await f.ctx.skills.get("report-fidelity", f.view), undefined);
+    assert.equal((await f.ctx.skills.list(f.view)).some(skill => skill.name === name), false);
+    assert.equal(await f.ctx.skills.get(name, f.view), undefined);
+    f.settings.defaultActive = true;
+    f.settings.modules.deepwork.enabled = false;
+    f.provider.invalidate();
+    assert.equal((await f.ctx.skills.list(f.view)).some(skill => skill.name === name), false);
+    assert.equal(await f.ctx.skills.get(name, f.view), undefined);
     assert.equal(f.reads(), 1);
   } finally { await f.dispose(); }
 });
@@ -275,30 +282,30 @@ test("another isolated native registry cannot permanently poison cached bundled 
   } finally { barrier.release(); await f.dispose(); }
 });
 
-test("ancestor project winner add/remove/add beats Agent rank600; policy and resourceBase cannot be bypassed", async () => {
+for (const name of ["brainstorming", "avoid-ai-slop"] as const) test(`${name} ancestor project winner add/remove/add beats Agent rank600; policy and resourceBase cannot be bypassed`, async () => {
   const f = await providerFixture();
   try {
     let project = false, invalidate!: () => void, lists = 0;
     // Deliberately global ancestor: rank 900 would lose in the SAME layer.
     const undo = f.ctx.skills.registerProvider((control) => { invalidate = control.invalidate; return { name: "project",
-      async list(lookup) { lists++; return project && lookup.cwd === f.view.cwd ? [{ ...bundledSkillMetadata("brainstorming"), provider: "project", source: "project-dsh", rank: 900, locator: "project", invocation: { modelInvocable: false, userInvocable: false }, resourceBase: { kind: "opaque", description: "project base" } }] : []; },
+      async list(lookup) { lists++; return project && lookup.cwd === f.view.cwd ? [{ ...bundledSkillMetadata(name), provider: "project", source: "project-dsh", rank: 900, locator: "project", invocation: { modelInvocable: false, userInvocable: false }, resourceBase: { kind: "opaque", description: "project base" } }] : []; },
       async get(candidate) { return { ...candidate, content: "PROJECT_BODY" }; } }; });
     assert.equal((await f.ctx.skills.snapshot(f.view)).complete, true); assert.equal(f.reads(), 0);
-    assert.equal((await f.ctx.skills.get("brainstorming", f.view))?.provider, "dsmm"); assert.equal(f.reads(), 1);
+    assert.equal((await f.ctx.skills.get(name, f.view))?.provider, "dsmm"); assert.equal(f.reads(), 1);
     for (const value of [true, false, true]) {
       project = value; invalidate();
       const catalog = await f.ctx.skills.list(f.view); assert.equal(f.reads(), 1);
-      const winner = catalog.find((entry) => entry.name === "brainstorming")!;
+      const winner = catalog.find((entry) => entry.name === name)!;
       assert.equal(winner.provider, value ? "project" : "dsmm");
       if (value) { assert.deepEqual(winner.invocation, { modelInvocable: false, userInvocable: false }); assert.deepEqual(winner.resourceBase, { kind: "opaque", description: "project base" }); }
     }
-    assert.equal((await f.ctx.skills.get("brainstorming", f.view))?.content, "PROJECT_BODY"); assert.equal(f.reads(), 1);
+    assert.equal((await f.ctx.skills.get(name, f.view))?.content, "PROJECT_BODY"); assert.equal(f.reads(), 1);
     assert.ok(lists < 30, "ancestor snapshot is strictly upward, not recursive");
-    undo(); assert.equal((await f.ctx.skills.list(f.view)).find((entry) => entry.name === "brainstorming")?.provider, "dsmm");
+    undo(); assert.equal((await f.ctx.skills.list(f.view)).find((entry) => entry.name === name)?.provider, "dsmm");
   } finally { await f.dispose(); }
 });
 
-test("preset-layer cwd-specific winner affects only its session; invocation-disabled project cannot use bundled fallback", async () => {
+for (const name of ["brainstorming", "avoid-ai-slop"] as const) test(`${name} preset-layer cwd-specific winner affects only its session; invocation-disabled project cannot use bundled fallback`, async () => {
   const f = await nativeRoutingFixture({ roles: { ...noRoles, "dsmm-orchestrator": true }, defaultActive: true }, { nativePresets: true, spawn: false, managedRuntime: true });
   const sdk = createRequire(createRequire(import.meta.url).resolve("@deepseek-ai/dsh-tool-skill"));
   try {
@@ -310,16 +317,17 @@ test("preset-layer cwd-specific winner affects only its session; invocation-disa
     const ancestor = getTraceable(ancestorScope.ctx, f.ctx.skills);
     let present = true, invalidate!: () => void;
     ancestor.registerProvider((control) => { invalidate = control.invalidate; return { name: "preset-project",
-      async list(options) { return present && options.cwd === a.session.header.cwd ? [{ ...bundledSkillMetadata("brainstorming"), provider: "preset-project", rank: 900, locator: "ancestor", invocation: { modelInvocable: false, userInvocable: false } }] : []; },
+      async list(options) { return present && options.cwd === a.session.header.cwd ? [{ ...bundledSkillMetadata(name), provider: "preset-project", rank: 900, locator: "ancestor", invocation: { modelInvocable: false, userInvocable: false } }] : []; },
       async get(candidate) { return { ...candidate, content: "FORBIDDEN_PROJECT_BODY" }; } }; });
     const view = (agent: typeof a) => ({ scope: agent, cwd: agent.session.header.cwd });
     for (const value of [true, false, true]) {
       present = value; invalidate();
-      assert.equal((await f.ctx.skills.list(view(a))).find((skill) => skill.name === "brainstorming")?.provider, value ? "preset-project" : "dsmm");
-      assert.equal((await f.ctx.skills.list(view(b))).find((skill) => skill.name === "brainstorming")?.provider, "dsmm");
+      assert.equal((await f.ctx.skills.list(view(a))).find((skill) => skill.name === name)?.provider, value ? "preset-project" : "dsmm");
+      assert.equal((await f.ctx.skills.list(view(b))).find((skill) => skill.name === name)?.provider, "dsmm");
     }
-    const denied = await f.tools.execute({ callId: ToolCallId("disabled-project"), name: "skill", arguments: { name: "brainstorming" }, agent: a, signal: new AbortController().signal });
-    assert.equal(denied.isError, true); assert.doesNotMatch(JSON.stringify(denied.content), /# Brainstorming|FORBIDDEN_PROJECT_BODY/);
+    const denied = await f.tools.execute({ callId: ToolCallId("disabled-project"), name: "skill", arguments: { name }, agent: a, signal: new AbortController().signal });
+    assert.equal(denied.isError, true); assert.equal(denied.value, undefined);
+    assert.doesNotMatch(JSON.stringify(denied.content), /FORBIDDEN_PROJECT_BODY/u);
     const runtime = f.ctx.get("dsmmProfileRuntime")!;
     const before = await runtime.getSession(adapterAgent(a));
     await runtime.selectMode({ sessionId: a.id, active: false, expectedModeRevision: before.deepwork!.revision, expectedAdmissionEpoch: before.admissionEpoch }, adapterAgent(a));

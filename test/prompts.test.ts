@@ -43,6 +43,14 @@ test("buildDeepworkPrompt accepts composition section override", () => {
   assert.match(prompt, /policy: risk-based/);
 });
 
+test("default prompt delivery includes one slop guide while runtime disablement removes it", () => {
+  const count = (prompt: string) => prompt.split("<avoid-ai-slop-guidance>").length - 1;
+  assert.equal(count(BASE_DEEPWORK_PROMPT), 1);
+  assert.equal(count(buildDeepworkPrompt(DEFAULT_DSMM_SETTINGS)), 1);
+  const disabled = { ...DEFAULT_DSMM_SETTINGS, skills: { ...DEFAULT_DSMM_SETTINGS.skills, "avoid-ai-slop": false } };
+  assert.equal(count(buildDeepworkPrompt(disabled)), 0);
+});
+
 test("buildDeepworkPrompt renders the configured mode name", () => {
   const prompt = buildDeepworkPrompt({ ...DEFAULT_DSMM_SETTINGS, modeName: "dw" });
 

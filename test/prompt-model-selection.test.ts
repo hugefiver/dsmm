@@ -9,7 +9,7 @@ const promptsModule = new URL("../src/prompts.ts", import.meta.url).href;
 const categoryFixture = ["gpt", "gemini", "glm", "claude", "unknown"]
   .map(family => `<model-calibration model="${family}">\n[fixture:category:${family}]\n</model-calibration>`).join("\n");
 const fixtureModule = `data:text/javascript,${encodeURIComponent(`
-export { SOURCE_ROLE_CATALOG, buildRolePersona, splitCategory } from ${JSON.stringify(contentModule)};
+export { SOURCE_ROLE_CATALOG, buildRolePersona, splitCategory, readSharedPromptAsset } from ${JSON.stringify(contentModule)};
 export function readPromptAsset(path) {
   if (path.startsWith("category/")) return ${JSON.stringify(categoryFixture)};
   return '[fixture:' + path + ']';

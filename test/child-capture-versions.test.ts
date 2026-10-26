@@ -92,27 +92,29 @@ test("v3 random snapshot pins survive cold reads with captured route, epoch and 
   } finally { f.cleanup(); }
 });
 
-for (const version of [1, 2, 3] as const) test(`v${version} report-fidelity admission uses captured policy and denies an uncaptured skill`, () => {
-  const currentParent = resolveConfig({ skills: { "report-fidelity": true } });
+for (const version of [1, 2, 3] as const) for (const skill of ["report-fidelity", "avoid-ai-slop"] as const) test(`v${version} ${skill} admission uses captured policy and denies an uncaptured skill`, () => {
+  const currentParent = resolveConfig({ skills: { [skill]: true } });
   for (const enabled of [true, false]) {
     const raw = payload(version);
-    raw.runtimePolicyCapture.skills["report-fidelity"] = enabled;
+    raw.runtimePolicyCapture.skills[skill] = enabled;
     const captured = parseChildAdmissionCapture(raw);
-    assert.equal(admissionFromChildCapture(captured, currentParent).settings.skills["report-fidelity"], enabled);
+    assert.equal(admissionFromChildCapture(captured, currentParent).settings.skills[skill], enabled);
   }
   const historical = payload(version);
-  Reflect.deleteProperty(historical.runtimePolicyCapture.skills, "report-fidelity");
+  Reflect.deleteProperty(historical.runtimePolicyCapture.skills, skill);
   const captured = parseChildAdmissionCapture(historical);
-  assert.equal(Object.hasOwn(captured.runtimePolicyCapture.skills, "report-fidelity"), false);
+  assert.equal(Object.hasOwn(captured.runtimePolicyCapture.skills, skill), false);
   const restored = admissionFromChildCapture(captured, currentParent);
-  assert.equal(restored.settings.skills["report-fidelity"], false);
+  assert.equal(restored.settings.skills[skill], false);
   assert.deepEqual(restored.childCapture, captured);
   assert.deepEqual(restored.childCapture?.authorityCeiling, historical.authorityCeiling);
   assert.equal(restored.epoch, historical.originalAdmissionEpoch);
   for (const invalid of [null, "true", 1]) {
     assert.throws(() => parseChildAdmissionCapture({ ...historical, runtimePolicyCapture: { ...historical.runtimePolicyCapture,
-      skills: { ...historical.runtimePolicyCapture.skills, "report-fidelity": invalid } } }));
+       skills: { ...historical.runtimePolicyCapture.skills, [skill]: invalid } } }));
   }
+  assert.throws(() => parseChildAdmissionCapture({ ...historical, runtimePolicyCapture: { ...historical.runtimePolicyCapture,
+    skills: { ...historical.runtimePolicyCapture.skills, unknown: true } } }));
 });
 
 test("capture integrity, lineage, original epoch and reference grammars fail closed", async () => {

@@ -179,3 +179,9 @@ The native main model picker, explicit user route and catalog are authoritative.
 Follow the current user's explicit visible-output language request, then this Agent's immutable captured locale when supplied, then applicable host/user language guidance or current request/context. All DSMM roles/categories follow this priority even with common mode off. Preserve identifiers, code, paths, commands, protocol fields and exact quotes; child assignments retain explicit language requests. This contract copies no Root locale/configuration, promises no internal reasoning language and changes neither host UI nor project locale.
 Role persona and access remain when Deepwork is explicitly off; common workflow and DSMM skills do not. Git/install/login/destructive actions need exact authorization regardless of mode. All delegation guidance is intersected with enabled roles, mounted capabilities, inherited permissions and native depth; runtime policy enforces those ceilings, not these static texts.
 </dsmm-host-contract>
+
+---
+
+<avoid-ai-slop-guidance>
+Before continuing code, test, or documentation work with a concrete risk of speculative abstractions, redundant defenses or fallbacks, filler explanations, or checks that prove no required behavior, load `avoid-ai-slop` through the host's native skill mechanism. Also load it when the user explicitly asks to avoid AI slop. Reuse an already-loaded skill in the current context; do not load it for every message or ordinary factual question. Respect the actual skill catalog, disabled settings, role permissions, and applicable Deepwork gating; do not bypass an unavailable or disabled skill. Apply it only to the current authorized work, not an automatic `remove-ai-slops` cleanup.
+</avoid-ai-slop-guidance>

@@ -8,9 +8,65 @@ import type { DsmmProfileRuntime } from "../lib/profile-runtime.js";
 import type { DshAgent } from "../lib/dsh-types.js";
 import { sessionEvents } from "../lib/session-scope.js";
 import { isDeepworkActive } from "../lib/state.js";
+import { DSMM_ROLES } from "../lib/roles.js";
 import { headerRoutes, nativeRoutingFixture, runFixtureTurn } from "./native-routing-fixture.ts";
 
 const adapterAgent = (agent: Agent): Omit<DshAgent, "ctx"> => agent;
+const guidanceCount = (prompt: string) => prompt.split("<avoid-ai-slop-guidance>").length - 1;
+
+for (const section of [undefined, "Custom common workflow {{literal}}"] as const) test(`avoid-ai-slop brief follows native Agent mode for ordinary, role and category prompts (${section === undefined ? "default" : "override"})`, async () => {
+  const f = await nativeRoutingFixture({ defaultActive: true, ...(section === undefined ? {} : { section }) }, { nativePresets: true });
+  try {
+    const runtime = f.ctx.get("dsmmProfileRuntime") as DsmmProfileRuntime;
+    const render = (scope?: object) => f.ctx.systemPrompt.assemble({ scope }).then(renderPrompt);
+    assert.equal(guidanceCount(await render()), 0);
+    assert.equal(guidanceCount(await render({})), 0);
+    for (const preset of ["standard", "dsmm-orchestrator"]) {
+      const agent = await f.create({ agentPreset: preset });
+      const persona = DSMM_ROLES.find(role => role.id === preset)?.persona;
+      const mode = async (active: boolean) => {
+        const before = await runtime.getSession(adapterAgent(agent));
+        await runtime.selectMode({ sessionId: agent.id, active, expectedModeRevision: before.deepwork!.revision, expectedAdmissionEpoch: before.admissionEpoch }, adapterAgent(agent));
+      };
+      for (const active of [true, false, true, false]) {
+        await mode(active);
+        const prompt = await render(agent);
+        assert.equal(guidanceCount(prompt), active ? 1 : 0, preset);
+        if (persona !== undefined) {
+          assert.ok(prompt.includes(persona), "off retains permanent role/category persona");
+          assert.equal(guidanceCount(persona), 0);
+        }
+        if (active && section !== undefined) assert.ok(prompt.includes(section));
+        assert.equal((await agent.ctx.get("skills")!.list({ scope: agent })).some(skill => skill.name === "avoid-ai-slop"), active);
+      }
+    }
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" });
+    const child = await f.createAuxiliary("dsmm-coding", undefined, "continuable", parent);
+    const persona = DSMM_ROLES.find(role => role.id === "dsmm-coding")!.persona;
+    const childPrompt = await render(child);
+    assert.equal(guidanceCount(childPrompt), 1);
+    assert.ok(childPrompt.includes(persona));
+    assert.equal(guidanceCount(persona), 0);
+    if (section !== undefined) assert.ok(childPrompt.includes(section));
+    const before = await runtime.getSession(adapterAgent(parent));
+    await runtime.selectMode({ sessionId: parent.id, active: false, expectedModeRevision: before.deepwork!.revision, expectedAdmissionEpoch: before.admissionEpoch }, adapterAgent(parent));
+    assert.equal(guidanceCount(await render(parent)), 0);
+    assert.equal(guidanceCount(await render(child)), 1, "parent off cannot rewrite a child's captured mode");
+  } finally { await f.dispose(); }
+});
+
+test("disabled skill cannot inject the avoid-ai-slop brief or load its bundled skill", async () => {
+  const f = await nativeRoutingFixture({ defaultActive: true, skills: { "avoid-ai-slop": false } }, { nativePresets: true, spawn: false, managedRuntime: true });
+  try {
+    const agent = await f.create({ agentPreset: "standard" });
+    const prompt = renderPrompt(await f.ctx.systemPrompt.assemble({ scope: agent }));
+    assert.equal(guidanceCount(prompt), 0);
+    assert.equal(prompt.includes("avoid-ai-slop"), false, "disabled guidance must not demand an unavailable skill");
+    const skills = agent.ctx.get("skills")!;
+    assert.equal((await skills.list({ scope: agent })).some(skill => skill.name === "avoid-ai-slop"), false);
+    assert.equal(await skills.get("avoid-ai-slop", { scope: agent }), undefined);
+  } finally { await f.dispose(); }
+});
 
 test("native mode changes affect only the exact Agent common section and lazy skills, never its role composition", async () => {
   const section = "Configured common workflow";

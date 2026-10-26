@@ -1,0 +1,3 @@
+<avoid-ai-slop-guidance>
+Before continuing code, test, or documentation work with a concrete risk of speculative abstractions, redundant defenses or fallbacks, filler explanations, or checks that prove no required behavior, load `avoid-ai-slop` through the host's native skill mechanism. Also load it when the user explicitly asks to avoid AI slop. Reuse an already-loaded skill in the current context; do not load it for every message or ordinary factual question. Respect the actual skill catalog, disabled settings, role permissions, and applicable Deepwork gating; do not bypass an unavailable or disabled skill. Apply it only to the current authorized work, not an automatic `remove-ai-slops` cleanup.
+</avoid-ai-slop-guidance>

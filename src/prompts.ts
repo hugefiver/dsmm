@@ -1,6 +1,6 @@
 import type { DshLlmCallConfig } from "./dsh-types.js";
 import type { ToolSchema } from "@deepseek-ai/dsh-llm";
-import { readPromptAsset as asset, SOURCE_ROLE_CATALOG, splitCategory } from "./prompt-content.js";
+import { readPromptAsset as asset, readSharedPromptAsset, SOURCE_ROLE_CATALOG, splitCategory } from "./prompt-content.js";
 import type { SourceRoleContent } from "./prompt-content.js";
 import type { DsmmLocale, DsmmSettings } from "./settings.js";
 import type { DsmmInvocationView, DsmmRoleAvailabilityState, SubagentRuntimeAdmissionView } from "./profile-types.js";
@@ -15,7 +15,8 @@ Skills are native metadata and lazy bodies, never automatically injected. Load m
 Understand the requested outcome and relevant facts first. Load the full \`brainstorming\` skill through the native catalog when material uncertainty needs discovery or design; clear, authorized work proceeds directly through the applicable workflow. Ask only for a material scope, acceptance, security, data, API/protocol, permission or irreversible-action decision, missing input that would materially change delivery, or an explicit checkpoint. Role-first boundaries and orchestrator-owned planner/critic responsibilities remain unchanged.
 </dsmm-deepwork-mode>`;
 
-export const BASE_DEEPWORK_PROMPT = [activation, asset("deepwork/default.md"), asset("shared/shell-safety.md"), asset("shared/dsh-host-contract.md")].join("\n\n---\n\n");
+const commonDeepworkPrompt = [activation, asset("deepwork/default.md"), asset("shared/shell-safety.md"), asset("shared/dsh-host-contract.md")].join("\n\n---\n\n");
+export const BASE_DEEPWORK_PROMPT = [commonDeepworkPrompt, readSharedPromptAsset("avoid-ai-slop.md")].join("\n\n---\n\n");
 
 // Prompt-only matching is independent of model-family routing and effort parameters.
 function modelName(fullId: string): string {
@@ -170,9 +171,9 @@ export function buildDeepworkPrompt(
   options: DeepworkPromptOptions = {}
 ): string {
   const role = SOURCE_ROLE_CATALOG.find((role) => role.id === (options.roleId === undefined ? options.selectedPreset : options.roleId));
-  const common = role === undefined ? BASE_DEEPWORK_PROMPT : [activation, asset("deepwork/default.md")].join("\n\n---\n\n");
+  const common = role === undefined ? commonDeepworkPrompt : [activation, asset("deepwork/default.md")].join("\n\n---\n\n");
   const family = roleModelCalibration(role, options.route?.model ?? "");
-  const base = [options.overrideSection?.trim() || common, family === "" ? "" : `<workflow-model-calibration>\nThe role prompt is authoritative for scope, permissions and output. Model calibration never grants tools or changes the native route.\n\n${family}\n</workflow-model-calibration>`].filter(Boolean).join("\n\n---\n\n").replaceAll("{{modeName}}", settings.modeName);
+  const base = [options.overrideSection?.trim() || common, settings.skills["avoid-ai-slop"] ? readSharedPromptAsset("avoid-ai-slop.md") : "", family === "" ? "" : `<workflow-model-calibration>\nThe role prompt is authoritative for scope, permissions and output. Model calibration never grants tools or changes the native route.\n\n${family}\n</workflow-model-calibration>`].filter(Boolean).join("\n\n---\n\n").replaceAll("{{modeName}}", settings.modeName);
   const workflowPolicy = settings.workflow.policy === "legacy" ? `<dsmm-workflow-policy>
 policy: legacy
 strictGates: ${String(settings.workflow.strictGates)}

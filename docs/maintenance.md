@@ -69,6 +69,16 @@ and the normal skill setting. Historical child captures without that setting kee
 it disabled; new captures retain their captured value independently of later
 parent settings, without changing the child's authority ceiling.
 
+The native `avoid-ai-slop` skill prevents concrete slop risks during authorized
+code, test or documentation work; it is not an automatic `remove-ai-slops` cleanup.
+Its short guide lives in `prompts/shared/avoid-ai-slop.md` and is assembled once in
+the existing active Deepwork section for ordinary Agents, roles and categories,
+including custom section overrides. It is absent when the skill or Deepwork is
+disabled, never part of a permanent role persona, and never substitutes for the
+native catalog's selected skill body or invocation policy. Full bodies stay lazy.
+Historical v1/v2/v3 child captures without `avoid-ai-slop` restore it as disabled;
+explicit booleans remain captured without a protocol version or authority change.
+
 ## Frontend resources and provenance
 
 The full `skills/frontend/` tree is maintained in this repository and shipped in

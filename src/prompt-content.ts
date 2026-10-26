@@ -5,11 +5,19 @@ import type { DsmmDelegationGroup, DsmmRoleMode } from "./roles.js";
 
 // This content-only dependency must not import settings or model routing:
 // roles need it during ESM initialization, including prompts-first imports.
-const sourceRoot = join(dirname(dirname(fileURLToPath(import.meta.url))), "prompts", "source");
+const promptRoot = join(dirname(dirname(fileURLToPath(import.meta.url))), "prompts");
+const sourceRoot = join(promptRoot, "source");
 const assets = new Map<string, string>();
+const sharedAssets = new Map<string, string>();
 export function readPromptAsset(path: string): string {
   let text = assets.get(path);
   if (text === undefined) { text = readFileSync(join(sourceRoot, path), "utf8").trim(); assets.set(path, text); }
+  return text;
+}
+
+export function readSharedPromptAsset(name: string): string {
+  let text = sharedAssets.get(name);
+  if (text === undefined) { text = readFileSync(join(promptRoot, "shared", name), "utf8").trim(); sharedAssets.set(name, text); }
   return text;
 }
 
