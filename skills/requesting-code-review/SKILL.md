@@ -18,10 +18,11 @@ This is a DSMM-maintained native skill for DSH 0.2.1-rc.2, not an OpenCode or Co
 - Installation, package-manager bootstrap, downloads, authentication/login, credential/profile access, Git writes and destructive actions require explicit authorization for the exact action. Reference commands are not automatic operations. Worktree consent does not authorize dependency installation or later branch deletion. Read before changing an existing file; preserve unrelated user work. Never silently restore/reset a working tree to repair a failed cleanup.
 - Browser/debug QA uses run-owned isolated state, no imported credentials or browser profile, and only already available software unless separately authorized. Keep commands in the active shell dialect. Report unverified surfaces honestly.
 
-<!-- Local fork of obra/superpowers/requesting-code-review v6.3.0.
+<!-- Selectively adapted from obra/superpowers/requesting-code-review v7.0.1.
      Risk/evidence-driven implementation review of current changes and contracts.
      Reviewers don't spawn additional review seats.
-     Source and maintenance contract: docs/v1-maintenance.md. -->
+     Source and maintenance contract: ../../docs/maintenance.md.
+     Upstream MIT license: ./LICENSE. -->
 
 # Requesting Code Review
 
@@ -57,6 +58,8 @@ Use the actual current diff or range rather than a prose-only summary. If output
 Do not require a fixed packet schema, first-line verdict, receipt, or transcript. Do not paste accumulated conversation history. Do not tell the reviewer what conclusion to reach or add open-ended directions unrelated to the change.
 
 The reviewer evaluates supplied evidence by material relevance and requests missing or affected coverage, not blanket reruns for unrelated code, dependency, or environment changes. The orchestrator coordinates consolidated global/heavy checks; reviewers do not duplicate them or dispatch other reviewers, workers, or evidence-gathering subagents. Required safety, release, pre-commit, and user checks remain binding.
+
+The approved requirements define the outcome but may not enumerate every valid input class, environment, or failure condition. Review reasonable behavior implied by that outcome and the surrounding committed contracts when a concrete user impact or regression risk supports it; specification silence is not permission to break expected behavior. This does not authorize new features, preferences, or speculative scope. If an important behavior was considered but cannot be judged from the supplied change and evidence, name it, explain why it remains unjudged, and identify the missing evidence. No fixed heading, list, or item count is required.
 
 ## Reviewer Selection
 

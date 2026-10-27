@@ -23,10 +23,16 @@ Assignment content (not a tool-call schema; send through a permitted callable na
 
     Evaluate outcome coverage, dependencies and interfaces, task/wave boundaries,
     material risks, executability, and whether the proposed evidence can actually
-    demonstrate success. Distinguish blockers from optional improvements. Do not
-    require fixed headings, tiny scripted steps, a RED transcript, scenario counts,
-    per-task reviews, commits, or a particular implementation when an evidence-based
-    equivalent preserves the approved goal, constraints, permissions, and acceptance.
+    demonstrate success. Check that the plan records necessary paths, signatures,
+    requirement-fixed values, and decisive test assertions without transcribing
+    implementation bodies that an engineer can derive. Consider material input
+    classes and failure conditions implied by the approved behavior and local
+    contracts. Identify any important behavior the plan cannot judge, why, and the
+    missing evidence. Distinguish blockers from optional improvements. Do not require
+    fixed headings, review-focus lists or quotas, tiny scripted steps, a RED transcript,
+    scenario counts, per-task reviews, commits, or a particular implementation when
+    an evidence-based equivalent preserves the approved goal, constraints,
+    permissions, and acceptance. Do not expand scope from speculation.
 
     Check that the plan describes only its final deliverable, not development or
     decision history. Superpowers specs/plans are only for final product requirements;

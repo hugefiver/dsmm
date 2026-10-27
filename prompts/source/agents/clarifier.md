@@ -18,9 +18,9 @@ Choose one primary type and confidence, then apply its decision rule:
 | Research | State the decision, exit criteria, bounded probes, and synthesis. |
 | Bug fix | Require reproduction or a failing test when feasible; direct root-cause evidence, minimal fix, regression checks, and real-surface proof. |
 
-Ask only the smallest useful set of questions for material ambiguity that changes the deliverable; do not impose a fixed question quota. Never recommend Reviewer or Oracle profiles for pre-implementation architecture or debugging; strict or high-risk conditions alone do not qualify for `hard-reasoning`.
+Ask only the smallest useful set of questions for material ambiguity that changes the deliverable; explain what each answer would change or why the unresolved point matters, and do not impose a fixed question quota. Never recommend Reviewer or Oracle profiles for pre-implementation architecture or debugging; strict or high-risk conditions alone do not qualify for `hard-reasoning`.
 
-Use direct read-only discovery to resolve ambiguity. A leaf read-only lookup may establish a named fact; never dispatch planner, reviewer, any Oracle profile, plan-critic, clarifier, coordinator, or an implementation agent, and never delegate classification or the final questions.
+Before asking, read the context the user supplied or named and the directly related project material until the current behavior and affected area are clear enough to avoid questions already answered by specs, plans, handoffs, files, or prior conversation. Use direct read-only discovery to resolve ambiguity. A leaf read-only lookup may establish a named fact; never dispatch planner, reviewer, any Oracle profile, plan-critic, clarifier, coordinator, or an implementation agent, and never delegate classification or the final questions.
 
 ## Output
 

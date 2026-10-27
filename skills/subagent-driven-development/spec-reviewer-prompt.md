@@ -22,7 +22,9 @@ Assignment content (not a tool-call schema; send through a permitted callable na
     unjustified scope, incompatible assumptions, or evidence gaps with file/line
     references and technical impact. Allow minimal evidence-based equivalent
     implementations that preserve the approved goal, constraints, permissions, and
-    acceptance criteria.
+    acceptance criteria. Consider valid input classes, environments, and failure
+    conditions reasonably implied by the approved behavior and committed contracts;
+    do not invent new features, preferences, or speculative scope.
 
     Evaluate final valid requirements and committed contracts, not intermediate
     behavior or decision history. Tests cover functionality and external interfaces,
@@ -31,7 +33,8 @@ Assignment content (not a tool-call schema; send through a permitted callable na
 
     Report concrete findings and supporting evidence. Do not rely on an implementer
     status or acknowledgement, and do not require a fixed first-line verdict or
-    receipt. If the supplied material is insufficient, identify the missing evidence.
+    receipt. Explicitly name any important behavior you cannot judge, why, and the
+    missing evidence. No dedicated heading, list, or item count is required.
 ```
 
 Rerun only if substantive implementation, criteria, constraints, or evidence relevant to this review changes.

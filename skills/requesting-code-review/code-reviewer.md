@@ -28,6 +28,12 @@ Assignment content (not a tool-call schema; send through a permitted callable na
     security, performance, data, compatibility, protocol/API, migration, release,
     or irreversible-operation risks.
 
+    Requirements describe the approved outcome but may not enumerate every valid
+    input class, environment, or failure condition. Check reasonable behavior
+    implied by that outcome and surrounding committed contracts when concrete
+    user impact or regression risk supports it. Do not turn silence into a new
+    feature, preference, or speculative scope.
+
     Assess existing evidence by material relevance. Request missing or affected
     coverage; don't duplicate global/heavy checks coordinated by the controller.
     Unrelated code, dependency, or environment changes aren't automatic invalidation.
@@ -48,7 +54,9 @@ Assignment content (not a tool-call schema; send through a permitted callable na
     Report concrete findings with severity, file/line location when available,
     impact, supporting evidence, and a practical correction when useful. Separate
     product defects from missing evidence. Mention specific strengths only when
-    informative.
+    informative. Explicitly name any important behavior you considered but could
+    not judge, why it remains unjudged, and what evidence is missing. Do not force
+    a dedicated heading, list, or quota.
 
     No fixed first line, section order, verdict token, receipt, or status
     format is required. An acknowledgement or unsupported conclusion is not review

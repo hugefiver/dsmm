@@ -18,16 +18,17 @@ This is a DSMM-maintained native skill for DSH 0.2.1-rc.2, not an OpenCode or Co
 - Installation, package-manager bootstrap, downloads, authentication/login, credential/profile access, Git writes and destructive actions require explicit authorization for the exact action. Reference commands are not automatic operations. Worktree consent does not authorize dependency installation or later branch deletion. Read before changing an existing file; preserve unrelated user work. Never silently restore/reset a working tree to repair a failed cleanup.
 - Browser/debug QA uses run-owned isolated state, no imported credentials or browser profile, and only already available software unless separately authorized. Keep commands in the active shell dialect. Report unverified surfaces honestly.
 
-<!-- Local fork of obra/superpowers/writing-plans v6.3.0.
+<!-- Selectively adapted from obra/superpowers/writing-plans v7.0.1.
      Outcome-oriented final product plans; temporary coordination for other work.
      Complex implementation receives orchestrator-owned blocker-focused criticism.
-     Source and maintenance contract: docs/v1-maintenance.md. -->
+     Source and maintenance contract: ../../docs/maintenance.md.
+     Upstream MIT license: ./LICENSE. -->
 
 # Writing Plans
 
 ## Overview
 
-Produce an implementation plan that lets a capable engineer reach the approved outcome without rediscovering important context. A native read-only planner returns complete Markdown; an authorized coordinator writes any required artifact within its own permissions. Capture the goal, ideal end state, dependencies, interfaces, risks, constraints, and evidence that would demonstrate success. Prefer useful decision support over procedural ceremony.
+Produce an implementation plan that lets a capable engineer reach the approved outcome without rediscovering important context. A native read-only planner returns complete Markdown; an authorized coordinator writes any required artifact within its own permissions. Capture the goal, ideal end state, dependencies, interfaces, risks, constraints, and evidence that would demonstrate success. Record the implementation decisions the engineer cannot safely infer: exact paths and names, necessary interface signatures and types, requirement-fixed values, and the test names/assertions or observable results that pin required behavior. Prefer useful decision support over procedural ceremony.
 
 Assume the engineer is skilled but unfamiliar with this codebase and problem domain. Explain local conventions or non-obvious constraints that materially affect the work; do not prescribe details that repository evidence leaves safely open.
 
@@ -65,7 +66,9 @@ Use the structure that best explains the work. A useful plan normally makes thes
 - Waves or tasks with clear outcome boundaries
 - Useful acceptance evidence for each wave and for the integrated result
 
-Describe the concise final requirements, design, and behavior. Update intermediate text directly; don't retain development history, rejected alternatives, or decision counterexamples. Include commands, code sketches, file paths, or signatures when they prevent ambiguity; omit them when repository patterns and acceptance criteria already make the implementation obvious.
+Describe the concise final requirements, design, and behavior. Update intermediate text directly; don't retain development history, rejected alternatives, or decision counterexamples. Include commands, code sketches, file paths, signatures, fixed values, or test assertions when they prevent ambiguity; omit them when repository patterns and acceptance criteria already make the implementation obvious. The plan records decisions, not a transcript of the implementation: omit function bodies when signatures, required values, and assertions determine the work, and include an algorithm or exact body only when the requirement itself fixes it or ambiguity would remain.
+
+Review focus is part of planning evidence, not a mandatory document section. Consider valid input classes, environments, and failure conditions implied by the approved behavior and local contracts even when the source requirement does not enumerate them. Attach concrete regression coverage to the task that owns the behavior when a plausible failure warrants it. If an important behavior cannot yet be judged or covered, identify the behavior, why it remains unresolved, and the evidence needed. Do not impose a heading, fixed list or item count, expand product scope, or turn a speculative possibility into a requirement.
 
 ## Waves and Tasks
 
@@ -112,13 +115,13 @@ Review the completed plan against its source:
 
 1. **Outcome coverage:** Does the ideal end state satisfy every approved requirement?
 2. **Dependency consistency:** Do ordering, interfaces, files, and ownership assumptions agree?
-3. **Evidence quality:** Would the proposed evidence demonstrate the behavior or invariant that matters?
+3. **Evidence quality:** Would the proposed evidence demonstrate the behavior or invariant that matters, including material implied inputs and failure conditions? Are important unjudged items explicit with their reason and missing evidence?
 4. **Risk discipline:** Are material security, data, compatibility, protocol, and irreversible risks handled without speculative scope?
 5. **Executability:** Can an engineer act without placeholders or pure guesses while retaining discretion over incidental mechanics?
 
 Fix issues inline. Do not require a second review simply because wording or formatting changed.
 
-Tests cover valid requirements, functionality, and external interfaces, not descriptive-text locks or decision counterexamples. Don't lock documentation, commit messages, package information, or non-contractual error/log wording through strings, regex, snapshots, or parsed content. Changed requirements update their tests; removed components lose their dedicated tests, with no replacement absence tests. Keep valid negative safety, protocol, and input-handling tests.
+Tests cover valid requirements, functionality, and external interfaces, not descriptive-text locks or decision counterexamples. State test names and decisive assertions or observable outputs; do not write full test implementations unless an exact fixture or algorithm is itself required to remove material ambiguity. Don't lock documentation, commit messages, package information, or non-contractual error/log wording through strings, regex, snapshots, or parsed content. Changed requirements update their tests; removed components lose their dedicated tests, with no replacement absence tests. Keep valid negative safety, protocol, and input-handling tests.
 
 ## Blocker-Focused Plan Review
 

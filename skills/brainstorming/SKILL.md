@@ -18,34 +18,19 @@ This is a DSMM-maintained native skill for DSH 0.2.1-rc.2, not an OpenCode or Co
 - Installation, package-manager bootstrap, downloads, authentication/login, credential/profile access, Git writes and destructive actions require explicit authorization for the exact action. Reference commands are not automatic operations. Worktree consent does not authorize dependency installation or later branch deletion. Read before changing an existing file; preserve unrelated user work. Never silently restore/reset a working tree to repair a failed cleanup.
 - Browser/debug QA uses run-owned isolated state, no imported credentials or browser profile, and only already available software unless separately authorized. Keep commands in the active shell dialect. Report unverified surfaces honestly.
 
-<!-- Local fork of obra/superpowers/brainstorming v6.3.0.
+<!-- Selectively adapted from obra/superpowers/brainstorming v7.0.1.
      Triggered native final-state policy and proportional discovery.
      Authorized work follows applicable planning without redundant design approval.
-     Source and maintenance contract: docs/v1-maintenance.md. -->
+     Source and maintenance contract: ../../docs/maintenance.md.
+     Upstream MIT license: ./LICENSE. -->
 
 # Brainstorming Outcomes Into Designs
 
 Use discovery and design to remove material uncertainty before implementation. The objective is a shared understanding of the goal, constraints, acceptance criteria, interfaces, risks, and ideal end state, not completion of a prescribed ceremony.
 
-## Final-State Artifacts and Regression Tests
+## Conditional Artifact and Evidence Guidance
 
-These rules apply when this triggered native skill is loaded. Shared workflow and role policies remain effective without injecting the skill body; packaging is not automatic skill execution or authority.
-
-Documents, code and comments, tests, and commit messages express only the concise final requirements, design, and behavior. Update intermediate changes directly to the final text. Don't retain development or decision histories, rejected alternatives, or decision counterexamples. Trace history only through the Git commit tree. The only document exception is a strictly chronological purpose, such as a roadmap or changelog; ordinary maintenance notes aren't history archives.
-
-`docs/superpowers/specs/` and `docs/superpowers/plans/` are reserved for final product requirements to be delivered. Each spec or plan describes its final deliverable, not an execution journal. Represent changed requirements with separate plans, not an accumulated change history. Other tasks use conversation-level coordination or a task-owned temporary plan and never write to those directories. Complexity can require planning without making a task a product-spec deliverable.
-
-Tests protect valid requirements, functional behavior, and external interfaces against regressions. Don't add string, regex, snapshot, or parsed-content locks for documentation, commit messages, package information, or error/log wording that has no functional or system-boundary significance. Verify executable configuration, protocol fields, and resource delivery through their behavior rather than locking descriptive text. Don't add decision-counterexample tests or tests asserting that a deleted component is absent. When requirements change, update corresponding tests. When a module, helper, tool, or subsystem is removed, delete tests dedicated to it. Negative tests for valid safety, protocol, and input-handling requirements remain appropriate.
-
-Don't add tests that freeze incidental files or lockfiles, build-tool details, descriptive package metadata, local OS/shell/path/PATH/CWD settings, dependency/runtime versions, or environment snapshots unrelated to product behavior or an explicit external or necessary delivery contract. A test must expose a concrete failure of a valid requirement, not preserve the current machine or tool setup. Verify configuration and delivery through observable behavior rather than whole-file string/hash equality or parsed incidental state. Necessary integrity, provenance, security, and protocol pins remain valid for their concrete boundary; prompt or document edits alone don't justify new infrastructure/environment tests.
-
-Git commits are the compatibility boundary. Uncommitted intermediate implementations may be changed incompatibly to meet final requirements without transition shims or tests preserving intermediate behavior. An existing component with uncommitted edits still has its committed contracts. This rule doesn't authorize changes to public APIs/protocols, security or data guarantees, permissions, or irreversible behavior, and doesn't authorize any Git write.
-
-Keep current constraints, authorization boundaries, unresolved risks, and verification evidence visible. State a necessary assumption as a current constraint or verification limit, not a ruling ledger. Agent reports stay in conversation; don't turn coordination, review conclusions, or evidence into workspace files unless explicitly requested as deliverables. Final-state discipline must never hide a real defect, blocker, or unverified requirement.
-
-Delegation and delivery need clear goals, useful completion evidence, and material constraints, not exhaustive resource/file inventories, per-item revision/hash/receipt locks, or fixed report fields. Workers may discover relevant files, tests, docs, and other resources within the authorized scope. Communicate scope and ownership boundaries, irreversible-operation limits, and required protocol/integrity identities when they matter; resource discovery never expands permissions. Keep results in conversation and require exact identities only for a concrete safety, integrity, or external protocol requirement.
-
-Temporary, debug, disposable, or retired files and directories do not need repeated stability checks, hash comparisons, or correct recorded status at every instant. Keep short-lived state in the agent session and synchronize useful results at delivery or major phase boundaries, not every checklist update. A completed disposable resource checklist can be deleted without first writing completion status; don't introduce repository debug journals or extra ledgers. Deliverables are proven by correct functionality, interfaces, and usability, not string/hash locks on all text files. Use hashes/checksums only for an explicitly necessary integrity, provenance/security, or protocol-identity requirement, preserving required release checks. Cleanup still requires exact task ownership, safe resolved paths, PID plus start identity for process termination, and preservation of user changes; lighter temporary-state handling never weakens authorization, API contracts, or data guarantees.
+These rules apply whenever this triggered skill is loaded, but their detailed guidance is needed only when discovery will produce a durable design/spec/plan or prescribe regression evidence. Before doing either, read `./references/artifacts-and-evidence.md` from this skill's resourceBase. Conversation-only discovery need not load it. Shared workflow and role policies remain effective without injecting this skill body; packaging is not automatic skill execution or authority.
 
 ## Coordinated Verification and Evidence Reuse
 
@@ -81,13 +66,15 @@ These paths size discovery and design; they do not replace workflow planning pol
 
 Inspect only enough project context to resolve material questions:
 
+- First read the context the user supplied or named, including relevant specs, plans, handoffs, files, and prior conversation, then inspect the connected project material until you can explain the relevant current behavior and affected area. Do not ask for facts that this context already answers.
+
 - current behavior and relevant local patterns;
 - affected boundaries, dependencies, and interfaces;
 - constraints and acceptance evidence;
 - plausible failure, rollback, compatibility, security, data, and operational risks;
 - independent work that can form separate waves.
 
-Use a clarifier or ask the user only when missing information would change the deliverable, create material rework, or cross an escalation boundary. Ask the smallest useful question in the clearest form; there is no required question count, option count, or multiple-choice format.
+Use a clarifier or ask the user only when missing information would change the deliverable, create material rework, or cross an escalation boundary. Ask the smallest useful question in the clearest form; state what its answer would change or why the unresolved point matters. There is no required question count, option count, or multiple-choice format. If the supplied and inspected context resolves every material question, proceed without manufacturing one.
 
 ## Explore Approaches When They Matter
 

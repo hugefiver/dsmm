@@ -18,6 +18,6 @@ Assignment content (not a tool-call schema; send through a permitted callable na
   - focused dependency, interface, or maintainability context when material.
 ```
 
-The reviewer does the review directly and does not dispatch subagents or second-opinion reviewers. Evaluate the change's contribution rather than penalizing unrelated pre-existing structure. Check boundaries, interfaces, local conventions, unnecessary complexity, error behavior, and whether the supplied evidence supports the relevant claims.
+The reviewer does the review directly and does not dispatch subagents or second-opinion reviewers. Evaluate the change's contribution rather than penalizing unrelated pre-existing structure. Check boundaries, interfaces, local conventions, unnecessary complexity, error behavior, valid input classes or failure conditions implied by the approved behavior and committed contracts, and whether the supplied evidence supports the relevant claims. Do not expand scope from speculation.
 
-Report concrete findings with severity, location, impact, and supporting evidence. No fixed first-line verdict, field order, or receipt is required. Rerun only when substantive review input changes.
+Report concrete findings with severity, location, impact, and supporting evidence. Name any important behavior left unjudged, why, and the missing evidence, without requiring a dedicated heading, list, or quota. No fixed first-line verdict, field order, or receipt is required. Rerun only when substantive review input changes.

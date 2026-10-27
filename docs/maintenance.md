@@ -79,6 +79,32 @@ native catalog's selected skill body or invocation policy. Full bodies stay lazy
 Historical v1/v2/v3 child captures without `avoid-ai-slop` restore it as disabled;
 explicit booleans remain captured without a protocol version or authority change.
 
+## Selective superpowers sources
+
+The maintained [brainstorming](../skills/brainstorming/SKILL.md),
+[writing-plans](../skills/writing-plans/SKILL.md),
+[subagent-driven-development](../skills/subagent-driven-development/SKILL.md),
+and [requesting-code-review](../skills/requesting-code-review/SKILL.md) resources
+selectively adapt their corresponding `obra/superpowers` v7.0.1 skills. The
+planning decision/signature/assertion guidance comes from the v7.0.1
+[writing-plans skill](https://github.com/obra/superpowers/blob/v7.0.1/skills/writing-plans/SKILL.md);
+look-before-asking guidance comes from the v7.0.1
+[brainstorming skill](https://github.com/obra/superpowers/blob/v7.0.1/skills/brainstorming/SKILL.md);
+and implied-input plus unjudged-evidence guidance comes from the v7.0.1
+[reviewer template](https://github.com/obra/superpowers/blob/v7.0.1/skills/requesting-code-review/code-reviewer.md)
+and related skill references. Each adapted skill directory retains Jesse
+Vincent's upstream MIT notice in its local `LICENSE` file.
+
+Local entry skills retain the native DSH resourceBase, permission, tool, depth,
+stopping, escalation, Git and workflow-ownership contracts. Conditional detail
+is split only by responsibility: brainstorming loads
+`references/artifacts-and-evidence.md` when producing durable artifacts or test
+guidance, and subagent-driven development loads
+`references/worker-return-and-review.md` when workers return or implementation
+review becomes relevant. These resources do not import upstream fixed design
+approval, workspace ledgers, mandatory commits, universal TDD or per-task review,
+or nested workflow controllers.
+
 ## Frontend resources and provenance
 
 The full `skills/frontend/` tree is maintained in this repository and shipped in
