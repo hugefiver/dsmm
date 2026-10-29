@@ -47,6 +47,12 @@ receives a guarded `gemini-4` additive layer based on generic Gemini guidance.
 Prompt selection does not change provider, effort, fallback chains or DSH model
 capabilities.
 
+GPT/Codex guidance requires direct user-facing conclusions, reasons and actions.
+Use contrast or negation for an expressed misconception or a distinction that
+changes the conclusion, action, safety or scope. State necessary conditions,
+uncertainty and safety limits concretely and once; remove sentences that add no
+useful information without misleading the reader.
+
 Effective Deepwork activation includes a short brainstorming orientation. Full
 brainstorming remains a native skill loaded only when material uncertainty calls
 for discovery or design; explicit mode-off and native skill controls remain
