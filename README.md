@@ -4,12 +4,12 @@ DSMM 是 DeepSeek Harness（DSH）的插件。它让不同 Agent 分工处理任
 
 比如，让 Planner 拆解任务、Coding 写代码、Reviewer 检查结果，再由 Orchestrator 协调。各个角色可以用不同的模型，不必共用一套配置。
 
-当前发布版本为 `@dsmm/dsmm@0.3.19`，支持 DSH `>=0.2.1-rc.2 <0.3.0`。安装前请确认客户端版本；范围外的 DSH 版本不受支持。Desktop 使用自带运行时，独立命令行环境需要 Node.js 22 或更高版本。
+当前发布版本为 `@dsmm/dsmm@0.3.21`，支持 DSH `>=0.2.1-rc.2 <0.3.0`。安装前请确认客户端版本；范围外的 DSH 版本不受支持。Desktop 使用自带运行时，独立命令行环境需要 Node.js 22 或更高版本。
 
 官方 DSH rc.3 以 `engines.dsh` 优先于 peer ranges 判定兼容性；DSH 依赖仍固定为 rc.2，作为开发基线。
 
 - 源码仓库：[hugefiver/dsmm](https://github.com/hugefiver/dsmm)
-- 安装来源：[npm (@dsmm/dsmm)](https://www.npmjs.com/package/@dsmm/dsmm)；发布资产：[GitHub Releases (v0.3.19)](https://github.com/hugefiver/dsmm/releases/tag/v0.3.19)
+- 安装来源：[npm (@dsmm/dsmm)](https://www.npmjs.com/package/@dsmm/dsmm)；发布资产：[GitHub Releases (v0.3.21)](https://github.com/hugefiver/dsmm/releases/tag/v0.3.21)
 
 ---
 
@@ -20,7 +20,7 @@ DSMM 是 DeepSeek Harness（DSH）的插件。它让不同 Agent 分工处理任
 ### 初次安装
 
 1. 打开 DeepSeek Harness Desktop，进入 **插件（Plugins）** 页面。
-2. 点击 **添加插件（Add plugin）**，输入 `@dsmm/dsmm@0.3.19` 并确认。
+2. 点击 **添加插件（Add plugin）**，输入 `@dsmm/dsmm@0.3.21` 并确认。
 3. 安装完成后，检查插件是否处于启用状态。如果界面提示需要重启，请按提示重启客户端。
 
 Desktop 的插件由客户端自己管理。全局 npm 安装和独立 npm 版 `dsh` 命令不能替代这一步。
@@ -32,7 +32,7 @@ DSH Desktop 当前不支持在界面中用同名版本原位覆盖更新插件�
 1. 保存好正在进行的任务，**正常退出并完全关闭 DSH Desktop**。
 2. 使用 Desktop 安装自带的命令行工具更新配置。以下示例适用于 Windows 默认安装路径（`%LOCALAPPDATA%\Programs\DeepSeek Harness\`）：
    ```powershell
-   & "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add @dsmm/dsmm@0.3.19 --save-exact --ignore-scripts --registry=https://registry.npmjs.org
+   & "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add @dsmm/dsmm@0.3.21 --save-exact --ignore-scripts --registry=https://registry.npmjs.org
    ```
    *若安装在自定义路径，请替换为对应的实际位置；非 Windows 系统请参考 Desktop 自身菜单或官方指引，不要混用非 Desktop 的独立 CLI 命令。*
 3. 重新打开 DSH Desktop 即可加载新版本。

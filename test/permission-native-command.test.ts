@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
-import { literalCommand, nativeCommandMatch, simpleCommandMatch, simpleShellCommand, simpleShellDialect } from "../src/permission-native-command.ts";
+import { literalCommand, nativeCommandMatch, simpleCommandMatch, simpleCommandWordsMatch, simpleShellCommand, simpleShellDialect } from "../src/permission-native-command.ts";
 import { parseSimpleCommandPattern } from "../src/permission-settings.ts";
 import type { NativeCommandEntry, NativeCommandsSettings } from "../src/permission-settings.ts";
 import type { PermissionShellIdentity } from "../src/permission-shell.ts";
@@ -16,6 +16,15 @@ function settings(changes: Partial<NativeCommandEntry["match"]> = {}): NativeCom
   } }] };
 }
 const matchedId = (value: ReturnType<typeof nativeCommandMatch>) => typeof value === "object" ? value.id : value;
+
+test("literal words matching keeps prefix positions, alternatives, case and dialect executable rules", () => {
+  const settings = { enabled: true, entries: ["go build|test", "git remote add"] };
+  assert.equal(simpleCommandWordsMatch(settings, ["go.exe", "test", "中文", ""], "powershell"), true);
+  assert.equal(simpleCommandWordsMatch(settings, ["go.exe", "test"], "posix"), false);
+  for (const words of [["Go", "test"], ["go", "Test"], ["go"], ["env", "go", "test"], ["git", "remote", "remove"], ["git", "-C", "remote", "add"]])
+    assert.equal(simpleCommandWordsMatch(settings, words, "powershell"), false);
+  assert.equal(simpleCommandWordsMatch({ ...settings, enabled: false }, ["go", "test"], "posix"), false);
+});
 
 test("PowerShell doubled double quotes cannot match an argv with the quote removed", () => {
   const command = 'go test "a""b"';

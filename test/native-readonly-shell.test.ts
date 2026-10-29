@@ -21,6 +21,7 @@ if (process.platform === "win32") {
 for (const managed of [false, true]) {
   const kind = managed ? "managed" : "raw";
   for (const name of [
+    `native linear ${kind} bash/pwsh elevates once from workspace-write and retains native and readonly ceilings`,
     `native readonly own-layer-only ${kind} bash/pwsh composes without masking local tools and preserves runtime denial`,
     `native Full Access readonly child blocks real ${kind} bash/pwsh before execution, direct and AgentLoop`,
     `native Full Access readonly child/scope-off rejects ${kind} shell; ordinary controls execute`,

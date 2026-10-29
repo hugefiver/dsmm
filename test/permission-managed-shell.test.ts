@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { randomUUID } from "node:crypto";
+import { resolve } from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { ToolCallId, createUserMessage } from "@deepseek-ai/dsh-llm";
@@ -14,6 +15,31 @@ useIsolatedDshEnvironment();
 const command = "go test -count=1 .";
 export const commandEntry = (mode: "allow" | "ask", tool: "bash" | "pwsh" = "pwsh"): NativeCommandEntry => ({ id: "go", mode, sandboxMode: "danger-full-access", match: { tool, commandPattern: "go test", workingDirectory: process.cwd() } });
 const shellRule = (action: "ask" | "allow" | "deny") => importPermissionRules([{ id: "bounded", action, match: { kind: "shell", executable: "pwsh.exe", command, workingDirectory: process.cwd() } }], "direct-file", 1);
+
+test("linear legacy constraints retain tool/cwd, ask priority and sandbox ambiguity without becoming string grants", async () => {
+  const f = await permissionFixture();
+  try {
+    await f.mountManagedShell(); f.setOutcome("rejected");
+    const script = "echo before; go test";
+    const ask = commandEntry("ask"), allow = commandEntry("allow");
+    for (const entries of [[ask], [allow, { ...ask, id: "ask" }], [allow, { ...allow, id: "other-mode", sandboxMode: "workspace-write" as const }]]) {
+      await f.update({ nativeCommands: { enabled: true, entries } });
+      assert.equal((await f.execute(script)).isError, false);
+      assert.equal((f.specs.at(-1)!.sandboxPolicy as { mode: string }).mode, "workspace-write");
+      await f.update({ nativeCommands: { enabled: true, entries: ["go test", ...entries] } });
+      assert.equal((await f.execute(script)).isError, false);
+      assert.equal((f.specs.at(-1)!.sandboxPolicy as { mode: string }).mode, "danger-full-access");
+    }
+    for (const entry of [allow, { ...ask, match: { ...ask.match, tool: "bash" as const } }, { ...ask, match: { ...ask.match, workingDirectory: resolve(process.cwd(), "elsewhere") } }]) {
+      await f.update({ nativeCommands: { enabled: true, entries: [entry] } });
+      assert.equal((await f.execute(script)).isError, false);
+      assert.equal((f.specs.at(-1)!.sandboxPolicy as { mode: string }).mode, "danger-full-access");
+    }
+    await f.update({ nativeCommands: { enabled: true, entries: [ask] } });
+    assert.equal((await f.execute("go test")).isError, true, "ordinary legacy ask is still answered by native approval");
+    assert.equal(f.nativeAnswers(), 1);
+  } finally { await f.dispose(); }
+});
 
 test("default/off/unknown native once and configured allow use original body without DSMM peer", async () => {
   const f = await permissionFixture();

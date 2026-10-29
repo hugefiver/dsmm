@@ -28,8 +28,85 @@ import type { PermissionControlSchemaInput } from "../src/permission-settings.ts
 import { PermissionRulesRuntimeSync, importPermissionRules } from "../src/permission-rules.ts";
 import { parsePermissionShellReadPaths } from "../src/permission-shell.ts";
 import { useIsolatedDshEnvironment } from "./dsh-test-environment.ts";
+import { permissionFixture } from "./permission-fixture.ts";
 
 useIsolatedDshEnvironment();
+
+test("linear standing-full trusted reads retain a definite outside blacklist until every covered component is whitelisted", async () => {
+  const signal = new AbortController().signal;
+  const f = await permissionFixture(2000, { sandboxMode: "danger-full-access", coLocated: () => true,
+    shellIdentity: () => ({ executable: "pwsh.exe", dialect: "powershell", commandField: "command", cwdField: "workdir",
+      readCapability: { signal, assertCurrent() {}, resolveExecutable: token => token === "echo" ? "echo" : token === "Get-Content" ? "get-content" : undefined } }) });
+  try {
+    await f.mountManagedShell(); f.setOutcome("rejected");
+    const command = "echo before; Get-Content ../AGENTS.md";
+    for (const entries of [[], ["Get-Content"], ["Get-Content", "echo"]]) {
+      await f.update({ outsideReads: "deny", nativeCommands: { enabled: true, entries } });
+      const before = f.starts(), result = await f.execute(command);
+      assert.equal(result.isError, entries.length !== 2, JSON.stringify(result));
+      assert.equal(f.starts(), before + (entries.length === 2 ? 1 : 0));
+    }
+    assert.equal(f.nativeAnswers(), 0);
+  } finally { await f.dispose(); }
+});
+
+test("linear outside-read uses existing unknown deny and does not invent stock managed identity", async () => {
+  const f = await permissionFixture();
+  try {
+    const managed = await f.mountManagedShell(); f.setOutcome("rejected");
+    for (const outsideReads of ["allow", "ask", "inherit", "deny"] as const) {
+      await f.update({ outsideReads, nativeCommands: { enabled: true, entries: [] } });
+      const result = await f.execute("unknown-program; echo tail");
+      assert.equal(result.isError, outsideReads === "deny", JSON.stringify(result));
+      if (outsideReads !== "deny") assert.equal((f.specs.at(-1)!.sandboxPolicy as { mode: string }).mode, "danger-full-access");
+    }
+    for (const entries of [["unknown-program"], ["unknown-program", "echo"]]) {
+      await f.update({ outsideReads: "deny", nativeCommands: { enabled: true, entries } });
+      assert.equal((await f.execute("unknown-program; echo tail")).isError, entries.length !== 2);
+    }
+    await managed.dispose();
+    const stock = f.ctx.plugin(NativePwsh, { enableRunInBackground: false, promoteOnTimeout: false }); await stock.await();
+    await f.update({ outsideReads: "deny", nativeCommands: { enabled: true, entries: [] } });
+    assert.equal((await f.execute("unknown-program; echo tail")).isError, false);
+    assert.equal((f.specs.at(-1)!.sandboxPolicy as { mode: string }).mode, "danger-full-access");
+  } finally { await f.dispose(); }
+});
+
+test("linear trusted outside-read applies whole-script constraints and cannot turn FS evaluation failures into no constraints", async () => {
+  const capabilitySignal = new AbortController().signal;
+  let colocated = true;
+  const f = await permissionFixture(2000, { coLocated: () => colocated, shellIdentity: (_scope, kind) => ({
+    executable: "pwsh.exe", dialect: kind === "pwsh" ? "powershell" : "posix", commandField: "command", cwdField: "workdir",
+    readCapability: { signal: capabilitySignal, assertCurrent() {}, resolveExecutable(token, _cwd, exec) {
+      assert.equal(exec?.agent, f.root);
+      return token === "echo" ? "echo" : token === "Get-Content" ? "get-content" : undefined;
+    } },
+  }) });
+  try {
+    await f.mountManagedShell(); f.setOutcome("rejected");
+    const command = "echo before; Get-Content ../AGENTS.md";
+    for (const entries of [[], ["Get-Content"], ["Get-Content", "echo"]]) {
+      await f.update({ outsideReads: "deny", nativeCommands: { enabled: true, entries } });
+      assert.equal((await f.execute(command)).isError, entries.length !== 2);
+    }
+    await f.update({ outsideReads: "deny", nativeCommands: { enabled: true, entries: [] } });
+    assert.equal((await f.execute("echo before; Get-Content AGENTS.md")).isError, false);
+    assert.equal((f.specs.at(-1)!.sandboxPolicy as { mode: string }).mode, "danger-full-access");
+    const fs = f.ctx.get("fs")!, original = fs.resolve;
+    const failure = new Error("Owned FS evaluation failure");
+    fs.resolve = async () => { throw failure; };
+    try {
+      const before = f.starts(), result = await f.execute("echo before; Get-Content AGENTS.md");
+      assert.equal(result.isError, true); assert.equal(result.error?.message, failure.message); assert.equal(f.starts(), before);
+    } finally { fs.resolve = original; }
+    fs.resolve = async (...args: Parameters<typeof fs.resolve>) => { const result = await Reflect.apply(original, fs, args); colocated = false; return result; };
+    try {
+      const before = f.starts();
+      assert.equal((await f.execute("echo before; Get-Content AGENTS.md")).isError, true);
+      assert.equal(f.starts(), before, "co-location invalidated during containment cannot create a grant");
+    } finally { fs.resolve = original; }
+  } finally { await f.dispose(); }
+});
 const sdk = createRequire(createRequire(import.meta.url).resolve("@deepseek-ai/dsh-tools"));
 const { ApprovalService, setApprovalPolicy } = await import(pathToFileURL(sdk.resolve("@deepseek-ai/dsh-user-approval")).href);
 const { FileSystem } = await import(pathToFileURL(sdk.resolve("@deepseek-ai/dsh-fs")).href);

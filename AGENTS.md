@@ -10,6 +10,16 @@
 - Keep `@dsmm/dsmm`, the package version, and all DSH `0.2.1-rc.2` dependencies
   unchanged unless the task explicitly authorizes a release or compatibility move.
 
+## Permission design principle
+
+- Focus risk controls on preventing common model mistakes in tool selection and
+  operation scope, together with basic permission enforcement. Do not aim to
+  eliminate every possible privilege-bypass technique or implement a complete
+  shell security analyzer.
+- Keep checks proportional to those goals. Preserve existing permission
+  boundaries and fallback behavior unless a task explicitly changes them;
+  unsupported syntax alone is not a reason to add stricter policy.
+
 ## Build and verification
 
 Use the existing Node/pnpm toolchain; do not install dependencies without

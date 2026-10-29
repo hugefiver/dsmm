@@ -20,6 +20,13 @@ import type { PermissionRulesBackend } from "../src/permission-rules.ts";
 import { resolvePermissionControl } from "../src/permission-settings.ts";
 import type { PermissionControlSchemaInput } from "../src/permission-settings.ts";
 import { installPermissionController } from "../src/permission-controller.ts";
+import type { PermissionControllerOptions } from "../src/permission-controller.ts";
+import { hasShellGuardConstraint, registerSafetyGuards } from "../src/guards.ts";
+import { resolveConfig } from "../src/settings.ts";
+import type { DsmmPluginConfig } from "../src/settings.ts";
+import type { DshContext, DshToolExecution } from "../src/dsh-types.ts";
+import { DeepworkModeController } from "../src/state.ts";
+import { nativeStandingFullAccess } from "../src/permission-native-access.ts";
 import * as ManagedPwsh from "../src/permission-pwsh.ts";
 import * as ManagedBash from "../src/permission-bash.ts";
 
@@ -76,6 +83,10 @@ export async function permissionFixture(_timeoutMs = 2000, options: {
   mode?: "native" | "ptc"; settings?: PermissionControlSchemaInput;
   sandboxMode?: "read-only" | "workspace-write" | "danger-full-access";
   shellExecution?(spec: Record<string, unknown>): Promise<void>;
+  guards?: DsmmPluginConfig["guards"];
+  guardsFirst?: boolean;
+  shellIdentity?: PermissionControllerOptions["shellIdentity"];
+  coLocated?: PermissionControllerOptions["coLocated"];
   rules?(permissions: PermissionControl, ctx: Context): { backend: PermissionRulesBackend; runtime: PermissionRulesRuntimeSync };
 } = {}): Promise<PermissionFixture> {
   const ctx = new Context(), handles: AgentHandle[] = [], lifetime = new AbortController();
@@ -100,10 +111,17 @@ export async function permissionFixture(_timeoutMs = 2000, options: {
       async execute(spec: Record<string, unknown>) { (spec.signal as AbortSignal | undefined)?.throwIfAborted(); starts++; specs.push(spec); if (options.shellExecution !== undefined) await options.shellExecution(spec); return { result: async () => ({ exitCode: 0, signal: null, timedOut: false, aborted: false, timeoutMs: 1000, stdout: { text: "owned counted shell", truncated: false }, stderr: { text: "", truncated: false } }) }; } });
     ctx.on("approval/request", async request => { nativeAnswers++; requests.push(request); return answer === undefined ? outcome : answer(request); }, { global: true });
     const sync = new PermissionRulesRuntimeSync({ revision: "source:initial", policy: resolvePermissionControl(options.settings) }, () => controller?.permissions.revokePolicy());
+    const guardContext = ctx as unknown as DshContext, mode = new DeepworkModeController(guardContext);
+    const guardSettings = resolveConfig({ guards: options.guards ?? { scope: "off" } });
+    const guards = () => registerSafetyGuards(guardContext, mode, () => guardSettings);
+    if (options.guards !== undefined && options.guardsFirst) guards();
     const controller = installPermissionController(ctx, { rules: sync, authority: {
       current(exec) { const value = exec.agent === undefined ? undefined : authorities.get(exec.agent); if (value === undefined) throw new Error("No actual fixture agent"); return value; },
       assertCurrent() { if (pureDenied) throw new Error("Owned absolute readonly/role restriction"); },
-    }, shellIdentity(_scope, kind) { return { executable: kind === "pwsh" ? "pwsh.exe" : "bash", dialect: kind === "pwsh" ? "powershell" : "posix", commandField: "command", cwdField: "workdir" }; } });
+    }, shellGuardConstraint: (exec, command, dialect) => hasShellGuardConstraint(exec as unknown as DshToolExecution, command, dialect, guardSettings, mode, nativeStandingFullAccess(ctx, exec.agent)),
+    coLocated: options.coLocated,
+    shellIdentity: options.shellIdentity ?? ((_scope, kind) => ({ executable: kind === "pwsh" ? "pwsh.exe" : "bash", dialect: kind === "pwsh" ? "powershell" : "posix", commandField: "command", cwdField: "workdir" })) });
+    if (options.guards !== undefined && !options.guardsFirst) guards();
     await ctx.plugin(AgentLoop, {}).await();
     const create = async (parent?: Agent) => {
       const handle = await ctx.agents.create({ sessionId: SessionId(randomUUID()), ...parent === undefined ? {} : { parentAgent: parent }, meta: { cwd: process.cwd() }, agentOptions: { provider: "unused-local", model: "unused-local" } });

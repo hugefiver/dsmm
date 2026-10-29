@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { DshPostToolDecision, DshPreToolDecision, DshSessionEvent, DshToolExecution, DshToolExecutionResult } from "../lib/dsh-types.js";
-import { DSMM_GUARD_PREFIX, decidePostToolExecution, decidePreToolExecution, isSafetyScopeActive, registerSafetyGuards, truncateTextMiddle } from "../lib/guards.js";
+import { DSMM_GUARD_PREFIX, decidePostToolExecution, decidePreToolExecution, hasShellGuardConstraint, isSafetyScopeActive, registerSafetyGuards, truncateTextMiddle } from "../lib/guards.js";
 import { DEFAULT_DSMM_SETTINGS } from "../lib/settings.js";
 import type { DsmmSettings } from "../lib/settings.js";
 import { DEEPWORK_MODE_EVENT, DeepworkModeController } from "../lib/state.js";
@@ -91,6 +91,35 @@ test("bash shell safety denies clear PowerShell-only syntax", () => {
 
 test("git write guard asks for approval by default", () => {
   assert.equal(decidePreToolExecution(exec("bash", { command: "git commit -m test" }), DEFAULT_DSMM_SETTINGS, controller())?.kind, "ask");
+});
+
+test("linear eligibility queries the same existing shell constraints without classifying other effects as risks", () => {
+  const execution = exec("pwsh", { command: "echo one; git push" }), mode = controller();
+  assert.equal(hasShellGuardConstraint(execution, "git push", "powershell", DEFAULT_DSMM_SETTINGS, mode), true);
+  for (const command of ["unknown-program", "git unclassified", "Remove-Item file", "node -e 'code'"]) {
+    assert.equal(hasShellGuardConstraint(execution, command, "powershell", DEFAULT_DSMM_SETTINGS, mode), false, command);
+  }
+  assert.equal(hasShellGuardConstraint(execution, "source script", "powershell", DEFAULT_DSMM_SETTINGS, mode), true);
+  const high = { ...DEFAULT_DSMM_SETTINGS, guards: { ...DEFAULT_DSMM_SETTINGS.guards, gitWriteScope: "high-risk" as const } };
+  assert.equal(hasShellGuardConstraint(execution, "git commit -m owned", "powershell", high, mode), false);
+  assert.equal(hasShellGuardConstraint(execution, "git push --force", "powershell", high, mode), true);
+  const off = { ...DEFAULT_DSMM_SETTINGS, guards: { ...DEFAULT_DSMM_SETTINGS.guards, scope: "off" as const } };
+  assert.equal(hasShellGuardConstraint(execution, "git push --force", "powershell", off, mode), false);
+});
+
+test("linear guard qualification uses the same standing-full Git-deny-only policy", () => {
+  const execution = exec("pwsh", { command: "source ./env; git push", sandbox_permissions: "danger-full-access" }), mode = controller();
+  const deny = { ...DEFAULT_DSMM_SETTINGS, guards: { ...DEFAULT_DSMM_SETTINGS.guards, gitWriteGuard: "deny" as const } };
+  for (const full of [false, true]) {
+    assert.equal(hasShellGuardConstraint(execution, "source ./env", "powershell", deny, mode, full), !full);
+    assert.equal(hasShellGuardConstraint(execution, "git push", "powershell", deny, mode, full), true);
+    assert.equal(hasShellGuardConstraint(execution, "git push", "powershell", DEFAULT_DSMM_SETTINGS, mode, full), !full);
+    const high = { ...deny, guards: { ...deny.guards, gitWriteScope: "high-risk" as const } };
+    assert.equal(hasShellGuardConstraint(execution, "git commit -m owned", "powershell", high, mode, full), false);
+    assert.equal(hasShellGuardConstraint(execution, "git push --force", "powershell", high, mode, full), true);
+    const off = { ...deny, guards: { ...deny.guards, scope: "off" as const } };
+    assert.equal(hasShellGuardConstraint(execution, "git push --force", "powershell", off, mode, full), false);
+  }
 });
 
 test("Git scope filters the complete action set without hiding a later high-risk operation", () => {

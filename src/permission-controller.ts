@@ -7,11 +7,12 @@ import type { Agent } from "@deepseek-ai/dsh-agent";
 import { isSandboxWidening, PermissionControl, PermissionRefusal, permissionApprovalAdapter, permissionOriginal } from "./permission-control.js";
 import type { PermissionControlCollaborators, PermissionRegistration } from "./permission-control.js";
 import { classifyPermissionShell } from "./permission-shell.js";
-import { nativeCommandMatches, simpleCommandMatch, simpleShellCommand, simpleShellDialect } from "./permission-native-command.js";
+import { nativeCommandMatches, simpleCommandMatch, simpleCommandWordsMatch, simpleShellCommand, simpleShellDialect } from "./permission-native-command.js";
+import { parseLinearScript } from "./permission-linear-script.js";
 import type { CommandApprovals, CommandRuleContribution } from "./command-approval.js";
 import type { PermissionShellIdentity } from "./permission-shell.js";
-import { NATIVE_PERMISSION_CAPABILITIES, registerNativePermissionRules } from "./permission-native-rules.js";
-import type { NativePermissionCapabilityView, NativePermissionFileSystem, NativePermissionToolIdentity } from "./permission-native-rules.js";
+import { evaluateNativeShellRules, NATIVE_PERMISSION_CAPABILITIES, registerNativePermissionRules } from "./permission-native-rules.js";
+import type { NativePermissionCapabilityView, NativePermissionFileSystem, NativePermissionToolIdentity, NativeShellRuleEvaluation } from "./permission-native-rules.js";
 import type { PermissionRulesRuntimeSync } from "./permission-rules.js";
 import { nativeStandingFullAccess } from "./permission-native-access.js";
 import type { NativePermissionAccess } from "./permission-native-access.js";
@@ -25,6 +26,8 @@ export interface PermissionControllerOptions {
   /** The existing live Core owner/admission/Root/realm/run facts, not serialized settings or a ready boolean. */
   readonly authority: PermissionControlCollaborators;
   readonly rules: PermissionRulesRuntimeSync;
+  /** Provided by the guard owner using this Agent's effective settings and live scope. */
+  shellGuardConstraint?(execution: Readonly<ToolExecution>, command: string, dialect: PermissionShellIdentity["dialect"]): boolean;
   /** Native registration identity; only an explicit capability proves Shell read semantics. */
   shellIdentity(scope: Context, kind: ManagedPermissionShell): PermissionShellIdentity;
   coLocated?(scope: Context, execution: Readonly<ToolExecution>, fs: NativePermissionFileSystem): boolean;
@@ -117,7 +120,7 @@ export class DsmmPermissionController extends Service {
     if (this.rules.status().mounted) {
       registerNativePermissionRules(ctx, {
         runtime: this.rules,
-        simpleCommandAllowed: exec => this.permissions.isSimple(exec),
+        simpleCommandAllowed: exec => this.simpleCommandAllowed(exec),
         captureIntegrity: options.authority.captureIntegrity === undefined ? undefined : exec => options.authority.captureIntegrity!(exec),
         identify: definition => {
           const managed = this.registrations.get(definition);
@@ -129,10 +132,7 @@ export class DsmmPermissionController extends Service {
               assertIntegrity: () => { if (tool.signal.aborted || !tool.unchanged()) throw new PermissionRefusal("stale"); },
               coLocated: (exec, fs) => options.coLocated?.(tool.scope, exec, fs) === true };
           }
-          return { kind: "shell", context: managed.scope, shell: managed.shell, signal: managed.registration.signal,
-            assertIntegrity: () => { if (!managed.registration.active || !managed.registration.unchanged()) throw new PermissionRefusal("stale"); },
-            assertCurrent: exec => managed.registration.assertCurrent?.(exec),
-            coLocated: (exec, fs) => options.coLocated?.(managed.scope, exec, fs) === true };
+          return this.shellRuleIdentity(managed);
         },
         captureAuthority: exec => {
           const current = options.authority.current(exec);
@@ -180,7 +180,14 @@ export class DsmmPermissionController extends Service {
     ctx.effect(() => () => this.retire());
   }
 
-  /** Admit this exact simple match through the existing per-call native approval binding. */
+  private shellRuleIdentity(managed: ManagedRegistration): NativePermissionToolIdentity {
+    return { kind: "shell", context: managed.scope, shell: managed.shell, signal: managed.registration.signal,
+      assertIntegrity: () => { if (!managed.registration.active || !managed.registration.unchanged()) throw new PermissionRefusal("stale"); },
+      assertCurrent: exec => managed.registration.assertCurrent?.(exec),
+      coLocated: (exec, fs) => this.options.coLocated?.(managed.scope, exec, fs) === true };
+  }
+
+  /** Admit a whole literal match or completely covered linear script through the same per-call binding. */
   async simpleCommandAllowed(exec: Readonly<ToolExecution>): Promise<boolean> {
     if (this.permissions.isSimple(exec)) return true;
     if (!this.rules.status().mounted || this.lifetime.signal.aborted || exec.agent === undefined) return false;
@@ -192,7 +199,7 @@ export class DsmmPermissionController extends Service {
     const dialect = managed?.shell.dialect ?? simpleShellDialect(exec.name);
     const command = managed === undefined ? simpleShellCommand(exec.arguments) : Reflect.get(exec.arguments as object, managed.shell.commandField) as unknown;
     if (dialect === undefined || typeof command !== "string") return false;
-    const body = definition.execute, args = exec.arguments, name = exec.name, callId = exec.callId, signal = exec.signal;
+    const body = definition.execute, args = exec.arguments, name = exec.name, callId = exec.callId, signal = exec.signal, token = exec.token;
     const registry = agent.ctx.get("agents"), workspace = agent.session.header.cwd;
     const checkCall = (): void => {
       if (signal.aborted || exec.signal !== signal || this.lifetime.signal.aborted) throw new PermissionRefusal("cancelled");
@@ -202,7 +209,7 @@ export class DsmmPermissionController extends Service {
         && definition.execute === stock.wrapper && stock.unchanged();
       if (exec.agent !== agent || agent.ctx !== realm || registry === undefined || liveRegistry === undefined
         || permissionOriginal(liveRegistry) !== permissionOriginal(registry) || liveRegistry.get(agent.id) !== agent
-        || exec.arguments !== args || exec.name !== name || exec.callId !== callId || agent.session.header.cwd !== workspace
+        || exec.arguments !== args || exec.token !== token || exec.name !== name || exec.callId !== callId || agent.session.header.cwd !== workspace
         || liveTools === undefined || permissionOriginal(liveTools) !== permissionOriginal(tools)
         || tools.get(name, agent) !== definition || liveTools.get(name, agent) !== definition || !sameBody) throw new PermissionRefusal("stale");
     };
@@ -214,7 +221,52 @@ export class DsmmPermissionController extends Service {
     } catch (error) { failure = error; }
     let snapshot: Awaited<ReturnType<PermissionRulesRuntimeSync["refresh"]>>;
     try { snapshot = await this.rules.refresh(); } catch { return false; }
-    if (!simpleCommandMatch(snapshot.policy.nativeCommands, command, dialect)) return false;
+    const settings = snapshot.policy.nativeCommands;
+    let allowed = simpleCommandMatch(settings, command, dialect);
+    if (!allowed && settings.enabled && this.options.shellGuardConstraint !== undefined) {
+      const components = parseLinearScript(command, dialect);
+      if (components !== undefined) {
+        if (failure !== undefined || authority === undefined) { checkCall(); return false; }
+        const capturedAuthority = authority;
+        const identity = managed === undefined ? undefined : this.shellRuleIdentity(managed);
+        let coLocatedFs: NativePermissionFileSystem | undefined;
+        const check = (): void => {
+          checkCall(); this.options.authority.assertCurrent(capturedAuthority, exec);
+          identity?.assertIntegrity?.(exec); identity?.assertCurrent(exec);
+          if (coLocatedFs !== undefined && identity?.coLocated?.(exec, coLocatedFs) !== true) throw new PermissionRefusal("stale");
+        };
+        check();
+        const constrained = async (candidate: string, includeGuards: boolean): Promise<boolean> => {
+          if (includeGuards && this.options.shellGuardConstraint!(exec, candidate, dialect)) return true;
+          // Stock tools have no managed native-rule identity; do not invent one from their name.
+          if (managed === undefined || identity === undefined) return false;
+          const input = { ...args as Record<string, unknown>, [managed.shell.commandField]: candidate };
+          const nativeOnly = nativeStandingFullAccess(identity.context, exec.agent);
+          if (!nativeOnly) {
+            const entries = nativeCommandMatches(settings, managed.kind, managed.shell, input, workspace ?? "");
+            if (entries === "ambiguous" || entries.some(entry => entry.mode === "ask")) return true;
+          }
+          const evaluation: NativeShellRuleEvaluation = { identity, snapshot, nativeOnly, workspaceRoot: workspace ?? "",
+            signal: AbortSignal.any([signal, ...identity.signal === undefined ? [] : [identity.signal]]),
+            fs: identity.context.get("fs") as NativePermissionFileSystem | undefined, asks: [] };
+          const action = await evaluateNativeShellRules(exec, evaluation, () => {
+            if (evaluation.provenCoLocation) coLocatedFs = evaluation.fs;
+            check();
+          }, input);
+          return action === "ask" || action === "deny";
+        };
+        try {
+          const whole = await constrained(command, false);
+          allowed = true;
+          for (const component of components) {
+            if (!simpleCommandWordsMatch(settings, component.words, dialect) && (whole || await constrained(component.command, true))) { allowed = false; break; }
+          }
+        } catch { allowed = false; }
+        check();
+        if (this.rules.getPolicy() !== snapshot) return false;
+      }
+    }
+    if (!allowed) return false;
     if (failure !== undefined) throw failure;
     if (authority === undefined) throw new PermissionRefusal("not-owned");
     checkCall(); this.options.authority.assertCurrent(authority, exec);

@@ -21,15 +21,15 @@ import { waitForPermissionHost } from "./permission-host-fixture.ts";
 const sandbox = await nativeFixturePlugin("@deepseek-ai/dsh-sandbox-policy");
 const approval = await nativeFixturePlugin("@deepseek-ai/dsh-user-approval");
 
-async function shellFixture(managed: boolean, config: DsmmPluginConfig = {}, nativePresets = true, ownShells = false) {
+async function shellFixture(managed: boolean, config: DsmmPluginConfig = {}, nativePresets = true, ownShells = false, enhancement = false) {
   const f = await nativeRoutingFixture({ defaultActive: true, guards: { scope: "off" },
     ...config }, {
     nativePresets, nativePermissionSettings: true, nativeFs: true, nativeJobs: true, fixtureShells: false, persistence: true,
     async beforeDsmm(ctx) {
       const noWeb = async (): Promise<never> => { throw new Error("No external web requests in readonly shell regression"); };
       ctx.provide("web", { search: noWeb, fetch: noWeb });
-      await ctx.plugin(sandbox.SandboxPolicyService, { mode: "danger-full-access" }).await();
-      await ctx.plugin(approval.ApprovalService, { policy: "never" }).await();
+      await ctx.plugin(sandbox.SandboxPolicyService, { mode: enhancement ? "workspace-write" : "danger-full-access" }).await();
+      await ctx.plugin(approval.ApprovalService, { policy: enhancement ? "ask" : "never" }).await();
       for (const name of ["subprocess-local", "sandbox-local", "shell-env"]) {
         const plugin = await nativeFixturePlugin(`@deepseek-ai/dsh-${name}`);
         await ctx.plugin(plugin.default ?? plugin, {}).await();
@@ -43,12 +43,15 @@ async function shellFixture(managed: boolean, config: DsmmPluginConfig = {}, nat
     }
   });
   let starts = 0, approvals = 0;
+  const shellSpecs: Array<{ kind: "bash" | "pwsh"; spec: Record<string, unknown> }> = [];
+  let interactiveAnswers = 0;
   const subprocess = f.ctx.get("subprocess")!;
   const spawn = subprocess.spawn;
   let spawnCwd: string | undefined;
   // Observe the actual SDK process boundary without changing shell definitions or arguments.
   subprocess.spawn = function (...args: Parameters<typeof spawn>) { starts++; spawnCwd = (args[0] as { cwd?: string }).cwd; return Reflect.apply(spawn, this, args); };
   f.ctx.on("approval/request", (_request, next) => { approvals++; return next(); }, { global: true, prepend: true });
+  if (enhancement) f.ctx.on("approval/request", async () => { interactiveAnswers++; return "rejected"; }, { global: true });
   try {
     let pwshScope: typeof f.ctx, pwshPlugin: typeof ManagedPwsh, pwshFiber: typeof f.ctx.fiber;
     const registerAlias = (scope: typeof f.ctx, kind: "bash" | "pwsh", agent?: Agent) => {
@@ -65,6 +68,12 @@ async function shellFixture(managed: boolean, config: DsmmPluginConfig = {}, nat
           const executor = await nativeFixturePlugin("@deepseek-ai/dsh-pwsh-sandbox");
           await scope.plugin(executor.SandboxPwshExecutor,
             { cwd: f.profileDir, timeoutMs: 10000, maxTimeoutMs: 10000, maxOutputBytes: 4096, graceMs: 200 }).await();
+        }
+        if (enhancement) {
+          const executor = scope.get("shell")!, original = executor.execute;
+          const observed: typeof original = function (spec: object) { shellSpecs.push({ kind, spec: { ...spec } }); return Reflect.apply(original, executor, [spec]); };
+          executor.execute = observed;
+          scope.effect(() => () => { if (executor.execute === observed) executor.execute = original; });
         }
         const plugin = managed ? kind === "bash" ? ManagedBash : ManagedPwsh : await nativeFixturePlugin(`@deepseek-ai/dsh-tool-${kind}`);
         const fiber = scope.plugin(plugin, {});
@@ -160,6 +169,7 @@ async function shellFixture(managed: boolean, config: DsmmPluginConfig = {}, nat
       assert.equal(starts, before, "readonly tools must not start a shell"); noEffects(); noApprovals(agent);
     };
     return { ...f, requests, execute, control, denied, full, read, noEffects, noApprovals, toolsFor, mountShells, starts: () => starts,
+      shellSpecs, interactiveAnswers: () => interactiveAnswers,
       async unmountPwsh() { await pwshFiber.dispose(); },
       async mountPwsh() { pwshFiber = pwshScope.plugin(pwshPlugin, {}); await pwshFiber.await(); registerAlias(pwshFiber.ctx, "pwsh");
         if (managed) await waitForPermissionHost(f.ctx, controller => controller.coverage().some(row => row.name === "pwsh")); },
@@ -168,6 +178,60 @@ async function shellFixture(managed: boolean, config: DsmmPluginConfig = {}, nat
 }
 
 for (const managed of [false, true]) {
+  test(`native linear ${managed ? "managed" : "raw"} bash/pwsh elevates once from workspace-write and retains native and readonly ceilings`, async t => {
+    const f = await shellFixture(managed, { permissionControl: { nativeCommands: { enabled: true, entries: [] } } }, true, false, true);
+    try {
+      const root = await f.create({ agentPreset: "standard" });
+      if (managed) assert.deepEqual(f.ctx.get("dsmmPermissionController")!.coverage(root).map(row => row.name).sort(), ["bash", "pwsh"]);
+      const standing = () => root.ctx.get("sandboxPolicy")!.resolve({ session: root.session }).mode;
+      assert.equal(standing(), "workspace-write");
+      root.session.append("turn/start", { turn: 1 });
+      for (const kind of ["bash", "pwsh"] as const) {
+        const marker = join(f.profileDir, `linear-${kind}-marker`);
+        const command = `echo before; node -e 'require("node:fs").writeFileSync("linear-${kind}-marker", "owned")'; echo after`;
+        assert.equal(existsSync(marker), false);
+        const before = f.starts(), specs = f.shellSpecs.length;
+        const result = await f.execute(root, kind, { command, description: "One call linear elevation", workdir: f.profileDir });
+        assert.equal(result.isError, false, JSON.stringify(result));
+        assert.equal((result as { value?: { exitCode?: number } }).value?.exitCode, 0, JSON.stringify(result));
+        assert.equal(f.starts(), before + 1); assert.equal(f.shellSpecs.length, specs + 1);
+        assert.equal(f.shellSpecs.at(-1)!.kind, kind); assert.equal(f.shellSpecs.at(-1)!.spec.command, command);
+        assert.equal((f.shellSpecs.at(-1)!.spec.sandboxPolicy as { mode: string }).mode, "danger-full-access");
+        assert.equal(readFileSync(marker, "utf8"), "owned"); unlinkSync(marker);
+        const text = result.content.filter(block => block.type === "text").map(block => block.text).join("\n");
+        assert.ok(text.indexOf("before") >= 0 && text.indexOf("after") > text.indexOf("before"), text);
+        assert.equal(standing(), "workspace-write"); assert.equal(f.interactiveAnswers(), 0);
+        for (const script of ["echo before && echo piped | node -e 'process.stdin.pipe(process.stdout)'",
+          "node -e 'process.exit(1)' || echo recovered", ...kind === "bash" ? ["echo be\\\nfore; echo after"] : ["echo before `\n after", "echo before `\r\n after"]]) {
+          const count = f.starts(), observed = f.shellSpecs.length;
+          const chained = await f.execute(root, kind, { command: script, description: "Real linear operators and continuation", workdir: f.profileDir });
+          assert.equal(chained.isError, false, JSON.stringify(chained));
+          assert.equal((chained as { value?: { exitCode?: number } }).value?.exitCode, 0, JSON.stringify(chained));
+          assert.equal(f.starts(), count + 1); assert.equal(f.shellSpecs.length, observed + 1);
+          assert.equal(f.shellSpecs.at(-1)!.spec.command, script);
+          assert.equal((f.shellSpecs.at(-1)!.spec.sandboxPolicy as { mode: string }).mode, "danger-full-access");
+          const output = chained.content.filter(block => block.type === "text").map(block => block.text).join("\n");
+          assert.ok(output.includes(script.includes("piped") ? "piped" : script.includes("recovered") ? "recovered" : "before"), output);
+        }
+        const completed = f.starts();
+        approval.setApprovalPolicy(root.session, "never");
+        assert.equal((await f.execute(root, kind, { command, description: "Native never stays final", workdir: f.profileDir })).isError, true);
+        assert.equal(f.starts(), completed); assert.equal(existsSync(marker), false);
+        approval.setApprovalPolicy(root.session, "ask");
+      }
+      root.session.append("turn/end", { turn: 1, reason: { kind: "completed" } });
+      const child = await f.createAuxiliary("dsmm-reviewer", undefined, "one-shot", root);
+      try {
+        const before = f.starts();
+        for (const kind of ["bash", "pwsh"] as const) assert.equal((await f.execute(child, kind, {
+          command: "echo before; echo after", description: "Linear grant cannot lift readonly role", workdir: f.profileDir,
+        })).isError, true);
+        assert.equal(f.starts(), before); assert.equal(f.interactiveAnswers(), 0);
+      } finally { await f.releaseAuxiliary(child); }
+      t.diagnostic("workspace-write -> exact danger-full-access spec, original script once, ordered output and real marker; standing unchanged, native never and readonly deny before spawn");
+    } finally { await f.dispose(); }
+  });
+
   test(`native readonly own-layer-only ${managed ? "managed" : "raw"} bash/pwsh composes without masking local tools and preserves runtime denial`, async t => {
     const f = await shellFixture(managed, { defaultActive: false, guards: { scope: "off" } }, true, true);
     try {

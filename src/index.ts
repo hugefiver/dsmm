@@ -3,7 +3,7 @@ import type { Agent } from "@deepseek-ai/dsh-agent";
 import type {} from "@deepseek-ai/dsh-api-gateway";
 import type { DshAgent, DshContext } from "./dsh-types.js";
 import { registerDsmmTuiAdapter } from "./tui-adapter.js";
-import { registerSafetyGuards } from "./guards.js";
+import { hasShellGuardConstraint, registerSafetyGuards } from "./guards.js";
 import { registerDeepworkPrompt } from "./mode.js";
 import { registerAgentSkills } from "./preset-skills.js";
 import { registerModelRouting } from "./model-routing.js";
@@ -164,7 +164,9 @@ export async function apply(input: DshContext, config: Config = {}, startupOptio
   ctx.inject(["typert"], scope => { registerConfigRpc(scope, deployment, startup.settings, () => profiles, startup.sources, mountedPermission); new DsmmProfilesHost(scope, profiles); registerRoleControlRpc(scope, nativeAdmission); });
   const permissions = createCorePermissionAuthority(ctx, { getSettings, rolePolicy: policy, signal: lifetime.signal });
   const installPermissions = () => ctx.inject(["tools", ...(ctx.fiber.entry === undefined ? [] : ["settings"])], scope => {
-    const installed = installCorePermissions(scope, deployment, permissions.authority, permissions.assertWritable, commandApprovals);
+    const installed = installCorePermissions(scope, deployment, permissions.authority, permissions.assertWritable, commandApprovals,
+      (exec, command, dialect) => hasShellGuardConstraint(exec as unknown as import("./dsh-types.js").DshToolExecution, command, dialect,
+        getSettings(exec.agent as DshAgent | undefined), controller, nativeStandingFullAccess(scope, exec.agent)));
     const identity: object = Reflect.get(installed, symbols.original) ?? installed;
     scopeLifetime(scope, "dsmm: release permission projection", () => { if (permissionOwner === identity) permissionOwner = undefined; }, () => { permissionOwner = identity; });
   });

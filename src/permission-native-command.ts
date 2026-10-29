@@ -91,6 +91,10 @@ export function simpleCommandMatch(settings: NativeCommandsSettings, command: st
   if (!settings.enabled) return false;
   const words = literalCommand(command, dialect, "simple");
   if (words === undefined) return false;
+  return simpleCommandWordsMatch(settings, words, dialect);
+}
+export function simpleCommandWordsMatch(settings: NativeCommandsSettings, words: readonly string[], dialect: PermissionShellIdentity["dialect"]): boolean {
+  if (!settings.enabled) return false;
   const executable = (value: string): string => dialect === "powershell" ? value.replace(/\.exe$/iu, "") : value;
   return settings.entries.some(entry => typeof entry === "string" && parseSimpleCommandPattern(entry).every((alternatives, index) =>
     words[index] !== undefined && alternatives.some(value => index === 0 ? executable(value) === executable(words[0]) : value === words[index])));

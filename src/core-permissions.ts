@@ -5,13 +5,14 @@ import { installDeploymentPermissionRules } from "./deployment-permission-rules.
 import { PermissionRefusal, permissionOriginal } from "./permission-control.js";
 import type { PermissionControlCollaborators } from "./permission-control.js";
 import { installPermissionController } from "./permission-controller.js";
-import type { DsmmPermissionController } from "./permission-controller.js";
+import type { DsmmPermissionController, PermissionControllerOptions } from "./permission-controller.js";
 import { registerPermissionControlRpc } from "./permission-rpc.js";
 import type { CommandApprovals } from "./command-approval.js";
 
 /** The native Core fiber owns one source backend, execution controller and RPC service. */
 export function installCorePermissions(ctx: Context, deployment: DsmmDeploymentConfig,
-  authority: PermissionControlCollaborators, assertWritable: (root: Agent) => void, commandApprovals?: CommandApprovals): DsmmPermissionController {
+  authority: PermissionControlCollaborators, assertWritable: (root: Agent) => void, commandApprovals?: CommandApprovals,
+  shellGuardConstraint?: PermissionControllerOptions["shellGuardConstraint"]): DsmmPermissionController {
   let controller: DsmmPermissionController | undefined;
   const backend = installDeploymentPermissionRules(ctx, {
     deployment, assertWritable,
@@ -23,7 +24,7 @@ export function installCorePermissions(ctx: Context, deployment: DsmmDeploymentC
     },
   });
   controller = installPermissionController(ctx, {
-    authority, rules: backend.runtime, commandApprovals,
+    authority, rules: backend.runtime, commandApprovals, shellGuardConstraint,
     // The public ShellExecutor has no executable/environment resolution proof.
     // This identity never grants read trust or filesystem colocation.
     shellIdentity: (_scope, kind) => Object.freeze({ executable: `unresolved-native-${kind}`,

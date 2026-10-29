@@ -142,6 +142,13 @@ function gitActions(exec: DshToolExecution, settings: DsmmSettings): readonly Gi
   return command === undefined || dialect === undefined ? [] : evaluateGitCommand(command, dialect)
     .filter(action => settings.guards.gitWriteScope !== "high-risk" || action.risk === "high-risk");
 }
+/** Existing command constraints only; no tool execution or new risk classification. */
+export function hasShellGuardConstraint(exec: DshToolExecution, command: string, dialect: ShellDialect, settings: DsmmSettings, controller: DeepworkModeController, nativeFullAccess = false): boolean {
+  if (!isSafetyScopeActive(exec, settings, controller)) return false;
+  return !nativeFullAccess && settings.guards.shellCommandSafety && classifyShellDialectViolation(command, dialect) !== undefined
+    || (nativeFullAccess ? settings.guards.gitWriteGuard === "deny" : settings.guards.gitWriteGuard !== "off") && evaluateGitCommand(command, dialect)
+      .some(action => settings.guards.gitWriteScope !== "high-risk" || action.risk === "high-risk");
+}
 function gitRuleReason(actions: readonly { readonly action: string; readonly ruleId: string }[]): string {
   return actions.map(({ action, ruleId }) => `git ${action === "reset.hard" ? "reset --hard" : action.replaceAll(".", " ")} [${ruleId}]`).join(", ");
 }

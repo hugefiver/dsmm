@@ -43,7 +43,7 @@ interface NativePermissionAuthority {
 }
 export interface NativePermissionRulesOptions {
   readonly runtime: PermissionRulesRuntimeSync;
-  simpleCommandAllowed?(execution: Readonly<ToolExecution>): boolean;
+  simpleCommandAllowed?(execution: Readonly<ToolExecution>): boolean | Promise<boolean>;
   captureIntegrity?(execution: Readonly<ToolExecution>): PermissionExecutionIntegrity;
   /** Exact registration identity, never trust a matching tool name alone. */
   identify(definition: ToolDefinition, execution: Readonly<ToolExecution>): NativePermissionToolIdentity | undefined;
@@ -76,13 +76,98 @@ interface NativeBinding {
   readonly asks: PermissionRule[];
 }
 type RuleBinding = NativeBinding & { readonly snapshot: PermissionRuleSnapshot };
+export interface NativeShellRuleEvaluation {
+  readonly identity: NativePermissionToolIdentity;
+  readonly snapshot: PermissionRuleSnapshot;
+  readonly nativeOnly: boolean;
+  readonly workspaceRoot: string;
+  readonly signal: AbortSignal;
+  readonly fs?: FileSystem;
+  readonly asks: PermissionRule[];
+  provenCoLocation?: boolean;
+}
+async function outside(exec: Readonly<ToolExecution>, binding: NativeShellRuleEvaluation, paths: readonly string[], cwd: string, direct: boolean,
+  check: () => void, checkIntegrity: () => void, full = false): Promise<PermissionRuleAction> {
+  if (paths.length === 0) return "inherit";
+  const fs = binding.fs;
+  const configured = binding.snapshot.policy.outsideReads;
+  // Trusted reads impose only the existing deny boundary, never an outside-read ask.
+  if (unresolvedOutside(binding.snapshot.policy) !== "deny") return "inherit";
+  if (fs === undefined || !isAbsolute(binding.workspaceRoot) || !isAbsolute(cwd) || direct && binding.identity.coLocated?.(exec, fs) !== true) {
+    // Unknown backends cannot satisfy inside or a path-specific allow.
+    return full ? "inherit" : unresolvedOutside(binding.snapshot.policy);
+  }
+  if (direct) binding.provenCoLocation = true;
+  const root = await fs.resolve(binding.workspaceRoot, { signal: binding.signal }); check();
+  const decisions: PermissionRuleAction[] = [];
+  for (const path of paths) {
+    let target: FsTarget, inside: boolean;
+    try { target = await fs.resolve(path, { cwd, signal: binding.signal }); inside = fs.contains(root, target); }
+    catch (error) { if (!full) throw error; checkIntegrity(); continue; }
+    check();
+    if (inside) continue;
+    const matched: PermissionRuleAction[] = [];
+    for (const rule of binding.snapshot.policy.rules) {
+      if (rule.revoked || rule.match.kind !== "outside-read") continue;
+      let matches: boolean;
+      try {
+        const ruleTarget = await fs.resolve(rule.match.path, { cwd: binding.workspaceRoot, signal: binding.signal });
+        matches = rule.match.scope === "tree" ? fs.contains(ruleTarget, target) : ruleTarget.targetKey === target.targetKey;
+      }
+      catch (error) { if (!full) throw error; checkIntegrity(); continue; }
+      check();
+      if (matches) {
+        if (full && rule.action === "deny") return "deny";
+        matched.push(rule.action);
+      }
+    }
+    const action = matched.length === 0 ? configured : intersectPermissionActions(matched);
+    if (full && action === "deny") return "deny";
+    decisions.push(action);
+  }
+  return intersectPermissionActions(decisions) === "deny" ? "deny" : "inherit";
+}
+
+/** The same standing-full or restricted shell semantics used by the ordinary native-rule path. */
+export async function evaluateNativeShellRules(exec: Readonly<ToolExecution>, binding: NativeShellRuleEvaluation, check: () => void,
+  input: unknown = exec.arguments, checkIntegrity = check): Promise<PermissionRuleAction> {
+  const shell = binding.identity.shell, policy = binding.snapshot.policy, cwd = binding.workspaceRoot;
+  if (binding.nativeOnly) {
+    const row = args(exec, input), explicitCwd = shell?.cwdField === undefined ? undefined : row[shell.cwdField];
+    const workingDirectory = typeof explicitCwd !== "string" ? cwd : isAbsolute(explicitCwd) ? explicitCwd : resolve(cwd, explicitCwd);
+    if (shell !== undefined && policy.rules.some(rule => !rule.revoked && rule.action === "deny"
+      && rule.match.kind === "shell" && rule.match.executable === shell.executable && rule.match.command === row[shell.commandField]
+      && rule.match.workingDirectory === workingDirectory)) return "deny";
+    if (unresolvedOutside(policy) !== "deny") return "inherit";
+    // Unavailable path facts are not an explicit blacklist match in full access.
+    const parsed = shell === undefined ? undefined : parsePermissionShellReadPaths(shell, input, cwd, exec);
+    if (parsed === undefined) return "inherit";
+    const action = await outside(exec, binding, parsed.paths, parsed.workingDirectory, true, check, checkIntegrity, true);
+    return action === "deny" ? "deny" : "inherit";
+  }
+  if (shell === undefined) return policy.rules.some(rule => !rule.revoked && rule.match.kind === "shell" && rule.action === "deny") ? "deny" : "inherit";
+  const operation = classifyPermissionShell(shell, input, cwd, exec);
+  shell.readCapability?.assertCurrent(exec);
+  const matched = policy.rules.filter(rule => !rule.revoked && rule.match.kind === "shell" && rule.match.executable === operation.executable
+    && rule.match.command === operation.command && rule.match.workingDirectory === operation.workingDirectory);
+  binding.asks.push(...matched.filter(rule => rule.action === "ask"));
+  const rules = matched.map(rule => rule.action);
+  if (operation.effect !== "read") {
+    const hardRead = operation.effect === "unknown" && unresolvedOutside(policy) === "deny";
+    return intersectPermissionActions([...rules, ...hardRead ? ["deny" as const] : []]);
+  }
+  const parsed = parsePermissionShellReadPaths(shell, input, cwd, exec);
+  const access = parsed === undefined ? unresolvedOutside(policy)
+    : await outside(exec, binding, parsed.paths, parsed.workingDirectory, true, check, check);
+  return intersectPermissionActions([access, ...rules]);
+}
 function text(input: unknown): string {
   if (typeof input !== "string" || input.trim().length === 0 || input.includes("\0")) throw new PermissionRefusal("validation");
   return input;
 }
-function args(exec: Readonly<ToolExecution>): Record<string, unknown> {
-  if (exec.arguments === null || typeof exec.arguments !== "object" || Array.isArray(exec.arguments)) throw new PermissionRefusal("validation");
-  return exec.arguments as Record<string, unknown>;
+function args(exec: Readonly<ToolExecution>, input: unknown = exec.arguments): Record<string, unknown> {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) throw new PermissionRefusal("validation");
+  return input as Record<string, unknown>;
 }
 /** The public native search tools accept pattern/path/include only; no model-controlled rg flags. */
 export function parseNativePermissionReadPaths(kind: "read" | "glob" | "grep", input: unknown): readonly string[] {
@@ -128,48 +213,8 @@ export function registerNativePermissionRules(ctx: Context, options: NativePermi
     if (binding.authority === undefined) options.assertCurrent(exec);
     else binding.authority.assertCurrent();
   };
-  const outside = async (exec: Readonly<ToolExecution>, binding: RuleBinding, paths: readonly string[], cwd: string, direct: boolean, full = false): Promise<PermissionRuleAction> => {
-    if (paths.length === 0) return "inherit";
-    const fs = binding.fs;
-    const configured = binding.snapshot.policy.outsideReads;
-    // Trusted reads impose only the existing deny boundary, never an outside-read ask.
-    if (unresolvedOutside(binding.snapshot.policy) !== "deny") return "inherit";
-    if (fs === undefined || !isAbsolute(binding.workspaceRoot) || !isAbsolute(cwd) || direct && binding.identity.coLocated?.(exec, fs) !== true) {
-      // Unknown backends cannot satisfy inside or a path-specific allow.
-      return full ? "inherit" : unresolvedOutside(binding.snapshot.policy);
-    }
-    if (direct) binding.provenCoLocation = true;
-    const root = await fs.resolve(binding.workspaceRoot, { signal: binding.signal }); check(exec, binding);
-    const decisions: PermissionRuleAction[] = [];
-    for (const path of paths) {
-      let target: FsTarget, inside: boolean;
-      try { target = await fs.resolve(path, { cwd, signal: binding.signal }); inside = fs.contains(root, target); }
-      catch (error) { if (!full) throw error; checkIntegrity(exec, binding); continue; }
-      check(exec, binding);
-      if (inside) continue;
-      const matched: PermissionRuleAction[] = [];
-      for (const rule of binding.snapshot.policy.rules) {
-        if (rule.revoked || rule.match.kind !== "outside-read") continue;
-        let matches: boolean;
-        try {
-          const ruleTarget = await fs.resolve(rule.match.path, { cwd: binding.workspaceRoot, signal: binding.signal });
-          matches = rule.match.scope === "tree" ? fs.contains(ruleTarget, target) : ruleTarget.targetKey === target.targetKey;
-        }
-        catch (error) { if (!full) throw error; checkIntegrity(exec, binding); continue; }
-        check(exec, binding);
-        if (matches) {
-          if (full && rule.action === "deny") return "deny";
-          matched.push(rule.action);
-        }
-      }
-      const action = matched.length === 0 ? configured : intersectPermissionActions(matched);
-      if (full && action === "deny") return "deny";
-      decisions.push(action);
-    }
-    return intersectPermissionActions(decisions) === "deny" ? "deny" : "inherit";
-  };
   const evaluate = async (exec: Readonly<ToolExecution>, binding: RuleBinding): Promise<PermissionRuleAction> => {
-    const { kind, shell } = binding.identity, policy = binding.snapshot.policy;
+    const { kind } = binding.identity, policy = binding.snapshot.policy;
     const full = binding.nativeOnly;
     if (kind === "webSearch" || kind === "webFetch") {
       if (!policy[kind].enabled) return "deny";
@@ -178,39 +223,18 @@ export function registerNativePermissionRules(ctx: Context, options: NativePermi
     }
     const cwd = binding.workspaceRoot;
     if (full) {
-      const row = args(exec), explicitCwd = shell?.cwdField === undefined ? undefined : row[shell.cwdField];
-      const workingDirectory = typeof explicitCwd !== "string" ? cwd : isAbsolute(explicitCwd) ? explicitCwd : resolve(cwd, explicitCwd);
-      if (kind === "shell" && shell !== undefined && policy.rules.some(rule => !rule.revoked && rule.action === "deny"
-        && rule.match.kind === "shell" && rule.match.executable === shell.executable && rule.match.command === row[shell.commandField]
-        && rule.match.workingDirectory === workingDirectory)) return "deny";
+      if (kind === "shell") return evaluateNativeShellRules(exec, binding, () => check(exec, binding), exec.arguments, () => checkIntegrity(exec, binding));
+      args(exec);
       if (policy.outsideReads !== "deny" && !policy.rules.some(rule => !rule.revoked && rule.action === "deny" && rule.match.kind === "outside-read")) return "inherit";
-      // Unavailable path facts are not an explicit blacklist match in full access.
-      const parsed = kind === "shell" ? shell === undefined ? undefined : parsePermissionShellReadPaths(shell, exec.arguments, cwd, exec)
-        : { paths: parseNativePermissionReadPaths(kind, exec.arguments), workingDirectory: cwd };
-      if (parsed === undefined) return "inherit";
-      const action = await outside(exec, binding, parsed.paths, parsed.workingDirectory, kind !== "read", true);
+      const parsed = { paths: parseNativePermissionReadPaths(kind, exec.arguments), workingDirectory: cwd };
+      const action = await outside(exec, binding, parsed.paths, parsed.workingDirectory, kind !== "read", () => check(exec, binding), () => checkIntegrity(exec, binding), true);
       return action === "deny" ? "deny" : "inherit";
     }
-    if (kind !== "shell") return outside(exec, binding, parseNativePermissionReadPaths(kind, exec.arguments), cwd, kind !== "read");
-    if (shell === undefined) return policy.rules.some(rule => !rule.revoked && rule.match.kind === "shell" && rule.action === "deny") ? "deny" : "inherit";
-    const operation = classifyPermissionShell(shell, exec.arguments, cwd, exec);
-    shell.readCapability?.assertCurrent(exec);
-    const matched = policy.rules.filter(rule => !rule.revoked && rule.match.kind === "shell" && rule.match.executable === operation.executable
-      && rule.match.command === operation.command && rule.match.workingDirectory === operation.workingDirectory);
-    binding.asks.push(...matched.filter(rule => rule.action === "ask"));
-    const rules = matched.map(rule => rule.action);
-    if (operation.effect !== "read") {
-      // Unknown reads cannot bypass a configured hard outside-read boundary.
-      const hardRead = operation.effect === "unknown" && (policy.outsideReads === "deny" || policy.rules.some(rule => !rule.revoked && rule.match.kind === "outside-read" && rule.action === "deny"));
-      return intersectPermissionActions([...rules, ...hardRead ? ["deny" as const] : []]);
-    }
-    const parsed = parsePermissionShellReadPaths(shell, exec.arguments, cwd, exec);
-    const access = parsed === undefined ? unresolvedOutside(policy)
-      : await outside(exec, binding, parsed.paths, parsed.workingDirectory, true);
-    return intersectPermissionActions([access, ...rules]);
+    if (kind !== "shell") return outside(exec, binding, parseNativePermissionReadPaths(kind, exec.arguments), cwd, kind !== "read", () => check(exec, binding), () => checkIntegrity(exec, binding));
+    return evaluateNativeShellRules(exec, binding, () => check(exec, binding));
   };
   const unhook = ctx.on("tools/pre-execute", async (exec, next): Promise<PreToolDecision> => {
-    if (options.simpleCommandAllowed?.(exec)) return next();
+    if (await options.simpleCommandAllowed?.(exec)) return next();
     const definition = tools.get(exec.name, exec.agent);
     if (definition === undefined) return next();
     const identity = options.identify(definition, exec);
