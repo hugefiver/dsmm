@@ -344,6 +344,26 @@ test("status snapshot reports active generic deepwork with the observed model fa
   });
 });
 
+test("status classifies the complete observed model and leaves native route and effort intact", () => {
+  for (const [provider, model, family] of [
+    ["google", "auto-gpt/6.1/sol", "gpt"], ["codex", "gpt-5.6", "gpt"],
+    ["gateway", "prefix-gpt-5.6-codex-fast", "codex"], ["anthropic", "group/glm-5.3-1m", "glm"],
+    ["moonshot", "auto-gemini-4-pro", "gemini"], ["gateway", "claude-opus-5-gpt-6-codex", "claude"],
+    ["gateway", "gpt-6-sol/gemini-4-pro", "gpt"], ["gpt-6-sol", "gemini-4-pro", "gemini"],
+    ["google", "auto-k2p8-gpt-6", "unknown"], ["anthropic", "auto-swe/2/high-gpt-6", "unknown"],
+    ["google", "sol6.1", "gpt"], ["anthropic", "6.1sol", "gpt"], ["codex", "opus4.7", "claude"],
+    ["gateway", "6.1sol/gemini-4-pro", "gpt"], ["6.1sol", "gemini-4-pro", "gemini"],
+    ["google", "sol6.1-codex", "codex"], ["google", "opus5.5foo-gpt6.1sol", "claude"]
+  ] as const) {
+    const route = Object.freeze({ provider, model, reasoningEffort: "low" });
+    const { agent, appended } = createAgent({ provider: "openai", model: "gpt-5.6", requestHeader: () => ({ config: route }) });
+    const snapshot = createDsmmStatusSnapshot({ agent, settings: DEFAULT_DSMM_SETTINGS, modeActive: true });
+    assert.deepEqual(snapshot.route, { provider, model, family, currentReasoningEffort: "low" });
+    assert.deepEqual(route, { provider, model, reasoningEffort: "low" });
+    assert.equal(appended(), 0);
+  }
+});
+
 test("newest valid DSMM preset creates preset-only scope", () => {
   const { agent } = createAgent({
     events: [

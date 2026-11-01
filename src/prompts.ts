@@ -5,6 +5,7 @@ import type { SourceRoleContent } from "./prompt-content.js";
 import type { DsmmLocale, DsmmSettings } from "./settings.js";
 import type { DsmmInvocationView, DsmmRoleAvailabilityState, SubagentRuntimeAdmissionView } from "./profile-types.js";
 import type { DsmmCallableEntry } from "./role-subagents.js";
+import { recognizeModelName } from "./model-family.js";
 export { SOURCE_ROLE_CATALOG, buildRolePersona } from "./prompt-content.js";
 export type { SourceRoleContent } from "./prompt-content.js";
 
@@ -18,25 +19,13 @@ Understand the requested outcome and relevant facts first. Load the full \`brain
 const commonDeepworkPrompt = [activation, asset("deepwork/default.md"), asset("shared/shell-safety.md"), asset("shared/dsh-host-contract.md")].join("\n\n---\n\n");
 export const BASE_DEEPWORK_PROMPT = [commonDeepworkPrompt, readSharedPromptAsset("avoid-ai-slop.md")].join("\n\n---\n\n");
 
-// Prompt-only matching is independent of model-family routing and effort parameters.
-function modelName(fullId: string): string {
-  const name = fullId.slice(fullId.lastIndexOf("/") + 1).toLowerCase();
-  const vendors: Record<string, RegExp> = { openai: /^(?:gpt-|o\d|chatgpt-|codex-)/u, anthropic: /^claude-/u, google: /^gemini-/u, zhipu: /^glm-/u, deepseek: /^deepseek-/u };
-  const parts = name.split("."), direct = parts.slice(1).join("."), regional = parts.slice(2).join(".");
-  if (vendors[parts[0]]?.test(direct)) return direct;
-  if (/^(?:global|[a-z]{2}|[a-z]{2}-[a-z]+-\d+)$/u.test(parts[0]) && vendors[parts[1]]?.test(regional)) return regional;
-  return name;
-}
-
 export function promptModelVariants(role: string | undefined, model: string): string[] {
-  const name = modelName(model);
-  const gpt = name.includes("gpt") || model.toLowerCase().includes("codex");
-  const opus = /^claude-opus-5(?:[-.]5)?(?:$|[-.](?:20\d{6}(?:[-.][a-z0-9]+)*|[a-z][a-z0-9-]*))$/iu.test(name.replace(/^global\.anthropic\./iu, "").replace(/@default$/iu, ""));
-  const kimi = /^kimi(?:$|[-_.])/u.test(name) || /^k2[-.]?p[5-8](?:$|[-_.])/u.test(name);
-  const gemini4 = /^gemini-4(?:\.\d+)*(?:$|[-_])/u.test(name);
-  const additive = gpt ? ["gpt"] : kimi ? ["kimi"] : gemini4 ? ["gemini-4"] : /^swe-2(?:[-.]|$)/u.test(name) ? ["swe-2"] : [];
-  const base = role === "planner" ? "planner" : role === "orchestrator" && opus ? "claude-opus-5"
-    : model.toLowerCase().includes("codex") ? "codex" : gpt ? "gpt" : name.startsWith("gemini-") ? "gemini" : name.includes("glm") ? "glm" : "default";
+  const recognized = recognizeModelName(model);
+  const identifier = recognized?.identifier;
+  const gpt = identifier === "gpt" || identifier === "codex";
+  const additive = gpt ? ["gpt"] : identifier === "kimi" ? ["kimi"] : recognized?.gemini4 ? ["gemini-4"] : identifier === "swe-2" ? ["swe-2"] : [];
+  const base = role === "planner" ? "planner" : role === "orchestrator" && recognized?.opus5 ? "claude-opus-5"
+    : recognized?.family === "codex" ? "codex" : gpt ? "gpt" : identifier === "gemini" ? "gemini" : identifier === "glm" ? "glm" : "default";
   return [...new Set([base, ...additive])].filter((variant) => variant !== "default");
 }
 
@@ -45,8 +34,9 @@ export function roleModelCalibration(role: SourceRoleContent | undefined, model:
   const layers = variants.map((variant) => asset(`deepwork/${variant}.md`));
   if (role?.kind === "category" && role.promptArtifact !== null) {
     const category = splitCategory(asset(role.promptArtifact.replace("prompts/source/", "")));
-    const name = modelName(model);
-    const family = model.toLowerCase().includes("codex") || name.includes("gpt") ? "gpt" : name.startsWith("gemini-") ? "gemini" : name.includes("glm") ? "glm" : name.includes("claude") ? "claude" : "unknown";
+    const identifier = recognizeModelName(model)?.identifier;
+    const family = identifier === "gpt" || identifier === "codex" ? "gpt"
+      : identifier === "gemini" || identifier === "glm" || identifier === "claude" ? identifier : "unknown";
     // Categories carry only their own family layer + additive model calibration,
     // not the base-agent Gemini/GLM/planner workflow variants.
     return [category.calibrations.get(family), ...layers.filter((_layer, index) => ["gpt", "kimi", "gemini-4", "swe-2"].includes(variants[index]))].filter(Boolean).join("\n\n---\n\n");

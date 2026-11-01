@@ -1,50 +1,145 @@
 export type DsmmModelFamily = "gpt" | "codex" | "claude" | "gemini" | "glm" | "kimi" | "deepseek" | "unknown";
 
-const DOTTED_VENDOR_MODEL_PREFIXES: Record<string, RegExp> = {
-  openai: /^(?:gpt-|o\d|chatgpt-|codex-)/,
-  anthropic: /^claude-/,
-  google: /^gemini-/,
-  zhipu: /^glm-/,
-  deepseek: /^deepseek-/
-};
+type ModelIdentifier = Exclude<DsmmModelFamily, "unknown"> | "swe-2";
+type ModelSeries = "opus" | "sonnet" | "haiku" | "sol" | "terra" | "astra" | "luna";
 
-function stripDottedVendorModelPrefix(name: string): string {
-  const parts = name.split(".");
-  const vendor = parts[0];
-  const model = parts.slice(1).join(".");
-  if (vendor && DOTTED_VENDOR_MODEL_PREFIXES[vendor]?.test(model)) return model;
-
-  const region = parts[0];
-  const regionalVendor = parts[1];
-  const regionalModel = parts.slice(2).join(".");
-  if (
-    region
-    && regionalVendor
-    && /^(?:[a-z]{2}|[a-z]{2}-[a-z]+-\d+)$/.test(region)
-    && DOTTED_VENDOR_MODEL_PREFIXES[regionalVendor]?.test(regionalModel)
-  ) {
-    return regionalModel;
-  }
-
-  return name;
+interface ModelNameRecognition {
+  identifier: ModelIdentifier;
+  family: DsmmModelFamily;
+  series: ModelSeries | undefined;
+  version: readonly [number, number, number] | undefined;
+  versionParts: number | undefined;
+  opus5: boolean;
+  gemini4: boolean;
 }
 
-function extractModelName(fullID: string): string {
-  const index = fullID.lastIndexOf("/");
-  return stripDottedVendorModelPrefix(index >= 0 ? fullID.slice(index + 1) : fullID);
+function seriesFamily(series: ModelSeries): "gpt" | "claude" {
+  return series === "opus" || series === "sonnet" || series === "haiku" ? "claude" : "gpt";
+}
+
+function skipSeparators(name: string, start: number): number {
+  return start + (/^[-_.\s/]+/u.exec(name.slice(start))?.[0].length ?? 0);
+}
+
+function seriesAt(name: string, start: number, family?: ModelIdentifier): ModelSeries | undefined {
+  const series = /^(opus|sonnet|haiku|sol|terra|astra|luna)(?=\d|[^a-z0-9]|$)/u.exec(name.slice(start))?.[1] as ModelSeries | undefined;
+  return series !== undefined && (family === undefined || seriesFamily(series) === family) ? series : undefined;
+}
+
+function suffixNumber(token: string): boolean {
+  return /^(?:(?:19|20)\d{6}|\d+[km])$/u.test(token);
+}
+
+function versionStartsAt(name: string, start: number): boolean {
+  const token = /^[a-z0-9]+/u.exec(name.slice(start))?.[0] ?? "";
+  return /^\d/u.test(token) && !suffixNumber(token);
+}
+
+function readVersion(name: string, start: number, family?: ModelIdentifier) {
+  const parts: number[] = [];
+  let end = start;
+  let cursor = start;
+  let series: ModelSeries | undefined;
+  let complete = true;
+  while (versionStartsAt(name, cursor)) {
+    const digits = /^\d+/u.exec(name.slice(cursor))![0];
+    const numberEnd = cursor + digits.length;
+    parts.push(Number(digits));
+    end = numberEnd;
+    if (/^[a-z]/u.test(name.slice(numberEnd))) {
+      series = seriesAt(name, numberEnd, family);
+      if (series === undefined || versionStartsAt(name, skipSeparators(name, numberEnd + series.length))) {
+        complete = false;
+        series = undefined;
+        end += /^[a-z0-9]+/u.exec(name.slice(numberEnd))![0].length;
+      } else {
+        end += series.length;
+      }
+      break;
+    }
+    cursor = skipSeparators(name, end);
+    if (versionStartsAt(name, cursor)) continue;
+    const trailingSeries = seriesAt(name, cursor, family);
+    if (trailingSeries !== undefined && !versionStartsAt(name, skipSeparators(name, cursor + trailingSeries.length))) {
+      series = trailingSeries;
+      end = cursor + trailingSeries.length;
+    }
+    break;
+  }
+  const version: readonly [number, number, number] | undefined = complete && parts.length > 0 && parts.length <= 3 && parts.every(Number.isSafeInteger)
+    ? [parts[0], parts[1] ?? 0, parts[2] ?? 0] : undefined;
+  return { version, versionParts: version === undefined ? undefined : parts.length, series, end };
+}
+
+function identifierFor(marker: string): ModelIdentifier {
+  if (marker.startsWith("k2")) return "kimi";
+  if (marker.startsWith("swe")) return "swe-2";
+  if (marker === "chatgpt") return "gpt";
+  if (marker === "fable") return "claude";
+  return marker as Exclude<ModelIdentifier, "swe-2">;
+}
+
+/** Model fields are complete names here; route owners separate provider metadata. */
+export function recognizeModelName(model: string): ModelNameRecognition | undefined {
+  const name = model.trim().toLowerCase();
+  const markers = name.matchAll(/(?<![a-z0-9])(?:(?:chatgpt|gpt|codex|claude|fable|gemini|glm|deepseek|kimi|opus|sonnet|haiku|sol|terra|astra|luna)(?=\d|[^a-z0-9]|$)|(?:k2[-_.\s/]*p[5-8]|swe[-_.\s/]+2)(?![a-z0-9])|\d+)/gu);
+  let first: ModelNameRecognition | undefined;
+  let consumedEnd = 0;
+  for (const marker of markers) {
+    if (marker.index < consumedEnd) continue;
+    let identifier: ModelIdentifier;
+    let parsed: ReturnType<typeof readVersion>;
+    let series = seriesAt(name, marker.index);
+    if (/^\d/u.test(marker[0])) {
+      // Numeric spans include malformed segments; never restart at their later digits.
+      if (/(?:\d|(?<![a-z0-9])\d[a-z0-9]*)[-_.\s/]+$/u.test(name.slice(consumedEnd, marker.index))) continue;
+      parsed = readVersion(name, marker.index);
+      if (parsed.version === undefined || parsed.series === undefined) continue;
+      series = parsed.series;
+      identifier = seriesFamily(series);
+    } else if (series !== undefined) {
+      const start = skipSeparators(name, marker.index + marker[0].length);
+      if (!versionStartsAt(name, start)) continue;
+      identifier = seriesFamily(series);
+      parsed = readVersion(name, start, identifier);
+    } else {
+      identifier = identifierFor(marker[0]);
+      const markerEnd = marker.index + marker[0].length;
+      let start = skipSeparators(name, markerEnd);
+      series = start > markerEnd ? seriesAt(name, start, identifier) : undefined;
+      if (series !== undefined) start = skipSeparators(name, start + series.length);
+      parsed = start === markerEnd && identifier !== "gpt"
+        ? { version: undefined, versionParts: undefined, series: undefined, end: markerEnd }
+        : readVersion(name, start, identifier);
+      series ??= parsed.series;
+    }
+    if (first !== undefined) {
+      if (first.identifier !== "gpt" || first.family !== "gpt" || identifier !== "codex") break;
+      first.family = "codex";
+      consumedEnd = parsed.end;
+      continue;
+    }
+    const family = identifier === "swe-2" || /^k2[-_.\s/]*p8$/u.test(marker[0]) ? "unknown" : identifier;
+    first = {
+      identifier, family, series, version: parsed.version, versionParts: parsed.versionParts,
+      opus5: series === "opus" && parsed.version?.[0] === 5 && (parsed.versionParts === 1 || parsed.versionParts === 2 && parsed.version[1] === 5),
+      gemini4: identifier === "gemini" && parsed.version?.[0] === 4 && !/^[-_.\s/]*4\.x(?:$|[-_.\s/])/u.test(name.slice(marker.index + marker[0].length))
+    };
+    consumedEnd = parsed.end;
+  }
+  return first;
 }
 
 export function classifyModelFamily(input: { providerID?: string; modelID?: string }): DsmmModelFamily {
   const providerID = input.providerID?.trim().toLowerCase() ?? "";
-  const modelID = input.modelID?.trim().toLowerCase() ?? "";
-  const name = extractModelName(modelID);
+  const recognized = recognizeModelName(input.modelID ?? "");
+  if (recognized !== undefined) return recognized.family;
 
-  if (providerID.includes("codex") || name.includes("codex")) return "codex";
-  if (name.includes("gpt")) return "gpt";
-  if (providerID.includes("anthropic") || name.includes("claude")) return "claude";
-  if (providerID === "google" || providerID === "google-vertex" || name.startsWith("gemini-")) return "gemini";
-  if (providerID.includes("zhipu") || name.includes("glm")) return "glm";
-  if (providerID.includes("moonshot") || providerID.includes("kimi") || name.includes("kimi") || /k2[-.]?p[567]/.test(name)) return "kimi";
-  if (providerID.includes("deepseek") || name.includes("deepseek")) return "deepseek";
+  if (providerID.includes("codex")) return "codex";
+  if (providerID.includes("anthropic")) return "claude";
+  if (providerID === "google" || providerID === "google-vertex") return "gemini";
+  if (providerID.includes("zhipu")) return "glm";
+  if (providerID.includes("moonshot") || providerID.includes("kimi")) return "kimi";
+  if (providerID.includes("deepseek")) return "deepseek";
   return "unknown";
 }
