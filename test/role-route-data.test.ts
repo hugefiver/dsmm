@@ -74,12 +74,6 @@ test("metadata preflight keeps adapter-default effort out of the selected propos
   assert.deepEqual(choice.effective, { ...candidate, reasoningEffort: "medium", maxTokens: 256 });
 });
 
-test("route application keeps the selected candidate's complete parameter boundary", () => {
-  const route = { provider: "fixture", model: "fixed", temperature: 0.8, stop: ["NEW"], selected_only: true };
-  const downstream = modelRouteToCall({ provider: route.provider, model: route.model, temperature: 0.2, maxTokens: 64, stop: ["OLD"], old_only: true });
-  assert.deepEqual(modelRouteFromCall(applyModelRoute(downstream, route)), route);
-});
-
 test("native call envelopes round-trip original route names and detached JSON presence", () => {
   const call = modelRouteToCall(primary);
   assert.deepEqual(modelRouteFromCall(call), primary);
@@ -93,21 +87,19 @@ test("native call envelopes round-trip original route names and detached JSON pr
 });
 
 test("fallback replacement retains only its own full parameters without mutating the primary", () => {
-  const call = modelRouteToCall(primary);
+  const call = modelRouteToCall({ ...primary, maxTokens: 64 });
   const original = structuredClone(call);
-  const fallback = { provider: "apai", model: "gpt-5.6-terra", reasoningEffort: "high", fallback_only: null };
-  assert.deepEqual(modelRouteFromCall(applyModelRoute(call, fallback)), fallback);
-  assert.deepEqual(call, original);
+  for (const fallback of [
+    { provider: primary.provider, model: primary.model, reasoningEffort: primary.reasoningEffort,
+      temperature: 0.8, stop: ["NEW"], fallback_only: true },
+    { provider: "apai", model: "gpt-5.6-terra", reasoningEffort: "high", fallback_only: null },
+  ]) {
+    assert.deepEqual(modelRouteFromCall(applyModelRoute(call, fallback)), fallback);
+    assert.deepEqual(call, original);
+  }
   const reordered = { primary_only: false, customParameters: primary.customParameters, stop: [], temperature: 0,
     reasoningEffort: "medium", model: primary.model, provider: primary.provider };
   assert.deepEqual(orderedModelRoutes([primary, reordered, { ...primary, primary_only: true }]), [primary, { ...primary, primary_only: true }]);
-});
-
-test("same-triple fallback replaces primary-only parameters with its own complete route", () => {
-  const triple = { provider: "fixture", model: "same", reasoningEffort: "high" };
-  const primaryCall = modelRouteToCall({ ...triple, temperature: 0.2, primary_only: true });
-  const fallback = { ...triple, temperature: 0.8, fallback_only: true };
-  assert.deepEqual(modelRouteFromCall(applyModelRoute(primaryCall, fallback)), fallback);
 });
 
 test("effort-only overrides replace either effort spelling without rewriting captured input", () => {

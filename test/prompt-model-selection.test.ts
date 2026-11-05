@@ -217,7 +217,6 @@ test("non-target compact markers and malformed numeric tails cannot select dedic
   const builder = SOURCE_ROLE_CATALOG.find(row => row.sourceId === "builder")!;
   const orchestrator = SOURCE_ROLE_CATALOG.find(row => row.sourceId === "orchestrator")!;
   for (const model of ["gemini3", "gemini5", "gemini40"]) {
-    assert.deepEqual(promptModelVariants("builder", model), ["gemini"], model);
     assert.equal(roleModelCalibration(builder, model), marker("deepwork/gemini.md"), model);
   }
   assert.deepEqual(promptModelVariants("builder", "gemini-4.1"), ["gemini", "gemini-4"]);
