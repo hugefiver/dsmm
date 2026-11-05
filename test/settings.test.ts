@@ -191,7 +191,7 @@ test("default settings keep deepwork opt-in", () => {
     presets: {
       materialize: false
     },
-    subagents: { enableRunInBackground: false, backgroundMode: "one-shot", toolTopology: "per-role", allowRouteOverride: false },
+    subagents: { enableRunInBackground: false, forceBackground: false, backgroundMode: "one-shot", toolTopology: "per-role", allowRouteOverride: false },
     workflow: DEFAULT_WORKFLOW_SETTINGS,
     guards: DEFAULT_GUARD_SETTINGS,
     runtimeRecovery: DEFAULT_RUNTIME_RECOVERY_SETTINGS,
@@ -237,7 +237,7 @@ test("resolveConfig overlays plugin config on defaults", () => {
     presets: {
       materialize: false
     },
-    subagents: { enableRunInBackground: false, backgroundMode: "one-shot", toolTopology: "per-role", allowRouteOverride: false },
+    subagents: { enableRunInBackground: false, forceBackground: false, backgroundMode: "one-shot", toolTopology: "per-role", allowRouteOverride: false },
     workflow: DEFAULT_WORKFLOW_SETTINGS,
     guards: DEFAULT_GUARD_SETTINGS,
     runtimeRecovery: DEFAULT_RUNTIME_RECOVERY_SETTINGS,

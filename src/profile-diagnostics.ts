@@ -49,7 +49,7 @@ const configFields: Record<string, FieldShape> = {
   deepseekV4ProMaxReasoningPresets: null, deepseekFlashMaxReasoningPresets: null,
   modules: { deepwork: { enabled: null } },
   skills: "skills", roles: "roles", roleRouting: "role-routing", runtimePolicy: { strategy: null, rateLimit },
-  presets: { materialize: null, root: null }, subagents: { toolTopology: null, allowRouteOverride: null, enableRunInBackground: null, backgroundMode: null, maxDepth: null },
+  presets: { materialize: null, root: null }, subagents: { toolTopology: null, allowRouteOverride: null, enableRunInBackground: null, forceBackground: null, backgroundMode: null, maxDepth: null },
   workflow: { policy: null, strictGates: null, reviewCap: null, finalReviewPolicy: null },
   guards: { scope: null, shellCommandSafety: null, gitWriteGuard: null, gitWriteScope: null, toolOutputTruncation: { enabled: null, maxInlineBytes: null }, planFormatValidation: null, questionLabelHelper: { enabled: null, maxLabelChars: null }, todoDisciplineHelper: null },
   runtimeRecovery: { enabled: null, retryOnStatusCodes: [null], retryOnCodes: [null], fallbackRoutes: [route], maxFallbackAttempts: null, idleContinuation: { enabled: null, maxContinuations: null, prompt: null } },

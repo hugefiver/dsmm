@@ -97,6 +97,7 @@ export function Field({ schema, path, controller, initiallyOpen = false, disclos
       <option value="inherit">{`${unsetLabel} · ${choiceLabel(inherited)}`}</option>{(choices ?? [true, false]).map(choice => <option key={String(choice)} value={JSON.stringify(choice)}>{choiceLabel(choice)}</option>)}
     </select></> : <ScalarField schema={schema} path={path} controller={controller} inherited={inherited} t={t} />}
     {name === "modelParameters.passthrough" && <p className="dsmm-hint">{t("modelParametersHint")}</p>}
+    {name === "subagents.forceBackground" && <p className="dsmm-hint">{t("forceBackgroundHint")}</p>}
     {name === "permissionControl.enabled" && <p className="dsmm-hint">{permissionText(t)("coldHint")}</p>}
   </div>;
 }

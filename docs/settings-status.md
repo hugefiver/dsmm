@@ -72,7 +72,7 @@ Only relevant effective permission changes coordinate revocation. Unrelated loca
 
 ## Child runtime composition
 
-Default deployment waits for the native activation result: `enableRunInBackground:false`, and omitted `maxDepth` delegates to the native Host limit. Captured settings and actual native capabilities determine availability. A configured flag isn't execution or completion evidence.
+Default deployment waits for the native activation result: `enableRunInBackground:false` and `forceBackground:false`; omitted `maxDepth` delegates to the native Host limit. Captured settings and actual native capabilities determine availability. A configured flag isn't execution or completion evidence.
 
 Official AgentRegistry, SubagentRuntime and JSONL namespace plugins own execution and storage. DSMM adds scoped admission and policy, not a replacement Registry/Runtime, manual owner selector, companion or separate result queue.
 
@@ -80,7 +80,7 @@ The [bundle patch](../cordis.patch.yml) adds DSMM to the native composition. Cor
 
 `subagentRuntime` projects native `binding: stock | unavailable`, DSMM admission readiness (`deliveryFenceReady`), restart requirement and a bounded reason. Readiness observes the native subagent service and activated, current DSMM admission owner. It doesn't certify every Agent, provider/control capability or restricted-role recovery across restoration. No experimental SDK API or global registry binding check is required. Saves retain actual native form revision/authorization and don't remount services.
 
-Enabled background work must choose `run_in_background:true` before `startActivation`, using `delivery:'parent'`; otherwise delivery is to the waiting caller. Accepted child/message IDs aren't completed results. Running waiting calls have no handoff action. Native receipt disposal handles cancellation after publication and waits for cleanup.
+`subagents.forceBackground:true` forces native `delivery:'parent'` before `startActivation`, including omitted or false `run_in_background` and `enableRunInBackground:false`. Otherwise background delivery requires both `enableRunInBackground:true` and `run_in_background:true`; all other calls wait for their own native result. Both switches are deployment-only; forcing background leaves the saved enable switch unchanged. Independent foreground delegations in one model response use native scheduler concurrency. Accepted child/message IDs aren't completed results. Running waiting calls have no handoff action. Native receipt disposal handles cancellation after publication and waits for cleanup.
 
 Live direct-child Queue/Steer/interrupt require actual capabilities and exact parent/operator/lifetime authority. Read-only descendant inspection grants no control. Readiness loss closes DSMM execution; stale handles don't grant authority. Agent-scoped guards remain fail-closed after owner retirement. Hot replacement isn't a promise of uninterrupted live-session operation.
 

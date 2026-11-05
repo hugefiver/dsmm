@@ -84,6 +84,24 @@ test("root model policy merges Global and native pins; unset restores inheritanc
   }
 });
 
+test("force background is a strict deployment-only boolean with independent enable and layer inheritance", () => {
+  const global = parseGlobalConfig('{"subagents":{"forceBackground":true}}');
+  const inherited = resolveDeployment(global, {});
+  assert.equal(inherited.subagents.forceBackground, true);
+  assert.equal(inherited.subagents.enableRunInBackground, false);
+  assert.equal(resolveDeployment(global, { subagents: { forceBackground: false } }).subagents.forceBackground, false);
+  assert.equal(resolveDeployment({}, {}).subagents.forceBackground, false);
+  assert.deepEqual(DSMM_CONFIG_SCHEMA(global), global);
+  assert.throws(() => parseProfileDocument(JSON.stringify({ version: 1, id: "background", settings: global }), "background"));
+  for (const forceBackground of [null, "true", 1, {}, []]) {
+    assert.throws(() => parseGlobalConfig(JSON.stringify({ subagents: { forceBackground } })), (error: unknown) => {
+      assert.equal((error as { field: string }).field, "subagents.forceBackground");
+      return true;
+    });
+    assert.throws(() => DSMM_NATIVE_CONFIG_SCHEMA({ subagents: { forceBackground } }));
+  }
+});
+
 test("two actual Loader entries inherit one global base; volatile pins/unset preserve fibers and old admissions", async () => {
   const root = mkdtempSync(join(tmpdir(), "dsmm-c0-native-"));
   const marker = join(root, ".run-owner"), owner = `c0:${root}`;

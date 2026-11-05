@@ -89,6 +89,7 @@ function projectInvocation({ routeKind, view }: NonNullable<DsmmPromptObservatio
 
 /** Render callable delegation and lifecycle observations without repeating Agent locale. */
 export function buildDsmmDelegationGuidance(settings: DsmmSettings, observed: DsmmPromptObservation): string {
+  const backgroundEnabled = settings.subagents.enableRunInBackground || settings.subagents.forceBackground;
   const availability = new Map(observed.roleAvailability?.map(row => [row.id, row]));
   const delegation = observed.delegation.flatMap(entry => {
     const tool = observed.tools.find(tool => tool.name === entry.name);
@@ -103,9 +104,10 @@ export function buildDsmmDelegationGuidance(settings: DsmmSettings, observed: Ds
       targets: targets.map(id => ({ id, ...(properties.level === undefined ? {} : { levels: (["normal", "low", "high", "max"] as const)
         .filter(level => Array.isArray(levelEnum) && levelEnum.includes(level) && (level === "normal" || settings.roleRouting[id]?.levels?.[level] !== undefined)) }) })),
       parameters: Object.keys(properties).filter(name => (name !== "route" || settings.subagents.allowRouteOverride)
-        && (name !== "run_in_background" || settings.subagents.enableRunInBackground)),
+        && (name !== "run_in_background" || backgroundEnabled)),
       routeOverride: settings.subagents.allowRouteOverride && properties.route !== undefined,
-      background: settings.subagents.enableRunInBackground && properties.run_in_background !== undefined }];
+      background: backgroundEnabled && properties.run_in_background !== undefined,
+      forceBackground: settings.subagents.forceBackground && properties.run_in_background !== undefined }];
   });
   const controls = observed.tools.filter(tool => ["send_message", "interrupt_agent", "job_output", "job_list", "job_kill", "dsmm_children"].includes(tool.name));
   const runtime = observed.runtimeAdmission === undefined ? undefined : {
@@ -116,7 +118,8 @@ export function buildDsmmDelegationGuidance(settings: DsmmSettings, observed: Ds
   const ready = runtime?.binding === "stock" && runtime.deliveryFenceReady;
   const liveDelivery = ready && observed.capabilities?.nativeChildDelivery === true;
   const lifecycle = {
-    backgroundEnabled: settings.subagents.enableRunInBackground,
+    backgroundEnabled,
+    forceBackground: settings.subagents.forceBackground,
     continuable: observed.capabilities?.continuable === true && ready,
     nativeChildDelivery: liveDelivery,
     sendMessage: liveDelivery && controls.some(tool => tool.name === "send_message"),
@@ -134,8 +137,8 @@ Only the listed callable entries and target enums are observed here. Role availa
   if (observed.invocation !== undefined) sections.push(`<dsmm-observed-invocation>\n${JSON.stringify(projectInvocation(observed.invocation), null, 2)}\n</dsmm-observed-invocation>\nThe routeKind labels this observation: initial is preflighted start, not a claim about the current fallback route; actual is supplied by observed native request/status. Level is resource selection, never added permissions or a smaller verification obligation.`);
   sections.push(`<dsmm-child-lifecycle>
 <dsmm-child-lifecycle-state>\n${JSON.stringify(lifecycle, null, 2)}\n</dsmm-child-lifecycle-state>
-${settings.subagents.enableRunInBackground ? "Background is enabled in this Agent's captured deployment policy; only tools that expose run_in_background may request it." : "Background is disabled in this Agent's captured policy; do not request it."}
-Role calls wait for the native activation result by default. Explicit run_in_background:true chooses native parent delivery before starting and returns accepted child/message identity, not a completion or a job handle. Running calls cannot transfer foreground/background ownership. Partial output with a non-completed stop reason is not success and must not be replayed automatically.
+${settings.subagents.forceBackground ? "This Agent's captured deployment policy forces all admitted role/category calls into background parent delivery, whether run_in_background is omitted, true or false. This takes priority over enableRunInBackground." : backgroundEnabled ? "Background is enabled in this Agent's captured deployment policy; only tools that expose run_in_background may request it." : "Background is disabled in this Agent's captured policy; do not request it."}
+${settings.subagents.forceBackground ? "Forced background calls choose native parent delivery before starting and return accepted child/message identity, not a completion or a job handle." : "Role calls wait for the native activation result by default. Explicit run_in_background:true chooses native parent delivery before starting and returns accepted child/message identity, not a completion or a job handle."} Running calls cannot transfer foreground/background ownership. Partial output with a non-completed stop reason is not success and must not be replayed automatically.
 ${lifecycle.sendMessage ? "Exposed send_message can address a permitted exact live adjacent child. Running delivery reaches the nearest step; an idle live child can accept a next turn. Cold DSMM recovery is unavailable. An inbox receipt means accepted, not executed/completed. Each child retains its immutable admission; messages, metadata and later profile saves cannot grant authority." : "No live child messaging tool is observed here; do not invent one or infer it from role metadata."}
 ${lifecycle.browserPromptSurface !== null ? `The actual native user surface ${lifecycle.browserPromptSurface} uses queue/steer for continuable children, with native attachment validation. Its operator/connection/session/epoch/lifetime gate precedes inbox acceptance. Do not impersonate an Agent sender. After acceptance do not automatically retry; an unknown disconnect outcome needs verification, not a guessed idempotency guarantee.` : "No operator-gated native user queue/steer surface is established here; do not announce an unconnected DSMM RPC."}
 ${controls.some(tool => tool.name === "interrupt_agent") ? "Exposed interrupt_agent requests cancellation, not proof of completion or a message-delivery fence." : "No child interruption tool is observed here."}

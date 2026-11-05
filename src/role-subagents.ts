@@ -159,11 +159,13 @@ function registerRoleTool(agent: DshAgent, agentCtx: Context, tools: ToolRuntime
   const settings = getSettings(agent);
   const subagents = agentCtx.get("subagents");
   if (subagents === undefined) throw new Error("DSMM role tools require native subagents");
-  const background = settings.subagents.enableRunInBackground;
+  const forcedBackground = settings.subagents.forceBackground;
+  const background = settings.subagents.enableRunInBackground || forcedBackground;
   const admittedProviders = new Map(entry.targets.map(target => [target, subagents.getProvider(roleProviderName(target))]));
   const incomplete = new Map<import("@deepseek-ai/dsh-tools").ToolExecutionToken, { output: readonly ContentBlock[]; stopReason: string; diagnostic?: string }>();
   const definition = defineTool({
-    name: entry.name, description: `Delegate a bounded ${entry.kind} task through native activation. Waits for the useful result by default.${background ? " Set run_in_background to receive an accepted child/message receipt; native completion notifies the parent." : " Background execution is disabled."}`,
+    name: entry.name, description: `Delegate a bounded ${entry.kind} task through native activation.${forcedBackground ? " Deployment forces background parent delivery even when run_in_background is omitted or false. Returns an accepted child/message receipt; native completion notifies the parent." : ` Waits for the useful result by default.${background ? " Set run_in_background to receive an accepted child/message receipt; native completion notifies the parent." : " Background execution is disabled."}`}`,
+    isConcurrencySafe: () => true,
     parameters: { description: { type: "string", required: true }, prompt: { type: "string", required: true },
       ...(entry.targetParameter === undefined ? {} : { [entry.targetParameter]: { type: "string" as const, enum: entry.targets, required: true as const } }),
       level: { type: "string", enum: ["normal", "low", "high", "max"] },
@@ -212,7 +214,7 @@ function registerRoleTool(agent: DshAgent, agentCtx: Context, tools: ToolRuntime
         if (subagents.getProvider(roleProviderName(role.id)) !== capturedProvider) throw new SubagentError("DSMM exact provider changed before delegation", "NO_PROVIDER");
       };
        signal.throwIfAborted();
-       const requestedBackground = background && args.run_in_background === true;
+       const requestedBackground = forcedBackground || settings.subagents.enableRunInBackground && args.run_in_background === true;
        assertCurrent();
         const pending = await admission.reserve(exec, invocation, provider, args.description, requestedBackground ? "parent" : "caller", request.maxDepth);
        let activation: import("@deepseek-ai/dsh-subagent").SubagentActivation | undefined;

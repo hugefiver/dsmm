@@ -52,6 +52,7 @@ export interface DsmmSubagentSettings {
   toolTopology: DsmmToolTopology;
   allowRouteOverride: boolean;
   enableRunInBackground: boolean;
+  forceBackground: boolean;
   backgroundMode: "one-shot" | "continuable";
   /** Omitted delegates to the native host limit (rc.2 default 1). */
   maxDepth?: number;
@@ -236,7 +237,7 @@ export const DEFAULT_DSMM_SETTINGS: DsmmSettings = {
   presets: {
     materialize: false
   },
-  subagents: { enableRunInBackground: false, backgroundMode: "one-shot", toolTopology: "per-role", allowRouteOverride: false },
+  subagents: { enableRunInBackground: false, forceBackground: false, backgroundMode: "one-shot", toolTopology: "per-role", allowRouteOverride: false },
   workflow: {
     policy: "risk-based",
     strictGates: true,
@@ -348,6 +349,7 @@ const SUBAGENTS_SCHEMA = Schema.object({
   toolTopology: Schema.union([Schema.const("per-role"), Schema.const("parameterized")]).default("per-role"),
   allowRouteOverride: Schema.boolean().default(false),
   enableRunInBackground: Schema.boolean().default(false),
+  forceBackground: Schema.boolean().default(false),
   backgroundMode: Schema.union([Schema.const("one-shot"), Schema.const("continuable")]).default("one-shot"),
   maxDepth: Schema.number().step(1).min(0).max(Number.MAX_SAFE_INTEGER)
 });

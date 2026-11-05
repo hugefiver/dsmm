@@ -26,7 +26,7 @@ export interface ChildAuthorityCeiling {
 }
 export type ChildRuntimePolicyCapture = Pick<DsmmSettings, "modules" | "roleRouting" | "runtimePolicy" | "workflow" | "guards" | "runtimeRecovery" | "defaultActive"> & {
   skills: Omit<DsmmSettings["skills"], "report-fidelity" | "avoid-ai-slop"> & Partial<Pick<DsmmSettings["skills"], "report-fidelity" | "avoid-ai-slop">>;
-  subagents: Pick<DsmmSettings["subagents"], "enableRunInBackground" | "backgroundMode">;
+  subagents: Pick<DsmmSettings["subagents"], "enableRunInBackground" | "backgroundMode"> & Partial<Pick<DsmmSettings["subagents"], "forceBackground">>;
 };
 export type HistoricalChildRuntimePolicyCapture = ChildRuntimePolicyCapture & {
   deepseekV4ProCalibration: "off" | "auto" | "strict";
@@ -202,8 +202,9 @@ export function parseChildAdmissionCapture(input: unknown): ChildAdmissionCaptur
   object(modules, ["deepwork"]); boolean(object((modules as Record<string, unknown>).deepwork, ["enabled"]).enabled);
   const skillMap = object(skills, CAPTURE_SKILLS, ["report-fidelity", "avoid-ai-slop"]);
   Object.values(skillMap).forEach(boolean);
-  const background = object(subagents, ["enableRunInBackground", "backgroundMode"]);
+  const background = object(subagents, ["enableRunInBackground", "backgroundMode"], ["forceBackground"]);
   boolean(background.enableRunInBackground);
+  if (Object.hasOwn(background, "forceBackground")) boolean(background.forceBackground);
   if (typeof background.backgroundMode !== "string" || !["one-shot", "continuable"].includes(background.backgroundMode)) fail();
   const ceiling = object(row.authorityCeiling, ["roles", "readOnly", "allowRouteOverride", "maxDepth"], ["toolFilter"]);
   if (!Array.isArray(ceiling.roles) || ceiling.roles.length > DSMM_ROLE_IDS.length || new Set(ceiling.roles).size !== ceiling.roles.length || ceiling.roles.some(role => !(DSMM_ROLE_IDS as readonly unknown[]).includes(role))) fail();

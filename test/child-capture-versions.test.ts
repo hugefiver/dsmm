@@ -117,6 +117,21 @@ for (const version of [1, 2, 3] as const) for (const skill of ["report-fidelity"
     skills: { ...historical.runtimePolicyCapture.skills, unknown: true } } }));
 });
 
+for (const version of [1, 2, 3] as const) test(`v${version} background policy restores captured force without inheriting the current parent's switch`, () => {
+  const current = resolveConfig({ subagents: { forceBackground: true, enableRunInBackground: true } });
+  const raw = payload(version);
+  assert.equal(admissionFromChildCapture(parseChildAdmissionCapture(raw), current).settings.subagents.forceBackground, false);
+  assert.equal(Object.hasOwn(raw.runtimePolicyCapture.subagents, "forceBackground"), false);
+  for (const forceBackground of [true, false]) {
+    const captured = parseChildAdmissionCapture({ ...raw, runtimePolicyCapture: { ...raw.runtimePolicyCapture,
+      subagents: { ...raw.runtimePolicyCapture.subagents, forceBackground } } });
+    assert.equal(admissionFromChildCapture(captured, current).settings.subagents.forceBackground, forceBackground);
+    assert.equal(Object.isFrozen(captured.runtimePolicyCapture.subagents), true);
+  }
+  for (const forceBackground of [null, "true", 1, undefined]) assert.throws(() => parseChildAdmissionCapture({ ...raw,
+    runtimePolicyCapture: { ...raw.runtimePolicyCapture, subagents: { ...raw.runtimePolicyCapture.subagents, forceBackground } } }));
+});
+
 test("capture integrity, lineage, original epoch and reference grammars fail closed", async () => {
   const f = fixture();
   try {

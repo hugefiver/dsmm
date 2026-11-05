@@ -315,6 +315,31 @@ test("schema-driven root model policy selector saves explicit values and clears 
   } finally { page.dispose(); }
 });
 
+test("schema-driven force background selector saves independently and clears to the default", async () => {
+  const f = fixture(), page = await compiledNativePage(f.remote);
+  try {
+    page.open(deploymentEn["module:workflow"]);
+    const control = () => {
+      const field = elements(page.tree()).find(node => node.props["data-field"] === "subagents.forceBackground");
+      assert.ok(field);
+      const select = elements(field).find(node => node.type === "select"); assert.ok(select); return select;
+    };
+    assert.deepEqual(elements(control()).filter(node => node.type === "option").map(node => node.props.value), ["inherit", "true", "false"]);
+    (control().props.onChange as (event: unknown) => void)({ currentTarget: { value: "true" } });
+    await page.workspace.save();
+    const settings = resolveDeployment(f.get().global, f.get().profile);
+    assert.equal(settings.subagents.forceBackground, true);
+    assert.equal(settings.subagents.enableRunInBackground, false);
+    assert.deepEqual(f.get().global.subagents, { forceBackground: true });
+    await page.core.refresh();
+    assert.equal(control().props.value, "true");
+    (control().props.onChange as (event: unknown) => void)({ currentTarget: { value: "inherit" } });
+    await page.workspace.save();
+    assert.equal(resolveDeployment(f.get().global, f.get().profile).subagents.forceBackground, false);
+    assert.equal(f.writes.length, 2);
+  } finally { page.dispose(); }
+});
+
 test("schema-driven Git scope selector saves and reloads Global values and restores defaults", async () => {
   const f = fixture(), page = await compiledNativePage(f.remote);
   const path = ["guards", "gitWriteScope"];
