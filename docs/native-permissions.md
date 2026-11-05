@@ -1,6 +1,6 @@
 # Native permissions
 
-DSMM 0.3.16 targets exactly DSH `0.2.1-rc.2`. In the current runtime, DSH owns approval; DSMM composes policy into the native tool pipeline without a second approval queue or UI. DSMM command-rule approval memory is limited to the exact live Agent and is distinct from native once grants.
+DSH owns approval; DSMM composes policy into the native tool pipeline without a second approval queue or UI. DSMM command-rule approval memory is limited to the exact live Agent and is distinct from native once grants. See [compatibility](compatibility.md) for the supported Host range and version-specific limits.
 
 ## Permission architecture and extension target
 
@@ -14,7 +14,7 @@ Operator-created long-lived command/subcommand/path grants and model-proposed au
 
 Full access means actual native effective standing `danger-full-access`, not a model argument, a requested escalation or a configured `permissionControl.nativeCommands` target. With that standing authority, DSMM doesn't add an ask, downgrade the sandbox, demand a path permit or refuse an unknown operation because classification facts are missing. The only DSMM restriction is a deterministically matched existing explicit deny blacklist, expressed as a native pre-approval decision. There's no additional inferred high-risk list.
 
-A captured read-only child or a live, composed DSMM read-only preset has an explicit blacklist covering `write`, `edit`, `bash` and `pwsh`. Standing Full access must not bypass that ceiling; useful native reads remain available. Missing ordinary DSMM policy or classification facts do not by themselves establish a read-only role.
+A captured read-only child is restricted by the admitted read-tool allowlist; mutation tools remain excluded even when a native plugin registers an additional tool. Existing explicit restrictions on `write`, `edit`, `bash` and `pwsh` also remain effective. Standing Full access must not bypass the role/tool ceiling. Missing ordinary DSMM policy or classification facts do not by themselves establish a read-only role.
 
 Actual DSH manual approval is final for the same call and approved scope. Older DSMM rules, a changed permission revision or epoch, and DSMM internal gates don't veto it afterward. A pending native approval isn't canceled merely because a permission source changes.
 
@@ -88,10 +88,26 @@ See [running-overlay and approval boundaries](deferred-native-approval-risk.md).
 
 Outside-read and web policies apply to their native tool surfaces. They don't provide complete filesystem/network isolation for arbitrary shell commands or replace operating-system checks on the final inode and socket target.
 
+### Native multi-file patches on DSH 0.2.2-rc.1
+
+The native `tool-fs` plugin exposes `apply_patch` only when its `applyPatch` option is explicitly enabled. The default is `false`. Set the native profile composition row, including when it uses the DSMM `permission-fs` façade:
+
+```yaml
+- id: tool-fs
+  config:
+    applyPatch: true
+```
+
+Use this option only on a Host that supplies it; DSH `0.2.1-rc.2` has no DSMM replacement patch tool. Loading the native tool does not widen a captured Agent's role or inherited tool ceiling. Native approval, deny/never and cancellation retain ownership.
+
+DSMM's bundle enables native `fs-observation-policy`. Existing-file updates, deletes and moves require the native observation/version checks; a later profile override that disables this plugin removes that protection. Patch preflight reads do not grant the model an observation record.
+
+The native engine preflights the patch before committing. A syntax, hunk or observation preflight failure leaves files unchanged. Commit is sequential and can partially succeed when a later operation fails or is canceled; a move can write its destination before failing to delete its source. Inspect the returned per-operation results before continuing. Sandbox enforcement remains the responsibility of the effective filesystem provider; neither enabling the tool nor successful preflight grants an outside write.
+
 ### Workspace and system-temp modifications
 
-DSMM does not add a path-range approval layer to native write/edit or ordinary shell modifications, including targets in workspace and system-temp subdirectories. Explicit command/Git rules, role/tool restrictions and native or third-party approval decisions remain effective. A temp path does not automatically approve an independent request.
+DSMM does not add a path-range approval layer to native write/edit/apply_patch or ordinary shell modifications, including targets in workspace and system-temp subdirectories. Temporary-directory access follows the selected DSH mode/backend's full default allowance, without a separate dedicated `temp/dsh` restriction. Explicit command/Git rules, role/tool restrictions and native or third-party approval decisions remain effective. A temp path does not automatically approve an independent request or authorize deleting unrelated temporary files.
 
 Native write/edit retain their FS intents, observation/version checks, atomic modification and backend-provided sandbox escalation. Shell execution retains the native executor, standing sandbox and explicit call-scoped escalation. DSMM does not infer every command's effects from its cwd, raise the sandbox mode because a temp path appears in its arguments, or automatically replay a denied command.
 
-Actual write access remains backend-dependent: the stock Windows shell sandbox uses a private temp directory, not the entire shared system temp, and stock LocalFS does not itself enforce sandbox write scopes. DSMM neither changes system-temp ACLs nor supplies a replacement sandbox or FS isolation layer. Absence of an extra DSMM approval does not prove that a backend permits a write or requires approval for every outside write.
+Actual write access remains backend-dependent: the Windows shell sandbox uses a private temp directory, while native sandboxed file providers enforce their declared writable roots, including their default temporary roots. The unsandboxed `LocalFileSystem` implementation does not itself enforce those scopes. DSMM neither changes system-temp ACLs nor supplies a replacement sandbox or FS isolation layer. Absence of an extra DSMM approval does not prove that a backend permits a write or requires approval for every outside write.

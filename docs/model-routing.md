@@ -2,7 +2,7 @@
 
 Providers, accounts and credentials remain native DSH configuration, never named-profile contents.
 
-DSMM 0.3.16 targets exactly DSH `0.2.1-rc.2`. Standard calls use native prepared calls. The public Pi-AI completions seam supports self-contained literal and explicit model-mapping raw configurations; unsupported catalog-backed raw combinations are rejected without affecting standard calls.
+DSMM supports the Host range declared in [compatibility](compatibility.md), including DSH `0.2.1-rc.2` and `0.2.2-rc.1`. Standard calls use native prepared calls. The public Pi-AI completions seam supports self-contained literal and explicit model-mapping raw configurations; unsupported catalog-backed raw combinations are rejected without affecting standard calls.
 
 ## Root policy and child defaults
 
@@ -13,7 +13,11 @@ DSMM 0.3.16 targets exactly DSH `0.2.1-rc.2`. Standard calls use native prepared
 
 Global and native-profile configuration may set this policy; named profiles cannot override it. Clearing a native-profile override restores inheritance from Global. The policy applies to the deployment, not to a detected client: a Web session in the same configured deployment follows it too. A separate Desktop deployment retains the default `native` behavior. Saving desired configuration does not replace an existing Agent's immutable admission; use the existing admission lifecycle to adopt changes.
 
-Configured routing changes the actual request, not the native model picker or its saved preference. An explicit primary takes precedence over a picker selection; inherited routing still uses the native baseline. Neither switching profiles nor automatic fallback writes the native model preference. Status distinguishes the admitted policy and actual route from a declared model.
+An explicit primary takes precedence over a picker selection; inherited routing still uses the native baseline. On DSH 0.2.1, configured routing changes the request without writing the picker. On DSH 0.2.2, the public `agent.model.select()` boundary makes the admitted route visible as the pending selection before preparation. Neither path writes the saved native model preference. Status distinguishes the admitted policy and actual route from a declared model.
+
+On 0.2.2, admission and maintenance prepare the selection before a request. Configured roots also bind their cached route on running/inbox boundaries, including the next turn after an idle picker change or mode activation. A running picker can race the next snapshot; a conflicting request then fails before dispatch rather than using an incorrect route. Request-time routing never schedules a deferred correction or removes route parameters to satisfy the Host check. Native roots continue to follow native selection.
+
+Selection/proposal effort is distinct from the effective adapter default. With passthrough OFF, a configured effort does not override defaults: the proposal can omit effort while `prepareCall` resolves the adapter's default for HTTP. Explicit native effort remains explicit. DSMM's plugin metadata associates only its own newly appended selection events with their exact routes; it is not admission or delegation authority.
 
 `roleRouting` is keyed by canonical IDs such as `dsmm-reviewer`, not tool names or labels. Each entry accepts `primary`, ordered `fallbackRoutes`, `strategy`, bounded `rateLimit`, and `levels`. Omitted primary inherits the native parent route for a child. Explicit host options on new delegation retain their priority. Historical descriptor options are reconstruction defaults, not a new override of current DSMM routing. A cold child resolves its invocation again, taking its own explicit native selection before configured-route preparation; a configured model that will not be used is not a preflight dependency. Ancestor selections, labels and old request defaults are not child selection intent.
 
@@ -70,9 +74,17 @@ Saving or selecting a future default preserves route JSON without sending a comp
 
 Additional route properties are bounded plain JSON. Their names, values and presence are preserved, including an ordinary property named `customParameters`. In the supported completions seam, `reasoningEffort` and raw `reasoning_effort` are mutually exclusive. So are `maxTokens`, `max_tokens`, `max_completion_tokens` and `max_output_tokens`. A raw token field must match the actual API/model field and native context budget; conflicts refuse before HTTP rather than rewriting values or selecting a fallback. Raw JSON can't override provider/model, messages, tools, authentication, endpoint, headers, signals, callbacks or authority fields. Native attribution remains authoritative.
 
-Every fallback owns its full parameter set; primary-only properties never flow into it. Complete JSON values distinguish parameter-only changes at the same provider/model, while key order doesn't. Missing admission or an unsupported raw adapter must not silently fall through to native dispatch with parameters removed.
+The initial matching candidate preserves downstream-only request controls, while its explicitly configured fields take precedence. Same-route retries retain the failed request's complete explicit parameters. Every fallback owns its full parameter set across later steps and turns; primary-only properties never flow into it. Complete JSON values distinguish parameter-only changes at the same provider/model, while key order doesn't. Missing admission or an unsupported raw adapter must not silently fall through to native dispatch with parameters removed.
 
 The native Root model-selection API remains its separate provider/model/effort contract. Its capability and manual-intent checks are independent of unavailable live overlay Apply; it doesn't write a profile selection pointer.
+
+## Native dynamic request headers
+
+On DSH `0.2.2-rc.1`, DSMM-owned standard and raw Pi-AI adapters preserve the native synchronous `llm-pi-ai/request-headers` hook. Borrowed raw adapters use the original provider registration scope; borrowed standard adapters keep their native hook without a duplicate invocation. Configuration and ownership checks use rc.1's public effective configuration and canonical live Fiber, while rc.2 retains its effective `fiber.config` source. Configuration changes and retired registrations invalidate prepared raw calls.
+
+Each inference dispatch receives fresh headers and native frozen request metadata (`provider`, `model`, `sessionId`, `purpose`, `baseURL`). Native attribution remains authoritative after the waterfall. A hook exception follows the native `REQUEST_HEADERS` error path before inference I/O; cancellation and adapter retirement still prevent submission. Model discovery does not acquire an inference-header hook.
+
+DSMM adds no business headers or header configuration. Credentials remain native-owned, and route JSON cannot supply headers or authentication fields. DSH `0.2.1-rc.2` retains its existing adapter behavior without a synthetic replacement hook.
 
 ## Invocation selection
 
@@ -105,6 +117,16 @@ Native cold restoration establishes a new exact-Agent admission from current con
 ## Observed route versus declared route
 
 The child report compares initial route from real `invocation-capture` with live route from that child's `own-native-request-header`. Neither substitutes for the other. Missing capture is `missing-invocation-capture`; live unknown reasons include `no-own-request-header`, `invalid-own-request-header` and `not-observed`. A root header, inherited history prefix or configured primary isn't proof of the child's own executed route. Compatibility invocation projections are labeled as such, not presented as this comparison.
+
+Foreground tool cards subscribe through the native read-only Gateway stream before the result arrives. Observation carries only provider/model/effort, role/level and exact call/lifetime identity; additional execution parameters remain outside this DTO. Actual effort that the header does not report is shown as unreported. Disconnects or terminal authorization failures invalidate active actual evidence; settled observations stay frozen.
+
+Provider call IDs can repeat across requests. Reuse never blocks delegation: ambiguous live card correlation is removed, while each final result retains its own child/run-bound comparison. Watching a child session requires verified live lineage and grants no additional prompt or interrupt authority. Closing observation leaves native execution and delivery ownership unchanged.
+
+## Gemini 4 calibration
+
+Models with an explicit Gemini 4 identity share the `gemini-4` additive calibration. Supported names include `gemini-4`, numerical minor versions, `gemini-4.x`/`gemini-4.x-pro`, compact `gemini4`/`gemini4.1`, and their `@default`/`:latest` suffixes. A wildcard name does not claim a precise numeric version. Bare `4.x` and a Gemini provider name alone do not select this calibration.
+
+The first recognized model identity controls calibration. Role, planner and category prompt assembly retain their existing layer order and load the additive once; Deepwork-off behavior is unchanged.
 
 ## Generic model parameters
 

@@ -55,8 +55,18 @@ serially.
 | Group | Primary coverage and prerequisites |
 | --- | --- |
 | `native-runtime` | Multi-step Host/runtime, resume, module admission, real shell safety and native SDK/CLI wrappers. Some cases require `DSMM_TEST_DSH_ENTRY` or `DSMM_COLD_PROFILE_SDK_ANCHOR`. |
+| `host-boundaries` | Isolated installed-Host CLI routing, cold resume, native/DSMM LLM owners, default effort, tools, child admission and retry boundaries, plus the resolver-free Fake-IP adapter guard. Requires `DSMM_TEST_DSH_ENTRY`; uses a loopback model service and no real API credentials. |
+| `adaptation-remaining` | Targeted dual-Host feature compatibility. Requires `DSMM_TEST_DSH_ENTRY`. Native patch tests run the built package through an isolated CLI, native tool-fs and filesystem sandbox, covering explicit configuration, observation, multi-path effects and permission/cancellation boundaries. Live-delegation tests load the built package in the selected Host and exercise its actual Gateway/Connection stream while loopback child HTTP is held, including observer disposal and repeated provider call IDs; this is not browser DOM acceptance. Dynamic-header tests resolve the selected SDK and run built DSMM owners/adapters through a real Cordis Loader/Pi-AI adapter with loopback HTTP and configuration/retirement checks; their dedicated resolver does not redirect `lib` back to source. Unsupported native capabilities explicitly skip; rc.2 retains its existing filesystem tool set. |
 | `frontend` | Real browser deployment/profile/editable-choice flows and native role cards. Browser cases require both `DSMM_TEST_DSH_ENTRY` and `DSMM_TEST_PLAYWRIGHT_ENTRY`. |
 | `delivery` | Actual package/frontend materialization and full native/ordinary module delivery. Native cases require an explicit DSH anchor. |
+
+For the focused Host boundary suite, set `DSMM_TEST_DSH_ENTRY` to the installed
+Host's package entry and run `pnpm run test:integration -- host-boundaries` after
+building DSMM. Repeat with the other supported Host anchor for compatibility
+coverage. Fixed-selection-only child and fault-injection cases explicitly skip
+when `agent.model.select` is unavailable. The resolver-free Fake-IP case skips on
+a resolver-capable Host; the existing address-policy/transport tests cover that
+implementation.
 
 Missing anchors produce explicit skips. A skipped integration case is unavailable
 coverage, not a pass, and must be reported as such. The wrapper files remain the

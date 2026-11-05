@@ -1,6 +1,6 @@
 # 显式选择 Fake-IP HTTP fetch
 
-`@dsmm/dsmm/web-fetch-fakeip` 是独立 Cordis 插件，向原生 `ctx.web` 注册唯一 fetch provider ID `dsmm-http-fakeip`。它使用 rc.2 包根公开的 `new HttpFetchProvider(limits, resolver)`，不替换 WebRuntime，不注册 `http`，不改变 Search、工具审批、凭据或系统网络。只有用户主动挂载并选择该 provider 时才应启用；不要将它加入 DSMM 默认插件组合。原生 `http` 和 shell 的网络限制不因此得到修复。
+`@dsmm/dsmm/web-fetch-fakeip` 是独立 Cordis 插件，向原生 `ctx.web` 注册唯一 fetch provider ID `dsmm-http-fakeip`。它在 DSH 0.2.1 使用包根公开的 `new HttpFetchProvider(limits, resolver)`；DSH 0.2.2 的无 resolver 路径按下述能力边界处理。它不替换 WebRuntime，不注册 `http`，不改变 Search、工具审批、凭据或系统网络。只有用户主动挂载并选择该 provider 时才应启用；不要将它加入 DSMM 默认插件组合。原生 `http` 和 shell 的网络限制不因此得到修复。
 
 ## 集成与选择
 
@@ -28,7 +28,13 @@ DSMM 包必须具备以下依赖和发布入口，才能使用此插件：
 
 `denyCidrs` 只增加本地拒绝，例如 `['198.18.0.1/16', '8.8.8.0/24']`；主机位不扩大 CIDR，前一项等价于拒绝固定 `198.18.0.0/16`。mapped IPv6 和对应 IPv4 的拒绝相互覆盖。没有任意 allow-CIDR 配置：唯一例外固定为 `198.18.0.0/16`，不是 `/15`，不是其他私网。
 
-## 地址与代理边界
+## Host 能力边界
+
+以下 DNS answer、NAT64 发现和 pinned lookup 保证适用于仍公开 resolver 注入的 DSH 0.2.1。DSH 0.2.2 的原生 HTTP provider 通过进程 dispatcher 发送请求，不再调用该 resolver；DSMM 不安装替代 dispatcher，也不把入口检查称为 DNS pinning。
+
+0.2.2 下配置 `denyCidrs` 时，无法检查最终解析地址的域名路径及无法验证 NAT64 内嵌目的地址的非 mapped IPv6 literal 均 fail-closed。IPv4 和 mapped IPv4 literal 继续执行入口 deny 校验。没有本地 deny 时，DNS 应答级检查与 NAT64 内嵌地址检查仍不可用；原生传输和代理策略由 Host 负责。代理与 literal 的既有入口限制保持有效。
+
+## 地址与代理边界（DSH 0.2.1 resolver 路径）
 
 - 系统 DNS 使用 `all: true, order: 'verbatim'`。完整答案必须非空，每项 family 和地址须有效；任一地址被拒绝即拒绝整个请求，不筛掉坏答案继续连接。
 - 允许公网 unicast 和精确 Fake-IP `/16`；mapped IPv6 按内嵌 IPv4 判断。显式 deny 优先，loopback、私网、链路本地、`198.19.*` 及原生 transition/NAT64 特殊地址继续拒绝。

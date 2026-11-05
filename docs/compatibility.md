@@ -1,6 +1,6 @@
 # DSMM compatibility and upgrade boundaries
 
-**DSMM 0.3.17 supports DSH `>=0.2.1-rc.2 <0.3.0`** and Node.js 22 or later. Official DSH rc.3 gives `engines.dsh` precedence over peer ranges. DSH dependencies, peerDependencies and devDependencies remain pinned to rc.2 as the development baseline; versions outside the declared Host range aren't supported.
+**DSMM 0.3.22 supports DSH `>=0.2.1-rc.2 <0.2.2-0 || >=0.2.2-rc.1 <0.3.0`** and Node.js 22 or later. The dual branch admits the 0.2.2 RC series (from `0.2.2-rc.1` on) while keeping every supported 0.2.1 release in range; `0.2.2-alpha.*` is deliberately excluded. Official DSH rc.3+ gives `engines.dsh` precedence over peer ranges (peers are ignored when `engines.dsh` is present) and evaluates ranges with prereleases included; strict npm semantics additionally need the explicit second branch, so the declaration is accurate under both readings. The `<0.3.0` upper bound lets future `0.3.0-rc.x` pass the Host gate under its includePrerelease reading; strict consumers exclude it. DSH dependencies, peerDependencies and devDependencies remain pinned to 0.2.1-rc.2 as the development baseline; versions outside the declared Host range aren't supported.
 
 ## Supported integration
 
@@ -27,6 +27,18 @@ Save and future-default selection remain available under their own authority. Na
 Stores use separate CAS and atomic-write boundaries. Committed saves aren't rolled back in the response because observation/notification failed: report refresh-required or unsynchronized status. An unconfirmed native mutation requires authoritative reread before retry. Operator, connection and owner lifetime remain valid through precommit; client claims or loopback-looking URLs don't authorize writes.
 
 ## Execution and recovery
+
+### DSH 0.2.2 Host differences
+
+DSMM runs identically on 0.2.1 and 0.2.2 Hosts except where 0.2.2 changed public contracts. Runtime capability detection (`agent.model.select` presence, provider-constructor shape) routes each surface; version strings are never consulted.
+
+- **Model selection is fixed before step preparation.** DSMM prepares the selection and request proposal together during admission and maintenance, keeping adapter defaults separate from explicit effort. Configured roots with an explicit primary reassert their admitted selection at public running/inbox boundaries; native roots retain native selection authority. A request that conflicts with its step's fixed provider/model/effort is rejected before dispatch, without scheduling another selection or dropping parameters. A picker change racing a running step can therefore produce a refusal; change models while idle for the next-turn boundary. Plugin metadata associates DSMM-written selections and child setup selections observed between native Session and Agent announcements with their exact events. These remain distinguishable on cold activation without treating setup as new manual intent. The records convey no authority, and same-value selections create no synthetic intent.
+- **Cross-route model fallback is unavailable on 0.2.2** (blocked): the request-error contract only allows same-selection retries, so `rate-limit-fallback` route switching degrades to a bounded same-route retry with a one-time diagnostic, and unavailable-route switching refuses outright. 0.2.1 behavior is unchanged. The native `dsh-llm-retry` extension coexists with DSMM's retry ownership.
+- **Pending selection is visible at admission.** A DSMM-configured route becomes the client-visible pending model selection as soon as admission completes, and cross-step route changes surface the Host's `[model changed: ...]` notice. This is native 0.2.2 behavior and is not suppressed.
+- **fs overwrite observation is restored by the DSMM bundle patch.** 0.2.2 compositions disable `@deepseek-ai/dsh-fs-observation-policy` by default; DSMM's bundle patch re-enables it by id, restoring read-before-write and external-modification rejection (`FS_STALE_VERSION`). The user's profile layer still wins and can explicitly disable it.
+- **Adapter capacity defaults changed.** 0.2.2 assumes 1M context / 128K output for models that declare no capacity. Routes served by small endpoints must declare real limits; DSMM's raw seam keeps its explicit-capacity validation.
+- **Fake-IP web fetch loses answer-level enforcement.** 0.2.2's HTTP fetch provider neither resolves nor pins addresses (it dispatches through the process-wide proxy policy), so DSMM's Fake-IP adapter cannot validate DNS answers, NAT64-embedded destinations, or answer-level `denyCidrs`. With configured local denies, direct hostnames and native IPv6 literals fail closed where the resolved or translated destination cannot be checked; IPv4 and mapped IPv4 literals retain entry checks. Existing proxy restrictions remain enforced. DSMM never installs a global dispatcher — process transport policy stays Host-owned.
+- **pi-ai image-offload bounds are supplied by DSMM** where 0.2.2 requires them (defaults mirroring upstream: `maxRequestImages` 50, `imageOffloadCountQuantum` min(10, max)). 0.2.1 profiles carry no such fields.
 
 ### Native history composition
 

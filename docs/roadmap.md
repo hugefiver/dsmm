@@ -2,7 +2,7 @@
 
 ## Version policy
 
-**DSMM 0.3.17 supports DSH `>=0.2.1-rc.2 <0.3.0`.** Official DSH rc.3 gives `engines.dsh` precedence over peer ranges; rc.2 remains the pinned development baseline. Each DSMM version declares its supported Host range independently of its development dependencies. Older SDKs and old configuration schemas aren't runtime compatibility targets. Loading sessions created by DSMM `0.2.x` is a required compatibility target, separate from retaining old runtime implementations or execution behavior. A dependency upgrade or support outside the declared range requires deliberate reassessment, not an automatic runtime switch.
+**DSMM 0.3.22 supports DSH `>=0.2.1-rc.2 <0.2.2-0 || >=0.2.2-rc.1 <0.3.0`.** Official DSH rc.3 gives `engines.dsh` precedence over peer ranges; rc.2 remains the pinned development baseline. The dual branch admits the 0.2.2 RC series starting at `0.2.2-rc.1` (the implemented adaptation target, verified against an installed exact-tag SDK anchor) while keeping 0.2.1 behavior identical; `0.2.2-alpha.*` is excluded. Each DSMM version declares its supported Host range independently of its development dependencies. Older SDKs and old configuration schemas aren't runtime compatibility targets. Loading sessions created by DSMM `0.2.x` is a required compatibility target, separate from retaining old runtime implementations or execution behavior. A dependency upgrade or support outside the declared range requires deliberate reassessment, not an automatic runtime switch.
 
 Published `0.3.0` retains its original rc.1 package, tag, assets and version-bound release identity.
 
@@ -20,13 +20,17 @@ Agent-scoped skills expose metadata and load bodies lazily, preserving non-DSMM 
 
 Native call views show the target in collapsed rows, distinguish requested from actual identity, and retain that distinction for partial output, failure, interruption and current-format replay/PTC. Child labels use `Coding: task description`.
 
+On DSH `0.2.2-rc.1`, native multi-file patches are available through explicit `tool-fs.config.applyPatch: true`, with the default remaining off. DSMM forwards native configuration and retains role/tool ceilings, observation checks and native sandbox/approval ownership; sequential commit can partially succeed. See [native patches](native-permissions.md#native-multi-file-patches-on-dsh-022-rc1). Dynamic Pi-AI request headers retain the native hook across standard/raw paths and the original registration scope; see [request headers](model-routing.md#native-dynamic-request-headers). Gemini 4 series aliases share the existing additive calibration.
+
 ## Remaining capability boundaries
 
 | Capability | Current behavior | Requirement for broader support |
 | --- | --- | --- |
+| Cross-route model fallback on 0.2.2 | 0.2.2 fixes the model selection per step; DSMM keeps same-route bounded retries and degrades `rate-limit-fallback` switching to a same-route retry with a one-time diagnostic. 0.2.1 switching is unchanged. | A public re-selection boundary within the failing step (or per-attempt selection); see [compatibility](compatibility.md#dsh-022-host-differences). |
 | Profile selection before execution | Existing blank roots can select saved profiles or deployment defaults. Without a session, explicit workspace/Profile selection obtains a native blank, blocks sending until selection is confirmed, then opens it. | Validate native new-session navigation, unsent text/references/attachments and first-send behavior in the target Host. No-session selection is implemented; browser acceptance is separate. |
 | Session overlay Apply | Eligible quiescent roots, including started/restored roots, can switch under native subtree maintenance and admission CAS. Active work, open turns, queued input and pending approvals/delegation prevent switching. Resident children retain their captures; new delegations use the selected configuration. | Switching during active work remains unsupported. Unprovable external-provider startup is refused; supported coverage uses the same Host lifecycle and agents registry. See [approval boundaries](deferred-native-approval-risk.md). |
 | Running-call background handoff | Deferred. Select waiting or native parent delivery before starting; existing background dispatch stays unchanged. | A supported same-activation native delivery handoff; see the deferred foreground delegation requirements below. |
+| Granular sandbox access switches | Deferred for later investigation, including system-certificate access for Windows Schannel. No new switch or backend is supplied for this capability. | A supported per-process enforcement mechanism, identified necessary resources, and isolated on/off verification; see [granular sandbox extensions](#deferred-granular-sandbox-access-switches). |
 | Restricted-role continuation after restoration | Supported roots and continuable children receive fresh admission through awaited `agent/created`, with current role, parent, readonly, tool and depth checks. Historical approvals do not grant current authority. | Broader historical-format support needs public control of persisted persona/composition and pre-activation restoration boundaries. Cold-child image preflight can still inspect historical `agent.options` before current routing takes effect. Unresolvable presets and missing or unsafe identity remain refused; see [recovery boundaries](compatibility.md#native-history-composition). |
 | Non-disruptive hot update | No uninterrupted live-session guarantee. Retire admissions and let native owners cancel/dispose owned work; guards remain fail-closed. | Native lifecycle support that preserves active task/approval boundaries. |
 | Catalog-backed raw combinations | Rejected where the complete composition can't be reliably reproduced, regardless of native or DSMM parameter source. Standard calls aren't affected. | A public seam that can reproduce the full catalog composition and preserve native capability/effort semantics. |
@@ -36,15 +40,22 @@ Native call views show the target in collapsed rows, distinguish requested from 
 
 Search/Fetch retain the explicitly configured native provider. DSMM doesn't automatically enable a direct API, change credentials or forward the recent human question. HTTP Fake-IP behavior and network limits are maintained in [Fake-IP fetch](web-fetch-fakeip.md).
 
-## Deferred: foreground delegation controls and live model information
+## Current: live delegation route observation
+
+A read-only native Gateway stream connects admitted role/level and initial versus observed provider/model/effort to the exact parent session and tool call. Actual route evidence comes from the current child's own request header; missing or invalidated active evidence is unknown, and missing effort is not filled from the initial route. Settled observations remain frozen. Descendant-session observation uses verified live lineage without widening root/direct-child mutation controls.
+
+Repeated provider call IDs continue to execute normally. When the client cannot disambiguate a reused call ID, live observation for that key is removed; each final tool result retains its own child-bound metadata. Disconnects and observer disposal never transfer execution, cancel the child or create another completion owner.
+
+The isolated rc.1 CLI/Gateway acceptance covers observation before foreground completion, independent-peer refusal, child read-only scope, observer disposal and repeated call IDs. Production browser WebSocket/DOM and visual card acceptance remain unverified.
+
+## Deferred: foreground delegation handoff
 
 Reassess after DSH updates. The pinned `0.2.1-rc.2` API fixes activation delivery to `caller` or `parent` at startup and exposes no public running-activation handoff. DSMM must not take over completion notification or patch Host internals to supply it.
 
 - Allow users to click **Run in background** on an active DSMM delegation started without `run_in_background: true`. Continue the same activation without cancellation, restart or duplicate dispatch; DSH retains execution, cancellation and completion-delivery ownership.
 - Add an option extending manual handoff to foreground delegations involving non-DW Agents while Deepwork is enabled, covering both non-DW callers and non-DW targets. Dispatches that already run in the background need no change; the current native `subagent` tool already uses parent delivery and returns immediately.
-- Show the role, level, provider/model and reasoning effort during foreground execution rather than waiting for the final tool result. Distinguish the captured initial route from the actual observed request route, including fallback changes; unavailable actual information must not be presented as confirmed.
-- On a candidate DSH update, check for a public same-activation handoff API and its completion/cancellation race semantics. Separately assess live invocation-to-tool-card correlation and updates through supported client channels: missing generic tool-progress metadata in rc.2 does not establish that all DSMM client-side reporting is impossible.
-- Acceptance requires one native completion delivery, no duplicate execution, unchanged permission and ownership checks, correct handling of completion racing a click, and timely model information before completion. Verify the non-DW option in both states and leave already-background calls untouched. Do not expose an ineffective switch or upgrade/install DSH automatically.
+- On a candidate DSH update, check for a public same-activation handoff API and its completion/cancellation race semantics. Read-only live invocation metadata uses a separate supported client channel and does not transfer execution or delivery ownership.
+- Acceptance requires one native completion delivery, no duplicate execution, unchanged permission and ownership checks, and correct handling of completion racing a click. Verify the non-DW option in both states and leave already-background calls untouched. Do not expose an ineffective switch or upgrade/install DSH automatically.
 
 ## Current: native history loading, including the DSMM 0.2.x compatibility target
 
@@ -118,13 +129,22 @@ The extension must preserve the existing interception scope. Native reads that d
 - The target is configuration-derived elevation only in actual standing `workspace-write`, with no configured writes in `read-only` and no redundant approval in standing full access. Preserve native deny/never/cancellation, independent approval requirements and the finality of manual approval for the same call. This mode-boundary correction is not delivered; existing permission behavior remains unchanged.
 - Reassess when a supported public source-binding contract becomes available. Verify direct native loading, scoped policy/executor differences, aliases, loading order and asynchronous mode changes through actual approvals and executor policy before implementing. Do not infer authority from tool names, reason text or a controller's unrelated scope, patch Host packages, or upgrade DSH automatically.
 
-## Planned: external-path and temporary-directory grants
+## Planned: external-path grants and native temporary-directory policy
 
-- Outside-workspace read policy and native external write/edit refusal already exist. The missing capability is configurable exact-path/tree grants, particularly external writes and dedicated temporary-directory writes, consistently enforced by file tools and shell execution.
-- Reassess the available public DSH interfaces before choosing an implementation. This capability remains deferred rather than blocking command-pattern or configuration improvements.
-- Target independent read and write permissions for exact paths or directory trees: normal workspace writes, configured external reads, and writes only to explicitly authorized external locations. A dedicated system-temp `dsh` subtree is a useful opt-in scope for creating, editing and cleaning Agent-owned temporary files; it must not grant access to the entire system temp directory or authorize deleting unrelated files.
-- DSH `0.2.1-rc.2` has no additional writable-root field in its standard execution policy. Its Windows backend supplies a private per-session/workspace `dsh-*` directory through child-process `TMP`/`TEMP`; this is neither a configurable fixed `temp/dsh` grant nor proof that native file tools share the same allowance.
-- Broader support depends on public Host path-grant interfaces consumed consistently by native file tools and shell confinement. Preserve readonly, resolve path/link boundaries, and verify that adjacent unapproved locations remain unwritable. Do not expose a nonfunctional setting, substitute full access, or implement a private ACL framework in DSMM.
+- Outside-workspace read policy and native external write/edit refusal already exist. Configurable exact-path/tree grants remain subject to enforcement shared by file tools and shell execution.
+- Temporary-directory access follows the full default allowance of the selected DSH mode and backend. DSMM does not narrow that allowance to a dedicated `temp/dsh` subtree. Preserve readonly and explicit deny rules; permission to use temporary storage does not authorize deleting unrelated temporary files.
+- Describe each backend's actual temporary-directory scope accurately. Windows child-process `TMP`/`TEMP` may point to a private session/workspace directory; native file-tool allowances and process confinement must not be presented as identical without evidence.
+- DSH `0.2.1-rc.2` has no additional writable-root field. DSH `0.2.2-rc.1` exposes `additionalWritableRoots`, but its bundled Windows ACL backend rejects additional writable directories. Single-file and independent read/write grants remain separate capability gaps.
+- Broader path support requires public Host enforcement, readonly preservation, path/link validation and rejection of adjacent unapproved locations. Unsupported scopes must not silently become full access or a private ACL framework.
+
+## Deferred: granular sandbox access switches
+
+- Investigate independently controlled sandbox capability extensions in a later task. This capability is outside the current implementation scope; do not add configuration fields or UI switches that have no enforceable effect.
+- The intended system-certificate compatibility extension is enabled by default once a supported, verified implementation exists. Disabling it must remove that extension for subsequent executions without changing unrelated sandbox policy. TLS certificate verification stays enabled in both states.
+- First establish the cause of Windows curl/Git Schannel failures and the exact required objects, endpoints and access rights. `SEC_E_NO_CREDENTIALS` alone does not identify a missing certificate-store path or prove which permission is needed.
+- DSH `0.2.2-rc.1` exposes file-effect modes and directory roots, not per-process certificate, CNG or RPC endpoint grants. A certificate extension requires a supported Host/runner/native-helper mechanism; adding a DSMM boolean or writable directory cannot supply it.
+- Any Host/native-helper work is separately scoped. Do not modify the installed runtime, system-wide endpoint ACLs or certificate stores, silently change TLS backends, disable verification or broaden to full access as a default remedy.
+- Acceptance requires isolated Windows curl and Git Schannel execution with the extension on and off, preserved TLS verification, rejection of unrelated external writes, readonly preservation and clear configured-versus-effective capability status. Unsupported backends remain explicit; no success claim comes from saving a setting alone.
 
 ## Upstream follow-up: Windows Git Schannel
 
@@ -139,6 +159,8 @@ The extension must preserve the existing interception scope. Native reads that d
 - **Await supported Host contracts:** exact external write/tree grants shared by file tools and shell; safe configuration changes during active execution; same-activation delivery transfer; non-disruptive plugin replacement; and a complete catalog-backed raw prepared-call seam. Existing catalog helpers and hot reload do not supply those stronger guarantees. Broader continuation also needs supported historical persona/composition handling and route-aware image preflight.
 
 Reassess deferred capabilities against concrete public Host API changes. A newer release within the supported range does not by itself establish that the missing contracts or their acceptance evidence are available.
+
+The [DSH 0.2.2-rc.1 adaptation summary](superpowers/plans/2026-11-05-dsh-0.2.2-rc1-adaptation.md) defines the delivered dual-Host behavior, verification and remaining limits. Later RC or stable releases require exact-version interface and runtime verification before broader compatibility claims. Deferred capabilities remain subject to their public Host contracts.
 
 ## Publication and Desktop installation
 
