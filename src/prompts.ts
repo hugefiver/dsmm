@@ -2,10 +2,12 @@ import type { DshLlmCallConfig } from "./dsh-types.js";
 import type { ToolSchema } from "@deepseek-ai/dsh-llm";
 import { readPromptAsset as asset, readSharedPromptAsset, SOURCE_ROLE_CATALOG, splitCategory } from "./prompt-content.js";
 import type { SourceRoleContent } from "./prompt-content.js";
-import type { DsmmLocale, DsmmSettings } from "./settings.js";
+import type { DsmmSettings } from "./settings.js";
 import type { DsmmInvocationView, DsmmRoleAvailabilityState, SubagentRuntimeAdmissionView } from "./profile-types.js";
 import type { DsmmCallableEntry } from "./role-subagents.js";
 import { recognizeModelName } from "./model-family.js";
+import { buildDsmmLocaleGuidance } from "./locale-guidance.js";
+export { buildDsmmLocaleGuidance } from "./locale-guidance.js";
 export { SOURCE_ROLE_CATALOG, buildRolePersona } from "./prompt-content.js";
 export type { SourceRoleContent } from "./prompt-content.js";
 
@@ -69,19 +71,6 @@ export interface DsmmPromptObservation {
   };
 }
 
-const localeNames: Record<DsmmLocale, string> = {
-  en: "English", "zh-Hans": "Simplified Chinese", "zh-Hant": "Traditional Chinese", ja: "Japanese", ko: "Korean",
-  de: "German", fr: "French", es: "Spanish", "pt-BR": "Brazilian Portuguese", ru: "Russian"
-};
-
-export function buildDsmmLocaleGuidance(settings: Pick<DsmmSettings, "locale">): string {
-  return `<dsmm-visible-output-language>
-${JSON.stringify({ capturedLocale: settings.locale ?? null, visibleOutputLanguage: settings.locale === undefined ? null : localeNames[settings.locale] })}
-${settings.locale === undefined ? "No DSMM locale is captured; inherit applicable host/user language guidance, otherwise use the current request and conversation context." : `This Agent's immutable captured locale is ${settings.locale} (${localeNames[settings.locale]}). Use it as the default for visible replies, plans and role/category output.`}
-The current user's explicit output-language request takes precedence. Preserve that instruction in child assignments. A parent's later profile change does not rewrite this child's captured preference. Preserve code, identifiers, commands, paths, protocol fields and exact quotations verbatim. This affects visible output only: it neither promises an internal reasoning language nor changes the host UI/project locale. Do not infer configuration or authority with natural-language matching.
-</dsmm-visible-output-language>`;
-}
-
 function toolProperties(tool: ToolSchema): Record<string, Record<string, unknown>> {
   return (tool.parameters.properties ?? {}) as Record<string, Record<string, unknown>>;
 }
@@ -89,16 +78,15 @@ function toolProperties(tool: ToolSchema): Record<string, Record<string, unknown
 // Output projection must not serialize credentials/extra properties on structurally compatible DTOs.
 function projectInvocation({ routeKind, view }: NonNullable<DsmmPromptObservation["invocation"]>) {
   return { routeKind, view: {
-    role: view.role, label: view.label, level: view.level, routeSource: view.routeSource, mode: view.mode,
-    ...(view.route === undefined ? {} : { route: { provider: view.route.provider, model: view.route.model,
-      ...(view.route.reasoningEffort === undefined ? {} : { reasoningEffort: view.route.reasoningEffort }) } }),
+    role: view.role, level: view.level, routeSource: view.routeSource, mode: view.mode,
+    ...(view.route?.reasoningEffort === undefined ? {} : { route: { reasoningEffort: view.route.reasoningEffort } }),
     ...(view.runId === undefined ? {} : { runId: view.runId }), ...(view.childId === undefined ? {} : { childId: view.childId }),
     ...(view.jobId === undefined ? {} : { jobId: view.jobId })
   } };
 }
 
-/** Register independently of the common-mode section, in the exact Agent scope. */
-export function buildDsmmAgentGuidance(settings: DsmmSettings, observed: DsmmPromptObservation): string {
+/** Render callable delegation and lifecycle observations without repeating Agent locale. */
+export function buildDsmmDelegationGuidance(settings: DsmmSettings, observed: DsmmPromptObservation): string {
   const availability = new Map(observed.roleAvailability?.map(row => [row.id, row]));
   const delegation = observed.delegation.flatMap(entry => {
     const tool = observed.tools.find(tool => tool.name === entry.name);
@@ -134,7 +122,7 @@ export function buildDsmmAgentGuidance(settings: DsmmSettings, observed: DsmmPro
     browserPromptSurface: liveDelivery ? observed.capabilities?.nativeBrowserPrompt?.surface ?? null : null,
     ...(runtime === undefined ? {} : { runtimeAdmission: runtime })
   };
-  const sections = [buildDsmmLocaleGuidance(settings), `<dsmm-admitted-delegation>
+  const sections = [`<dsmm-admitted-delegation>
 ${JSON.stringify({ scope: observed.scope, topology: settings.subagents.toolTopology, delegation,
     controls: controls.map(tool => ({ tool: tool.name, parameters: Object.keys(toolProperties(tool)) })),
     ...(observed.roleAvailability === undefined ? {} : { roleAvailability: observed.roleAvailability.map(row => ({ id: row.id, admitted: row.admitted, ...(row.reason === undefined ? {} : { reason: row.reason }) })) }) }, null, 2)}
@@ -154,6 +142,10 @@ Official Registry, SubagentRuntime and JSONL services own execution, result deli
 Native capacity/depth, provider support, direct-parent ownership, captured permissions and cancellation remain mandatory in every branch. No OpenCode task_id/resume/retry protocol is supplied.
 </dsmm-child-lifecycle>`);
   return sections.join("\n\n---\n\n");
+}
+
+export function buildDsmmAgentGuidance(settings: DsmmSettings, observed: DsmmPromptObservation): string {
+  return [buildDsmmLocaleGuidance(settings), buildDsmmDelegationGuidance(settings, observed)].join("\n\n---\n\n");
 }
 
 export function buildDeepworkPrompt(

@@ -1,8 +1,4 @@
-<deepwork-mode>
-
-# CLAUDE OPUS 5 EXECUTION CALIBRATION
-
-Apply this additive layer only to a Claude Opus 5 or 5.5 orchestrator (including valid dated or named snapshots). The role prompt, workflow rules, explicit user configuration/authorization, verification requirements including required evidence/review, applicable loaded skills, and effective terminal policies remain authoritative and override this additive calibration.
+# Bounded Execution
 
 ## Scope fidelity
 
@@ -21,10 +17,8 @@ Apply this additive layer only to a Claude Opus 5 or 5.5 orchestrator (including
 - Reuse passing evidence while it still covers the claim and no change materially affects tested behavior or interfaces; rerun only affected or missing checks.
 - Preserve every required final review and required evidence; efficiency never removes them.
 - Prefer a path, a commit, or the uncommitted working-tree change over an invented hash, checksum, or revision stamp. Treat RED/GREEN as evidence at a real deterministic seam rather than a universal gate.
-- Opus 5 tends to expand process: scale it to the request rather than defaulting upward, and recheck only what the current step depends on when runtime or path state drifts.
+- Scale process to the request rather than defaulting upward, and recheck only what the current step depends on when runtime or path state drifts.
 
 ## Communication
 
 - Start with one sentence stating the intended outcome, stay quiet between tool calls, and finish with a short outcome-first report.
-
-</deepwork-mode>

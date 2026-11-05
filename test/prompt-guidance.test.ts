@@ -134,11 +134,16 @@ test("observed invocation survives assembly without draft or parent-policy synth
   const view = Object.freeze({ role: "dsmm-reviewer" as const, label: 'Review `src/검토.ts`', level: "max" as const, routeSource: "level" as const,
     route: Object.freeze({ provider: "fixture", model: "actual-fallback", reasoningEffort: "high" }), mode: "continuable" as const, childId: "durable-child" });
   const observed: DsmmPromptObservation = { scope: "child", delegation: [], tools: [], invocation: { view, routeKind: "actual" } };
+  const projected = { routeKind: "actual", view: { role: view.role, level: view.level, routeSource: view.routeSource,
+    route: { reasoningEffort: view.route.reasoningEffort }, mode: view.mode, childId: view.childId } };
   const prompt = buildDsmmAgentGuidance(settings, observed);
-  assert.deepEqual(block(prompt, "dsmm-observed-invocation"), observed.invocation);
+  assert.deepEqual(block(prompt, "dsmm-observed-invocation"), projected);
+  assert.equal(prompt.includes(view.label), false); assert.equal(prompt.includes(view.route.provider), false); assert.equal(prompt.includes(view.route.model), false);
   assert.equal(language(prompt).capturedLocale, "ko");
-  assert.deepEqual(block(buildDsmmAgentGuidance(settings, { ...observed, invocation: { view, routeKind: "initial" } }), "dsmm-observed-invocation"), { view, routeKind: "initial" });
-  assert.equal(view.childId, "durable-child"); assert.equal(settings.roleRouting["dsmm-reviewer"]?.primary?.provider, "draft");
+  assert.deepEqual(block(buildDsmmAgentGuidance(settings, { ...observed, invocation: { view, routeKind: "initial" } }), "dsmm-observed-invocation"), { ...projected, routeKind: "initial" });
+  assert.deepEqual(view, { role: "dsmm-reviewer", label: 'Review `src/검토.ts`', level: "max", routeSource: "level",
+    route: { provider: "fixture", model: "actual-fallback", reasoningEffort: "high" }, mode: "continuable", childId: "durable-child" });
+  assert.equal(settings.roleRouting["dsmm-reviewer"]?.primary?.provider, "draft");
 });
 
 test("model-facing DTO projection removes extra secret fields at every nested observation boundary while preserving valid state", async () => {
@@ -159,7 +164,12 @@ test("model-facing DTO projection removes extra secret fields at every nested ob
       const prompt = renderPrompt(await ctx.systemPrompt.assemble());
       assert.equal(prompt.includes(secret), false, "extra DTO fields must not enter actual model context");
       assert.deepEqual((block(prompt, "dsmm-child-lifecycle-state") as Record<string, unknown>).runtimeAdmission, runtime);
-      assert.deepEqual(block(prompt, "dsmm-observed-invocation"), invocation);
+      assert.deepEqual(block(prompt, "dsmm-observed-invocation"), { routeKind: "actual", view: {
+        role: invocation.view.role, level: invocation.view.level, routeSource: invocation.view.routeSource,
+        route: { reasoningEffort: invocation.view.route.reasoningEffort }, mode: invocation.view.mode,
+        childId: invocation.view.childId, runId: invocation.view.runId, jobId: invocation.view.jobId
+      } });
+      assert.deepEqual(invocation.view.route, { provider: "fixture", model: "observed-route", reasoningEffort: "high" });
   } finally { await ctx.fiber.dispose(); }
 });
 

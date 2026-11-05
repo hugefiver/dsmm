@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { BASE_DEEPWORK_PROMPT, SOURCE_ROLE_CATALOG, buildDeepworkPrompt, buildRolePersona } from "../lib/prompts.js";
+import { BASE_DEEPWORK_PROMPT, SOURCE_ROLE_CATALOG, buildDeepworkPrompt, buildRolePersona, roleModelCalibration } from "../lib/prompts.js";
 import { DSMM_ROLES } from "../lib/roles.js";
 import { DEFAULT_DSMM_SETTINGS } from "../lib/settings.js";
 
@@ -41,6 +41,35 @@ test("buildDeepworkPrompt accepts composition section override", () => {
   assert.match(prompt, /Custom dsmm section for deepwork/);
   assert.doesNotMatch(prompt, /DEEPWORK MODE ENABLED/);
   assert.match(prompt, /policy: risk-based/);
+});
+
+test("selected calibration keeps route metadata out of the model-facing prompt", () => {
+  const route = Object.freeze({ provider: "private-provider-sentinel", model: "gpt-6.1-sol-private-model-sentinel" });
+  const prompt = buildDeepworkPrompt(DEFAULT_DSMM_SETTINGS, { selectedPreset: "dsmm-builder", route });
+  assert.equal(prompt.includes(route.provider), false);
+  assert.equal(prompt.includes(route.model), false);
+  assert.equal(prompt.split("<workflow-model-calibration>").length - 1, 1);
+  assert.deepEqual(route, { provider: "private-provider-sentinel", model: "gpt-6.1-sol-private-model-sentinel" });
+});
+
+test("real selected calibration layers expose no model or family identity", () => {
+  const forbiddenIdentity = /(?:^|[^a-z0-9])(?:gpt|codex|claude|opus|gemini|argon|glm|kimi|fable|swe)(?=$|[^a-z0-9])/iu;
+  for (const [roleId, model] of [
+    ["dsmm-builder", "gpt-6.1-sol"],
+    ["dsmm-builder", "gpt-5.5-codex"],
+    ["dsmm-builder", "gemini-3.1-pro"],
+    ["dsmm-builder", "gemini-4.1-pro"],
+    ["dsmm-builder", "glm-5.3"],
+    ["dsmm-builder", "kimi-k3.1"],
+    ["dsmm-builder", "swe-2-fast"],
+    ["dsmm-orchestrator", "claude-opus-5"],
+    ["dsmm-planner", "custom-unmatched"]
+  ] as const) {
+    const role = SOURCE_ROLE_CATALOG.find(row => row.id === roleId)!;
+    const calibration = roleModelCalibration(role, model);
+    assert.ok(calibration.length > 0, `${roleId}/${model} must select a calibration layer`);
+    assert.doesNotMatch(calibration, forbiddenIdentity, `${roleId}/${model} leaked model identity`);
+  }
 });
 
 test("default prompt delivery includes one slop guide while runtime disablement removes it", () => {
@@ -107,7 +136,8 @@ test("all source role/category bodies assemble once and category family blocks s
     const role = DSMM_ROLES.find((role) => role.id === row.id)!;
     assert.equal(role.persona, buildRolePersona(row));
     const assembled = `${role.persona}\n${buildDeepworkPrompt(DEFAULT_DSMM_SETTINGS, { selectedPreset: role.id, route: { provider: "fixture", model: "gpt-6.1-sol" } })}`;
-    assert.equal((assembled.match(/# GPT EXECUTION CALIBRATION/gu) ?? []).length, 1, role.id);
+    assert.equal(assembled.split("<workflow-model-calibration>").length - 1, 1, role.id);
+    assert.equal(assembled.split("</workflow-model-calibration>").length - 1, 1, role.id);
     assert.equal((assembled.match(/# Deepwork Workflow Prompt - default/gu) ?? []).length, 1, role.id);
     assert.equal((assembled.match(/# Shell Command Safety/gu) ?? []).length, 1, role.id);
     assert.doesNotMatch(role.persona, /<model-calibration model=/u);

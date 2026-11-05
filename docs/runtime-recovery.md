@@ -1,6 +1,6 @@
 # Runtime recovery and route strategies
 
-DSMM 0.3.16 targets exactly DSH `0.2.1-rc.2`.
+DSMM recovery runs inside the native DSH request loop. See [Host compatibility](compatibility.md) for supported versions and same-step route-switch limitations.
 
 ## Independent role strategies
 
@@ -19,9 +19,11 @@ With the default deployment policy `rootModelPolicy: "native"`, root model and e
 | `switchAfterRateLimits` | 3 | 1 to 10 |
 | `maxSwitches` | 2 | 0 to 10 |
 
-`maxRetries` counts requests after the first on a route; the threshold includes the first distinct failure. Exhausted retry budget stops the attempt even before the switch threshold. Switches consume a finite scope budget. Invalid values refuse instead of becoming different defaults.
+`maxRetries` limits same-route retries after the first request; `switchAfterRateLimits` counts the first distinct failure. Before the switch threshold, exhausted retry budget ends recovery. A permitted switch uses the separate switch budget; when the Host forbids same-step switching, recovery remains on the current route and obeys `maxRetries`. Invalid values refuse instead of becoming different defaults.
 
-`roleRouting.<role>.fallbackRoutes` owns its full route/parameter sets. Explicit `[]` suppresses inherited alternatives; omission inherits the applicable chain. A fallback doesn't inherit primary-only parameters. Omitted effort clears stale explicit effort. `runtimeRecovery.enabled` isn't the role strategy selector, and retained generic status/code lists don't authorize arbitrary transport/server retries or channel hopping.
+`roleRouting.<role>.fallbackRoutes` owns its full route/parameter sets. Explicit `[]` suppresses inherited alternatives; omission inherits `runtimeRecovery.fallbackRoutes`. A fallback doesn't inherit primary-only parameters. Omitted effort clears stale explicit effort.
+
+`runtimePolicy` and role-level `strategy` / `rateLimit` control DSMM request recovery. `runtimeRecovery.enabled` gates idle continuation, not role rate-limit retries. The retained `runtimeRecovery.retryOnStatusCodes` and `retryOnCodes` lists do not drive this request-error handler: adding a server status or failure code there does not enable retries for it. Other failures are passed to the native recovery chain, whose effective provider `retryPolicy` determines eligibility and bounds; forwarding alone does not establish that a retry will occur.
 
 ## Positive no-output proof and native execution
 

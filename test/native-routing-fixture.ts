@@ -119,6 +119,8 @@ export async function nativeFixturePlugin(name: string, peer?: string) {
 }
 
 export async function nativeRoutingFixture(config: DsmmPluginConfig = {}, options: { headless?: boolean; spawn?: boolean; profileDir?: string; home?: string; nativePresets?: boolean; isolatedPrompt?: boolean; persistence?: boolean;
+  withoutSubagents?: boolean;
+  harnessIdentity?: string;
   persistenceRoot?: string;
   dsmmLlm?: boolean;
   controller?: boolean;
@@ -161,10 +163,12 @@ export async function nativeRoutingFixture(config: DsmmPluginConfig = {}, option
     const managedRuntime = options.managedRuntime ?? options.spawn !== false;
     const fibers = [
       ctx.plugin(AgentRegistry), ctx.plugin(SessionStore), ctx.plugin(SessionProjectionRegistry),
-      ctx.plugin(options.dsmmLlm ? DsmmNativeLlmRuntime : LlmRuntime), ctx.plugin(SystemPrompt, {}), ctx.plugin(ToolRuntime, { mode: "native" }),
-      ctx.plugin(SubagentRuntime, options.nativeSubagents ?? {}), ctx.plugin(SkillRegistry, {})
+      ctx.plugin(options.dsmmLlm ? DsmmNativeLlmRuntime : LlmRuntime), ctx.plugin(SystemPrompt, { includeHarnessIdentity: options.harnessIdentity === undefined }), ctx.plugin(ToolRuntime, { mode: "native" }),
+      ...options.withoutSubagents ? [] : [ctx.plugin(SubagentRuntime, options.nativeSubagents ?? {})], ctx.plugin(SkillRegistry, {})
     ];
     await Promise.all(fibers.map((fiber) => fiber.await()));
+    if (options.harnessIdentity !== undefined) ctx.systemPrompt.section({ name: "harness:identity",
+      order: ctx.systemPrompt.getSectionOrder("HARNESS_IDENTITY"), text: options.harnessIdentity });
     if (options.nativeFs || process.env.DSMM_TEST_DSH_ENTRY) {
       const fsLocal = await nativeFixturePlugin("@deepseek-ai/dsh-fs-local");
       await ctx.plugin(fsLocal.default, { cwd: fixtureDir }).await();
@@ -267,11 +271,12 @@ export async function nativeRoutingFixture(config: DsmmPluginConfig = {}, option
     }
     const loopFiber = ctx.plugin(AgentLoop, {});
     await loopFiber.await();
-    const spawnFiber = options.spawn === false ? undefined : ctx.plugin(nativeSpawn, { providerName: "spawn" });
+    const spawnFiber = options.spawn === false || options.withoutSubagents ? undefined : ctx.plugin(nativeSpawn, { providerName: "spawn" });
     await spawnFiber?.await();
     const agents = ctx.get("agents");
-    const subagents = ctx.get("subagents");
-    assert.ok(agents && subagents);
+    const subagents = ctx.get("subagents")!;
+    assert.ok(agents);
+    if (!options.withoutSubagents) assert.ok(subagents);
     const handles: AgentHandle[] = [];
     const auxiliaryRuns = new Map<Agent, { dispose(): void | Promise<void>; parent: Agent }>();
     const create = async (meta: CreateAgentOptions["meta"] = {}, selection?: ModelSelectionRef, extra: Partial<CreateAgentOptions> = {}): Promise<Agent> => {

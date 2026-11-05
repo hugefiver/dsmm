@@ -14,6 +14,7 @@ import type { DshAgent as PackageDshAgent, DshContext, DshSkillCandidate, DshSki
 import { registerSafetyGuards } from "../lib/guards.js";
 import { resolveManagedPresetRoot } from "../lib/preset-materializer.js";
 import { DSMM_ROLE_IDS, DSMM_ROLES } from "../lib/roles.js";
+import { buildRoleIdentity } from "../lib/prompt-content.js";
 import { resolveConfig } from "../lib/settings.js";
 import { DSMM_SKILL_NAMES, bundledSkillMetadata, readBundledSkill, registerBundledSkills } from "../lib/skills.js";
 import { DeepworkModeController } from "../lib/state.js";
@@ -67,6 +68,48 @@ test("A regression: actual Agent scope-only assembly resolves common without con
   } finally { await f.dispose(); }
 });
 
+test("admission injects configured locale and one legal role identity without a subagent runtime", async () => {
+  const suppliedIdentity = "You are powered by supplied auto/glm-5.3.";
+  const f = await nativeRoutingFixture({ defaultActive: true, locale: "zh-Hans" }, {
+    nativePresets: true, spawn: false, withoutSubagents: true, harnessIdentity: suppliedIdentity
+  });
+  try {
+    assert.equal(f.ctx.get("subagents"), undefined);
+    const publicPrompt = await f.ctx.systemPrompt.assemble();
+    assert.equal(publicPrompt.sections.filter(section => section.name === "harness:identity").length, 1);
+    assert.ok(renderPrompt(publicPrompt).includes(suppliedIdentity));
+    const agent = await f.create({ agentPreset: "standard" });
+    const assembled = await f.ctx.systemPrompt.assemble({ scope: agent });
+    const prompt = renderPrompt(assembled);
+    const identity = buildRoleIdentity(DSMM_ROLES.find(role => role.id === "dsmm-orchestrator")!);
+    assert.equal(assembled.sections.filter(section => section.name === "harness:identity").length, 1);
+    assert.equal(prompt.includes(suppliedIdentity), false);
+    assert.equal(prompt.split(identity).length - 1, 1);
+    assert.equal(prompt.split("<dsmm-visible-output-language>").length - 1, 1);
+    assert.match(prompt, /"capturedLocale":"zh-Hans"/u);
+    assert.equal(agent.ctx.tools.schemas(agent).some(schema => schema.name.startsWith("dsmm_")), false);
+    await runFixtureTurn(agent);
+    const system = JSON.stringify(f.adapter.calls.at(-1)?.messages.filter(message => message.role === "system"));
+    assert.match(system, /capturedLocale\\":\\"zh-Hans/u);
+    assert.equal(system.includes(suppliedIdentity), false);
+    assert.equal(system.split(identity).length - 1, 1);
+  } finally { await f.dispose(); }
+});
+
+test("ordinary mode-off with unset locale falls back without an empty DSMM block", async () => {
+  const f = await nativeRoutingFixture({}, { nativePresets: true, spawn: false });
+  try {
+    const agent = await f.create({ agentPreset: "standard" });
+    await runFixtureTurn(agent);
+    const system = JSON.stringify(f.adapter.calls.at(-1)?.messages.filter(message => message.role === "system"));
+    assert.equal(system.includes("<dsmm-visible-output-language>"), false);
+    for (const role of DSMM_ROLES) assert.equal(system.includes(buildRoleIdentity(role)), false, role.id);
+    assert.equal(system.includes("DEEPWORK MODE ENABLED!"), false);
+    assert.equal(agent.ctx.tools.schemas(agent).some(schema => schema.name.startsWith("dsmm_")), false);
+    assert.deepEqual(await f.ctx.skills.list({ scope: agent }), []);
+  } finally { await f.dispose(); }
+});
+
 test("A regression: ordinary active native request never assembles bundled skill bodies", async () => {
   const f = await nativeRoutingFixture({ defaultActive: true });
   try {
@@ -99,8 +142,8 @@ test("actual isolated prompt realm has no Host service and preserves literal/ord
   } finally { await f.dispose(); }
 });
 
-test("role persona survives while durable explicit off wins over role common", async () => {
-  const f = await nativeRoutingFixture({ roles: { ...noRoles, "dsmm-orchestrator": true } }, { nativePresets: true, nativeFs: true });
+test("role persona and configured locale survive while durable explicit off wins over role common", async () => {
+  const f = await nativeRoutingFixture({ locale: "de", roles: { ...noRoles, "dsmm-orchestrator": true } }, { nativePresets: true, nativeFs: true });
   try {
     const agent = await f.create({ agentPreset: "dsmm-orchestrator" });
     assert.equal(scopeOf(agent.ctx), agent); assert.notEqual(scopeParentOf(agent), agent);
@@ -111,6 +154,8 @@ test("role persona survives while durable explicit off wins over role common", a
       const prompt = renderPrompt(await f.ctx.systemPrompt.assemble({ scope: agent }));
       assert.equal(prompt.match(/^You are DW .+$/gmu)?.length, 1, "mode changes retain one role identity");
       assert.ok(prompt.startsWith(`You are ${role.name}.\n`));
+      assert.equal(prompt.split("<dsmm-visible-output-language>").length - 1, 1);
+      assert.match(prompt, /"capturedLocale":"de"/u);
       return prompt;
     };
     const persona = role.persona;

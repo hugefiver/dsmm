@@ -7,8 +7,9 @@ not read a parent or sibling repository.
 ## Toolchain
 
 Use Node.js 24 for CI/release and pnpm 11.9.0. The package still supports Node.js
-22 or later at runtime and supports DSH `>=0.2.1-rc.2 <0.3.0`, with rc.2 as the
-development dependency baseline. Do not change the npm
+22 or later at runtime. Supported Host versions are listed in
+[compatibility](compatibility.md), with `0.2.1-rc.2` as the development dependency
+baseline. Do not change the npm
 name `@dsmm/dsmm`, package version, or DSH dependency line as part of routine
 maintenance unless the release or compatibility scope explicitly requires it.
 
@@ -41,13 +42,25 @@ base Deepwork prompt, run `pnpm run generate:roles`. CI uses
 stale. Generated assets are package resources, not an alternate source of truth.
 
 Model guidance is subordinate to the selected role and native DSH host contract.
-Kimi models share one current-generation `deepwork/kimi.md` calibration; older
-generations have no separately maintained prompt. Gemini 4.x, including Argon,
-receives a guarded `gemini-4` additive layer based on generic Gemini guidance.
-Prompt selection does not change provider, effort, fallback chains or DSH model
-capabilities.
+Model identifiers and families select resources in code; calibration text, headings
+and tags are model-neutral. Source filenames retain selector identities. Kimi
+models share `deepwork/kimi.md`; Gemini 4.x, including Argon, receives the selected
+`gemini-4` additive layer. No injected self-identification or textual model guard
+is needed. Prompt selection does not change provider, effort, fallback chains or
+DSH model capabilities.
 
-GPT/Codex guidance requires direct user-facing conclusions, reasons and actions.
+Locale guidance is registered in the exact Agent scope independently of Deepwork
+mode, the Deepwork module and subagent tools. It uses that Agent's captured
+settings; a parent's later changes do not rewrite an existing child's locale.
+Explicit user language requests take precedence. The setting governs visible
+output, not internal reasoning or the Host UI. Role identity overrides use the
+native scoped `harness:identity` section; provider-side hidden system instructions
+are outside this registration boundary.
+
+The invocation projection in the system prompt omits provider/model identifiers.
+Actual request routes and native UI observations retain their original metadata.
+
+Execution guidance requires direct user-facing conclusions, reasons and actions.
 Use contrast or negation for an expressed misconception or a distinction that
 changes the conclusion, action, safety or scope. State necessary conditions,
 uncertainty and safety limits concretely and once; remove sentences that add no

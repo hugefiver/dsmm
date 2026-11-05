@@ -90,6 +90,31 @@ test("started idle root switches A to B and baseline for actual requests and new
   } finally { await f.dispose(); }
 });
 
+test("Agent-scope locale rebind changes only the selected root and disposal cannot pollute a foreign root", async () => {
+  const f = await nativeRoutingFixture({ defaultActive: true, locale: "en" });
+  try {
+    const runtime = runtimeOf(f), root = await f.create({ agentPreset: "standard" }), foreign = await f.create({ agentPreset: "standard" });
+    const foreignAdmission = runtime.admission(structural(foreign));
+    const saved = await runtime.save({ id: "locale-ja", expectedRevision: null,
+      content: JSON.stringify({ version: 1, id: "locale-ja", settings: { defaultActive: true, locale: "ja" } }) });
+    await runtime.selectSession(await request(runtime, root, saved.id, saved.revision), structural(root));
+    assert.equal(runtime.admission(structural(root)).settings.locale, "ja");
+    assert.equal(runtime.admission(structural(foreign)), foreignAdmission);
+    await runFixtureTurn(root); await runFixtureTurn(foreign);
+    const rootSystem = JSON.stringify(f.adapter.calls.filter(call => call.sessionId === root.id).at(-1)!.messages.filter(message => message.role === "system"));
+    const foreignSystem = JSON.stringify(f.adapter.calls.filter(call => call.sessionId === foreign.id).at(-1)!.messages.filter(message => message.role === "system"));
+    assert.match(rootSystem, /capturedLocale\\":\\"ja/u);
+    assert.match(foreignSystem, /capturedLocale\\":\\"en/u);
+    assert.equal(rootSystem.split("<dsmm-visible-output-language>").length - 1, 1);
+    assert.equal(foreignSystem.split("<dsmm-visible-output-language>").length - 1, 1);
+    await f.disposeAgent(root);
+    await runFixtureTurn(foreign);
+    const afterDispose = JSON.stringify(f.adapter.calls.filter(call => call.sessionId === foreign.id).at(-1)!.messages.filter(message => message.role === "system"));
+    assert.match(afterDispose, /capturedLocale\\":\\"en/u);
+    assert.equal(afterDispose.split("<dsmm-visible-output-language>").length - 1, 1);
+  } finally { await f.dispose(); }
+});
+
 test("persisted root with a fresh activation epoch switches against its observed disk revision", async () => {
   const f = await nativeRoutingFixture();
   try {

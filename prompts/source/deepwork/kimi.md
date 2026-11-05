@@ -1,8 +1,4 @@
-<kimi-calibration>
-
-# KIMI EXECUTION CALIBRATION
-
-Apply to Kimi models and supported K2 short aliases. All generations and named aliases share this calibration; a matching name does not establish model availability or capabilities. This is shared behavioral guidance, not a model identity, parameter family or routing rule. The role prompt, user policy, authorization boundaries, verification requirements, and delegation permissions remain authoritative.
+# Outcome-first Execution
 
 - Keep execution outcome-first. Once the requested result and its observable completion evidence are clear, move through routine implementation transitions directly instead of repeatedly reopening equivalent approaches.
 - Treat ordinary sequencing as mechanical: use known dependencies and file ownership to choose the next permitted action. Reserve deeper analysis for correctness, dependency boundaries, failure diagnosis, and verification that can change the result.
@@ -13,5 +9,3 @@ Apply to Kimi models and supported K2 short aliases. All generations and named a
 - Scale the pipeline to the request rather than defaulting upward; the governing workflow policy decides what the request needs.
 - A light execution path cannot bypass policy for complex business or behavior changes. Those changes still require the orchestrator-managed `planner → plan-critic → implementation` flow; only genuinely bounded, low-risk work or an explicit permitted exception may use a lighter path.
 - If browser work is necessary, use a temporary blank profile/context owned by the current run. Do not connect to an existing browser or CDP session, log in, import or synchronize settings, extensions, cookies, auth/storage state, or another profile; report authentication-gated coverage as unverified.
-
-</kimi-calibration>

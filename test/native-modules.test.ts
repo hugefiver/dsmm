@@ -18,7 +18,8 @@ import type { DsmmProfileRuntime } from "../lib/profile-runtime.js";
 import type { DsmmModuleState } from "../lib/modules.js";
 import type { DeploymentEditorSnapshot } from "../lib/profile-types.js";
 import { at } from "../lib/client/deployment-data.js";
-import { DSMM_ROLE_IDS } from "../lib/roles.js";
+import { DSMM_ROLE_IDS, DSMM_ROLES } from "../lib/roles.js";
+import { buildRoleIdentity } from "../lib/prompt-content.js";
 import { classifyDsmmAgent } from "../lib/runtime-integration.js";
 import { appendModeRecord } from "../src/session-metadata.ts";
 import { sessionEvents } from "../src/session-scope.ts";
@@ -65,7 +66,7 @@ test("real Loader module admission preserves busy captures, fences off work, and
     }
     await ctx.plugin(InertJobs).await();
   };
-  const config = { defaultActive: true, roleRouting: { "dsmm-coding": { primary: { provider: "fixture", model: "owned-child" } } },
+  const config = { defaultActive: true, locale: "ja" as const, roleRouting: { "dsmm-coding": { primary: { provider: "fixture", model: "owned-child" } } },
     runtimeRecovery: { enabled: true, idleContinuation: { enabled: true } } };
   const mounted = await nativeRoutingFixture(config, { nativePresets: true, beforeDsmm });
   const fixtures = [mounted];
@@ -176,7 +177,10 @@ test("real Loader module admission preserves busy captures, fences off work, and
     });
     await runFixtureTurn(off);
     assert.equal(mounted.adapter.calls.length, beforeDenied + 1, "off ordinary root still uses the native main model exactly once");
-    assert.doesNotMatch(JSON.stringify(mounted.adapter.calls.at(-1)!.messages), /DEEPWORK MODE ENABLED!|ROLE_PERSONA_SENTINEL/u);
+    const offSystem = JSON.stringify(mounted.adapter.calls.at(-1)!.messages.filter(message => message.role === "system"));
+    assert.match(offSystem, /capturedLocale\\":\\"ja/u);
+    for (const role of DSMM_ROLES) assert.equal(offSystem.includes(buildRoleIdentity(role)), false, role.id);
+    assert.doesNotMatch(offSystem, /DEEPWORK MODE ENABLED!|ROLE_PERSONA_SENTINEL/u);
     let standingBody = 0, standingRequest = 0;
     mounted.ctx.on("system-prompt/assemble", async (_assembly, _options, next) => { standingBody++; return next(); });
     mounted.ctx.on("agent/request", async (_frame, next) => { standingRequest++; return next(); });
@@ -339,7 +343,10 @@ test("real Loader module admission preserves busy captures, fences off work, and
     const admitted = await coldRuntime.getSession(pendingRoot as DshAgent);
     assert.equal(at(admitted.configuration?.settings, ["modules", "deepwork", "enabled"]), false);
     await runFixtureTurn(pendingRoot);
-    assert.doesNotMatch(JSON.stringify(cold.adapter.calls.at(-1)!.messages), /DEEPWORK MODE ENABLED!|ROLE_PERSONA_SENTINEL/u);
+    const pendingSystem = JSON.stringify(cold.adapter.calls.at(-1)!.messages.filter(message => message.role === "system"));
+    assert.match(pendingSystem, /capturedLocale\\":\\"ja/u);
+    for (const role of DSMM_ROLES) assert.equal(pendingSystem.includes(buildRoleIdentity(role)), false, role.id);
+    assert.doesNotMatch(pendingSystem, /DEEPWORK MODE ENABLED!|ROLE_PERSONA_SENTINEL/u);
     assert.equal(cold.ctx.get("mcp"), undefined); assert.equal(existsSync(desiredCold.profile.presets!.root!), false);
     assert.equal(coldUpdates, 0); assert.equal(coldDisposals, 0);
 

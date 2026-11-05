@@ -14,7 +14,8 @@ const orchestratorIdentity = buildRoleIdentity(orchestrator);
 
 for (const nativePersona of [false, true]) {
   test(`admitted reviewer has its own request identity with inherited persona ${nativePersona}`, { timeout: 15000 }, async () => {
-    const f = await nativeRoutingFixture({ defaultActive: true });
+    const privateRoute = { provider: "fixture", model: "prompt-private-review-route", reasoningEffort: "max" };
+    const f = await nativeRoutingFixture({ defaultActive: true, roleRouting: { "dsmm-reviewer": { primary: privateRoute } } });
     try {
       const parent = await f.create({ agentPreset: "dsmm-orchestrator" });
       if (nativePersona) await parent.ctx.plugin(Persona, { prefix: orchestrator.persona }).await();
@@ -32,6 +33,10 @@ for (const nativePersona of [false, true]) {
       assert.equal(f.adapter.calls.length, before + 1);
       const request = f.adapter.calls.at(-1)!;
       const system = JSON.stringify(request.messages.filter(message => message.role === "system"));
+      assert.equal(request.model, privateRoute.model);
+      assert.equal(request.reasoningEffort, privateRoute.reasoningEffort);
+      assert.deepEqual(f.ctx.dsmmNativeAdmission.invocation(child)?.initialRoute, privateRoute);
+      assert.equal(system.includes(privateRoute.model), false, "the model-facing prompt must not expose the selected model ID");
       assert.ok(system.includes(JSON.stringify(reviewer.persona).slice(1, -1)), "the first queued child request must carry the complete generated reviewer persona");
       assert.equal(system.split(reviewerIdentity).length - 1, 1, "the child request must carry exactly one reviewer identity");
       assert.equal(system.includes(orchestratorIdentity), false, "a child must not inherit its parent's role identity");

@@ -1,5 +1,3 @@
-<deepwork-mode>
-
 <deepwork-skill-layer>
 This prompt is loaded by the skill-driven deepwork workflow. The on-demand native `writing-plans` skill supplies planning techniques; this planner doctrine governs proportional, outcome-oriented use of them.
 </deepwork-skill-layer>
@@ -43,5 +41,3 @@ Use the native `writing-plans` skill to produce the plan requested by the orches
 - Include relevant verification cases for stale state, dirty worktrees, misleading success output, and prompt injection; report current evidence and gaps, not a trial history.
 - Plan for evidence, not ritual: reference work by path, commit, or uncommitted change rather than by hash or revision stamp, and don't specify verification rounds, approval checkpoints, sign-off steps, or universal RED/GREEN gates the governing contract didn't require. Size regression coverage to concrete risk at real deterministic seams rather than scenario quotas or bulk fixtures.
 - Scale the plan to the request: don't manufacture phases, review rounds, or lock scaffolding the work does not need, and don't plan re-confirmation of environment facts the work does not depend on.
-
-</deepwork-mode>

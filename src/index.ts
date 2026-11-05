@@ -28,6 +28,7 @@ import { registerRoleControlRpc } from "./role-control-rpc.js";
 import { nativeStandingFullAccess } from "./permission-native-access.js";
 import { DsmmProfileError } from "./profiles.js";
 import { registerLspRuntime } from "./lsp.js";
+import { registerAgentPromptScope } from "./agent-prompt-scope.js";
 
 export const name = "dsmm";
 export const inject = ["profileContext", "agents"] as const;
@@ -146,6 +147,7 @@ export async function apply(input: DshContext, config: Config = {}, startupOptio
   admission.activate(async (agent, candidate) => {
     candidate.subagentRuntime = () => runtimeAdmissionView(ctx);
     const scope = agent.ctx as DshContext;
+    registerAgentPromptScope(ctx, controller, candidate, policy, agent as DshAgent, nativeAdmission.lifetime.signal);
     if (startup.settings.modules.deepwork.enabled) {
       registerAgentSkills(scope, controller, candidate, agent as DshAgent, admission.lifetime.signal, () => !nativeAdmission.isSelecting(agent));
       registerDeepworkPrompt(scope, controller, candidate, { section: startup.profile.section ?? startup.global.section }, agent as DshAgent, admission.lifetime.signal);
