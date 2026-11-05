@@ -140,9 +140,9 @@ test("explicit series override provider hints without inventing hinted series or
   assert.equal(recognizeModelName("4.7"), undefined);
 });
 
-test("non-GPT compact family markers retain only coarse identity", () => {
+test("non-target compact family markers retain only coarse identity", () => {
   for (const [model, family] of [
-    ["gemini4", "gemini"], ["gemini4.1", "gemini"], ["glm5.1", "glm"], ["claude4.7", "claude"],
+    ["gemini3.1", "gemini"], ["gemini5.1", "gemini"], ["gemini40", "gemini"], ["glm5.1", "glm"], ["claude4.7", "claude"],
     ["fable5.5", "claude"], ["kimi5.1", "kimi"], ["deepseek4.1", "deepseek"], ["codex5.5", "codex"]
   ] as const) {
     const recognized = recognizeModelName(model)!;
@@ -154,6 +154,43 @@ test("non-GPT compact family markers retain only coarse identity", () => {
   assert.deepEqual(recognizeModelName("gemini-4.1")?.version, [4, 1, 0]);
   assert.equal(recognizeModelName("gemini-4.1")?.gemini4, true);
   assert.deepEqual(recognizeModelName("claude-opus4.7")?.version, [4, 7, 0]);
+});
+
+test("explicit Gemini 4 identities retain numeric versions and leave wildcard versions unknown", () => {
+  for (const [model, version, parts] of [
+    ["gemini-4", [4, 0, 0], 1], ["gemini4", [4, 0, 0], 1],
+    ["gemini4.1", [4, 1, 0], 2], ["gemini-4.12-pro", [4, 12, 0], 2],
+    ["gemini-4.1.2", [4, 1, 2], 3], ["gemini-4.x", undefined, undefined],
+    ["gemini-4.x-pro", undefined, undefined], ["gemini4.x-pro", undefined, undefined],
+    ["gateway/GEMINI/4/pro", [4, 0, 0], 1], ["auto.gemini_4_1", [4, 1, 0], 2]
+  ] as const) {
+    for (const suffix of ["", "@default", ":latest"]) {
+      const fullId = model + suffix;
+      const recognized = recognizeModelName(fullId)!;
+      assert.equal(recognized.family, "gemini", fullId);
+      assert.equal(recognized.gemini4, true, fullId);
+      assert.deepEqual(recognized.version, version, fullId);
+      assert.equal(recognized.versionParts, parts, fullId);
+    }
+  }
+  for (const model of ["4.x", "4.x-pro", "4.x@default", "4.x-pro:latest"]) {
+    assert.equal(recognizeModelName(model), undefined, model);
+    assert.equal(classifyModelFamily({ modelID: model }), "unknown", model);
+    assert.equal(classifyModelFamily({ providerID: "google", modelID: model }), "gemini", model);
+  }
+});
+
+test("Gemini 4 recognition rejects malformed versions and respects the first identity", () => {
+  for (const model of ["gemini-3.1-pro", "gemini-5-pro", "gemini-40-pro", "gemini3", "gemini5", "gemini40",
+    "gemini-4argon", "gemini4argon", "gemini-4.1foo", "gemini4.1foo", "gemini-4.1.2.3", "gemini4.1.2.3",
+    "gemini-4.xfoo", "gemini-4.x1", "gemini-4.x.1", "gemini-4.9007199254740992",
+    "gemini-3-gemini4.1", "gemini-gemini-4.x-pro", "gpt-6/gemini4.1", "opus5/gemini-4.x"]) {
+    assert.equal(recognizeModelName(model)?.gemini4, false, model);
+  }
+  for (const model of ["gemini-4.x-pro-gpt-6", "gemini4.1/claude-opus-5"]) {
+    assert.equal(recognizeModelName(model)?.gemini4, true, model);
+    assert.equal(recognizeModelName(model)?.family, "gemini", model);
+  }
 });
 
 test("malformed numeric spans cannot restart at later numeric series fragments", () => {

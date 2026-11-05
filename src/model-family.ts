@@ -89,6 +89,7 @@ export function recognizeModelName(model: string): ModelNameRecognition | undefi
     if (marker.index < consumedEnd) continue;
     let identifier: ModelIdentifier;
     let parsed: ReturnType<typeof readVersion>;
+    let wildcardGemini4 = false;
     let series = seriesAt(name, marker.index);
     if (/^\d/u.test(marker[0])) {
       // Numeric spans include malformed segments; never restart at their later digits.
@@ -108,9 +109,16 @@ export function recognizeModelName(model: string): ModelNameRecognition | undefi
       let start = skipSeparators(name, markerEnd);
       series = start > markerEnd ? seriesAt(name, start, identifier) : undefined;
       if (series !== undefined) start = skipSeparators(name, start + series.length);
-      parsed = start === markerEnd && identifier !== "gpt"
-        ? { version: undefined, versionParts: undefined, series: undefined, end: markerEnd }
-        : readVersion(name, start, identifier);
+      if (identifier === "gemini" && /^4\.x/u.test(name.slice(start))) {
+        const end = start + 3;
+        wildcardGemini4 = /^(?:$|[-_.\s/@:])/u.test(name.slice(end)) && !versionStartsAt(name, skipSeparators(name, end));
+        parsed = { version: undefined, versionParts: undefined, series: undefined, end };
+      } else {
+        const compactGemini4 = identifier === "gemini" && /^4(?=[^a-z0-9]|$)/u.test(name.slice(start));
+        parsed = start === markerEnd && identifier !== "gpt" && !compactGemini4
+          ? { version: undefined, versionParts: undefined, series: undefined, end: markerEnd }
+          : readVersion(name, start, identifier);
+      }
       series ??= parsed.series;
     }
     if (first !== undefined) {
@@ -123,7 +131,7 @@ export function recognizeModelName(model: string): ModelNameRecognition | undefi
     first = {
       identifier, family, series, version: parsed.version, versionParts: parsed.versionParts,
       opus5: series === "opus" && parsed.version?.[0] === 5 && (parsed.versionParts === 1 || parsed.versionParts === 2 && parsed.version[1] === 5),
-      gemini4: identifier === "gemini" && parsed.version?.[0] === 4 && !/^[-_.\s/]*4\.x(?:$|[-_.\s/])/u.test(name.slice(marker.index + marker[0].length))
+      gemini4: identifier === "gemini" && (wildcardGemini4 || parsed.version?.[0] === 4)
     };
     consumedEnd = parsed.end;
   }

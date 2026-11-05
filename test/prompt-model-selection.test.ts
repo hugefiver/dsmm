@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { test } from "node:test";
+import type { DshAgent } from "../src/dsh-types.js";
+import type { DsmmProfileRuntime } from "../src/profile-runtime.js";
 import "./prompt-source-loader.mjs";
 
 const marker = (path: string) => `[fixture:${path}]`;
@@ -42,13 +44,16 @@ test("Kimi generations and coding aliases share prompt calibration without provi
 });
 
 test("Gemini 4 prompt selection is major-version bounded across provider and dotted vendor aliases", () => {
-  for (const model of ["gemini-4", "gemini-4-argon", "gemini-4.0-pro", "gemini-4.12-preview"]) {
+  for (const model of ["gemini-4", "gemini-4-argon", "gemini-4.0-pro", "gemini-4.12-preview",
+    "gemini-4.x", "gemini-4.x-pro", "gemini-4.x@default", "gemini-4.x-pro:latest",
+    "gemini4", "gemini4.1", "gemini4@default", "gemini4.1:latest"]) {
     for (const fullId of [model, `google/${model.toUpperCase()}`, `vertex/google.${model}`, `us.google.${model}`, `us-east-1.google.${model}`, `global.google.${model}`]) {
       assert.deepEqual(promptModelVariants("builder", fullId), ["gemini", "gemini-4"], fullId);
       assert.deepEqual(promptModelVariants("planner", fullId), ["planner", "gemini-4"], fullId);
     }
   }
-  for (const model of ["gemini-3.1-pro", "gemini-5.0-pro", "gemini-40-pro", "gemini-4argon", "gemini-4.x-pro"]) {
+  for (const model of ["gemini-3.1-pro", "gemini-5.0-pro", "gemini-40-pro", "gemini-4argon",
+    "gemini-4.xfoo", "gemini-4.x.1", "gemini4.1foo", "gemini4.1.2.3", "gemini3", "gemini5", "gemini40"]) {
     assert.deepEqual(promptModelVariants("builder", model), ["gemini"], model);
     assert.deepEqual(promptModelVariants("planner", model), ["planner"], model);
   }
@@ -211,7 +216,7 @@ test("compact calibration keeps exact Opus scope and rejects partial and oversiz
 test("non-target compact markers and malformed numeric tails cannot select dedicated calibration", () => {
   const builder = SOURCE_ROLE_CATALOG.find(row => row.sourceId === "builder")!;
   const orchestrator = SOURCE_ROLE_CATALOG.find(row => row.sourceId === "orchestrator")!;
-  for (const model of ["gemini4", "gemini4.1"]) {
+  for (const model of ["gemini3", "gemini5", "gemini40"]) {
     assert.deepEqual(promptModelVariants("builder", model), ["gemini"], model);
     assert.equal(roleModelCalibration(builder, model), marker("deepwork/gemini.md"), model);
   }
@@ -219,6 +224,65 @@ test("non-target compact markers and malformed numeric tails cannot select dedic
   assert.equal(roleModelCalibration(orchestrator, "6.1foo.5opus"), "");
   assert.deepEqual(promptModelVariants("orchestrator", "6.1foo.5opus"), []);
   assert.equal(roleModelCalibration(orchestrator, "6.1foo.5opus-gpt6.1sol"), marker("deepwork/gpt.md"));
+});
+
+test("Gemini 4 wildcard and compact names compose each role layer once in order", () => {
+  for (const model of ["gemini-4.x", "gemini-4.x-pro@default", "gemini4", "gemini4.1:latest"]) {
+    for (const [roleId, layers] of [
+      [undefined, ["gemini", "gemini-4"]], ["dsmm-builder", ["gemini", "gemini-4"]],
+      ["dsmm-planner", ["planner", "gemini-4"]], ["dsmm-research", ["category:gemini", "gemini-4"]]
+    ] as const) {
+      const prompt = buildDeepworkPrompt(DEFAULT_DSMM_SETTINGS, { roleId, route: { provider: "fixture", model } });
+      let previous = prompt.indexOf(marker("deepwork/default.md"));
+      assert.ok(previous >= 0);
+      for (const layer of layers) {
+        const selected = layer === "category:gemini" ? "[fixture:category:gemini]" : marker(`deepwork/${layer}.md`);
+        assert.equal(prompt.split(selected).length - 1, 1, `${roleId}/${model}: ${layer}`);
+        assert.ok(prompt.indexOf(selected) > previous, `${roleId}/${model}: ${layer} order`);
+        previous = prompt.indexOf(selected);
+      }
+      if (roleId === "dsmm-research") assert.equal(prompt.includes(marker("deepwork/gemini.md")), false);
+    }
+  }
+  for (const provider of ["google", "google-vertex", "gemini-4-provider"]) {
+    for (const model of ["unrelated", "4.x", "4.x-pro@default"]) {
+      const prompt = buildDeepworkPrompt(DEFAULT_DSMM_SETTINGS, { route: { provider, model } });
+      assert.equal(prompt.includes(marker("deepwork/gemini-4.md")), false, `${provider}/${model}`);
+    }
+  }
+});
+
+test("native root and child prompts load Gemini 4 once and retain exact-Agent off behavior", async () => {
+  const { renderPrompt } = await import("@deepseek-ai/dsh-system-prompt");
+  const { nativeRoutingFixture } = await import("./native-routing-fixture.ts");
+  const { appendModeRecord } = await import("../src/session-metadata.ts");
+  const f = await nativeRoutingFixture({ defaultActive: true, roleRouting: {
+    "dsmm-coding": { primary: { provider: "fixture", model: "gemini-4.x-pro:latest" } }
+  } }, { nativePresets: true });
+  try {
+    const root = await f.create({ agentPreset: "dsmm-orchestrator" }, undefined,
+      { agentOptions: { provider: "fixture", model: "gemini4.1@default" } });
+    const child = await f.createAuxiliary("dsmm-coding", undefined, "continuable", root);
+    const runtime = f.ctx.get("dsmmProfileRuntime") as DsmmProfileRuntime;
+    const count = async (agent: typeof root) => renderPrompt(await f.ctx.systemPrompt.assemble({ scope: agent }))
+      .split(marker("deepwork/gemini-4.md")).length - 1;
+    const mode = async (agent: typeof root, active: boolean) => {
+      const target: Omit<DshAgent, "ctx"> = agent;
+      const before = await runtime.getSession(target);
+      await runtime.selectMode({ sessionId: agent.id, active, expectedModeRevision: before.deepwork!.revision,
+        expectedAdmissionEpoch: before.admissionEpoch }, target);
+    };
+    assert.equal(await count(root), 1);
+    assert.equal(await count(child), 1);
+    await mode(root, false);
+    assert.equal(await count(root), 0);
+    assert.equal(await count(child), 1);
+    appendModeRecord(child.session, false);
+    assert.equal(await count(child), 0);
+    await mode(root, true);
+    assert.equal(await count(root), 1);
+    assert.equal(await count(child), 0);
+  } finally { await f.dispose(); }
 });
 
 test("numeric identifiers after consumed coarse GPT spans stop trailing Codex calibration", () => {
