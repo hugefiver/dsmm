@@ -2,11 +2,15 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { ToolCallId } from "@deepseek-ai/dsh-llm";
+import { SessionId } from "@deepseek-ai/dsh-session";
+import { RemoteError } from "@deepseek-ai/dsh-typert-protocol";
+import { setImmediate } from "node:timers/promises";
+import type { DsmmProfileRuntime } from "../src/profile-runtime.ts";
 import { RemoteStream } from "@deepseek-ai/dsh-api-gateway/client";
 import type { RemoteStreamOptions } from "@deepseek-ai/dsh-api-gateway/client";
 import type { Agent } from "@deepseek-ai/dsh-agent";
 import type { RoleCallObservation, RoleCallObservationFrame } from "../src/role-control-types.ts";
-import { RoleCallObservationController } from "../lib/client/role-call-observations.js";
+import { RoleCallObservationController } from "../src/client/role-call-observations.ts";
 import { parseRoleCallObservationFrame } from "../lib/role-control-remote.js";
 import { gate, nativeControlFixture, remoteErrorOf } from "./role-control-fixture.ts";
 
@@ -57,6 +61,11 @@ async function waitForSource<T>(source: { getSnapshot(): T; subscribe(listener: 
       stop(); resolve(value);
     });
   });
+}
+
+function streamFactory(id = 1) {
+  const generation = { getSnapshot: () => ({ id, host: { home: "C:/fixture" } }), subscribe: () => () => {} };
+  return { $stream<Item>(options: RemoteStreamOptions<Item>) { return new RemoteStream<Item>({ generation }, options); } };
 }
 
 async function expectStreamEnd(iterator: AsyncIterator<RoleCallObservationFrame>): Promise<void> {
@@ -280,4 +289,182 @@ test("production client source consumes real Gateway frames and fences connectio
     assert.equal(fixture.agents.get(observed.childId)?.status, "running", "client source disposal must not cancel activation");
     stop(); unbindSecond();
   } finally { controller.dispose(); held.release(); await fixture.dispose(); }
+});
+
+test("real Gateway source retries missing and pre-admission ownership only on relevant new hints", { timeout: 20000 }, async t => {
+  const fixture = await nativeControlFixture(), admission = gate(), held = gate(), controller = new RoleCallObservationController();
+  const runtime = fixture.ctx.get("dsmmProfileRuntime") as unknown as DsmmProfileRuntime;
+  const prepare = runtime.prepareRoot.bind(runtime);
+  t.mock.method(runtime, "prepareRoot", async (...args: Parameters<DsmmProfileRuntime["prepareRoot"]>) => { await admission.promise; return prepare(...args); });
+  fixture.adapter.beforeStream = () => held.promise;
+  const id = SessionId("observation-before-admission");
+  let opens = 0, creating: ReturnType<typeof fixture.create> | undefined;
+  try {
+    controller.bindConnection(streamFactory(), async function* (sessionId, signal) {
+      opens++;
+      yield* await fixture.ctx.typertGateway.stream({ namespace: "dsmmChildren", method: "observe", args: { sessionId }, peer: fixture.ctx.connection.browserPeer, signal }) as AsyncIterable<RoleCallObservationFrame>;
+    });
+    const source = controller.source(id), stop = source.subscribe(() => {});
+    const absent = await waitForSource(source, state => state.issue?.code === "not-found");
+    assert.deepEqual(absent.issue, { kind: "domain", code: "not-found", field: "sessionId" });
+    controller.observeSessionAvailability("foreign-session", true);
+    controller.observeSessionAvailability(id, false);
+    await setImmediate(); assert.equal(opens, 1);
+    creating = fixture.create({}, undefined, { sessionId: id });
+    for (let i = 0; i < 1000 && fixture.agents.get(id) === undefined; i++) await setImmediate();
+    controller.observeSessionAvailability(id, true);
+    await waitForSource(source, state => state.issue?.code === "not-owned" && state.status === "unavailable");
+    assert.equal(opens, 2);
+    controller.observeSessionAvailability(id, true);
+    await waitForSource(source, state => state.status === "unavailable");
+    assert.equal(opens, 3, "each later true can reauthenticate pre-admission ownership once");
+    await setImmediate(); assert.equal(opens, 3, "no hint means no automatic domain retry");
+    admission.release(); const root = await creating;
+    controller.observeSessionAvailability(id, true);
+    await waitForSource(source, state => state.status === "live");
+    assert.equal(source.getSnapshot().issue, undefined);
+    const result = await execute(root, "recovered-observation", { background: true });
+    assert.equal(result.isError, false);
+    const live = await waitForSource(source, state => state.calls.get("recovered-observation")?.actualRoute.status === "known");
+    assert.equal(live.calls.get("recovered-observation")?.childId, (result.meta as { childId: string }).childId);
+    controller.observeSessionAvailability(id, true); await setImmediate(); assert.equal(opens, 4, "healthy live streams stay attached");
+    stop(); controller.observeSessionAvailability(id, true); await setImmediate(); assert.equal(opens, 4);
+  } finally { admission.release(); held.release(); controller.dispose(); await creating?.catch(() => {}); await fixture.dispose(); }
+});
+
+test("source recovery retains settled evidence, invalidates active routes and replaces the admission baseline", { timeout: 10000 }, async () => {
+  const controller = new RoleCallObservationController(), fail = gate(), recover = gate(), close = gate();
+  const route = { provider: "fixture", model: "observed" };
+  const active: RoleCallObservation = { parentSessionId: "root", parentAdmissionEpoch: "a".repeat(64), callId: "active", rootCallId: "active", childId: "child-active",
+    role: "dsmm-coding", level: "normal", routeSource: "primary", delivery: "parent", phase: "active",
+    initialRoute: { status: "known", source: "invocation-capture", route }, actualRoute: { status: "known", source: "own-native-request-header", route } };
+  const settled: RoleCallObservation = { ...active, callId: "settled", rootCallId: "settled", childId: "child-settled", phase: "settled", stopReason: "completed" };
+  let opens = 0;
+  controller.bindConnection(streamFactory(), async function* () {
+    if (++opens === 1) {
+      yield { type: "snapshot", sessionId: "root", admissionEpoch: active.parentAdmissionEpoch, calls: [active, settled] };
+      await fail.promise; throw new RemoteError("dsmm-children/refused", "private", { code: "not-owned" });
+    }
+    await recover.promise;
+    yield { type: "snapshot", sessionId: "root", admissionEpoch: "b".repeat(64), calls: [] };
+    await close.promise;
+    yield { type: "update", sessionId: "foreign", admissionEpoch: "b".repeat(64), call: active };
+  });
+  const source = controller.source("root"), stop = source.subscribe(() => {});
+  try {
+    await waitForSource(source, state => state.status === "live"); fail.release();
+    await waitForSource(source, state => state.status === "unavailable");
+    assert.deepEqual(source.getSnapshot().calls.get("active")?.actualRoute, { status: "unknown", reason: "not-observed" });
+    assert.deepEqual(source.getSnapshot().calls.get("settled"), settled);
+    controller.observeSessionAvailability("root", true);
+    assert.equal(source.getSnapshot().status, "connecting");
+    assert.deepEqual(source.getSnapshot().calls.get("settled"), settled);
+    recover.release(); await waitForSource(source, state => state.status === "live");
+    assert.equal(source.getSnapshot().calls.size, 0, "new admission snapshots do not merge cached calls");
+    assert.equal(source.getSnapshot().issue, undefined);
+    close.release(); await waitForSource(source, state => state.status === "unavailable");
+    assert.deepEqual(source.getSnapshot().issue, { kind: "protocol", code: "invalid-frame" });
+    await setImmediate(); assert.equal(opens, 2);
+  } finally { fail.release(); recover.release(); close.release(); stop(); controller.dispose(); }
+});
+
+test("binding, last unsubscribe and permanent dispose fence queued hints, late frames and old finalizers", { timeout: 10000 }, async () => {
+  const controller = new RoleCallObservationController(), late = gate(), close = gate();
+  let opens = 0;
+  const unbind = controller.bindConnection(streamFactory(), async function* () {
+    opens++; await late.promise;
+    yield { type: "snapshot", sessionId: "root", admissionEpoch: "a".repeat(64), calls: [] };
+    throw new Error("old stream failure");
+  });
+  const source = controller.source("root"), stop = source.subscribe(() => {});
+  controller.observeSessionAvailability("root", true);
+  unbind(); controller.observeSessionAvailability("root", true);
+  assert.equal(opens, 1);
+  const unbindNew = controller.bindConnection(streamFactory(2), async function* (_sessionId, signal) {
+    opens++;
+    yield { type: "snapshot", sessionId: "root", admissionEpoch: "b".repeat(64), calls: [] };
+    await Promise.race([close.promise, new Promise<void>(resolve => signal.addEventListener("abort", () => resolve(), { once: true }))]);
+  });
+  try {
+    await waitForSource(source, state => state.status === "live");
+    late.release(); await setImmediate();
+    assert.equal(source.getSnapshot().admissionEpoch, "b".repeat(64));
+    assert.equal(source.getSnapshot().status, "live"); assert.equal(opens, 2);
+    unbind(); assert.equal(source.getSnapshot().status, "live", "old unbind cannot revoke the replacement");
+    stop(); controller.observeSessionAvailability("root", true); await setImmediate(); assert.equal(opens, 2);
+    const resubscribe = source.subscribe(() => {});
+    await waitForSource(source, state => state.status === "live"); assert.equal(opens, 3);
+    controller.dispose();
+    const state = source.getSnapshot();
+    controller.observeSessionAvailability("root", true); unbindNew();
+    controller.bindConnection(streamFactory(3), async function* () { opens++; });
+    source.subscribe(() => {}); controller.source("new-after-dispose").subscribe(() => {});
+    await setImmediate(); assert.equal(opens, 3); assert.equal(source.getSnapshot(), state);
+    resubscribe();
+  } finally { late.release(); close.release(); stop(); controller.dispose(); }
+});
+
+test("source rejects updates without a baseline and admission changes within one physical generation", { timeout: 10000 }, async t => {
+  for (const baseline of [false, true]) await t.test(baseline ? "changed-admission" : "missing-snapshot", async () => {
+    const controller = new RoleCallObservationController();
+    let opens = 0;
+    controller.bindConnection(streamFactory(), async function* () {
+      opens++;
+      if (baseline) yield { type: "snapshot", sessionId: "root", admissionEpoch: "a".repeat(64), calls: [] };
+      yield { type: "remove", sessionId: "root", admissionEpoch: "b".repeat(64), callId: "unrelated-call" };
+    });
+    const source = controller.source("root"), stop = source.subscribe(() => {});
+    try {
+      await waitForSource(source, state => state.status === "unavailable" && state.issue !== undefined);
+      assert.deepEqual(source.getSnapshot().issue, { kind: "protocol", code: "invalid-frame" });
+      assert.equal(source.getSnapshot().calls.size, 0);
+      await setImmediate(); assert.equal(opens, 1);
+    } finally { stop(); controller.dispose(); }
+  });
+});
+
+test("source diagnostics reject malformed domain details and never retain arbitrary errors", { timeout: 10000 }, async () => {
+  const controller = new RoleCallObservationController();
+  controller.bindConnection(streamFactory(), async function* () {
+    throw new RemoteError("dsmm-children/refused", "private error payload", { code: "not-owned", secret: "do not retain" } as never);
+  });
+  const source = controller.source("root"), stop = source.subscribe(() => {});
+  try {
+    await waitForSource(source, state => state.status === "unavailable" && state.issue !== undefined);
+    assert.deepEqual(source.getSnapshot().issue, { kind: "protocol", code: "invalid-error" });
+  } finally { stop(); controller.dispose(); }
+});
+
+test("in-flight hints coalesce into one retry and a successful snapshot consumes every preceding hint", { timeout: 10000 }, async () => {
+  const controller = new RoleCallObservationController(), first = gate(), second = gate(), end = gate();
+  let opens = 0;
+  controller.bindConnection(streamFactory(), async function* () {
+    const attempt = ++opens;
+    if (attempt < 3) {
+      await (attempt === 1 ? first : second).promise;
+      throw new RemoteError("dsmm-children/refused", "private message and stack", { code: "not-owned", field: "sessionId" });
+    }
+    yield { type: "snapshot", sessionId: "root", admissionEpoch: "a".repeat(64), calls: [] };
+    await end.promise;
+    throw new Error("private transport payload");
+  });
+  const source = controller.source("root"), stop = source.subscribe(() => {});
+  try {
+    controller.observeSessionAvailability("root", true); controller.observeSessionAvailability("root", true);
+    first.release();
+    for (let i = 0; i < 1000 && opens !== 2; i++) await setImmediate();
+    assert.equal(opens, 2); assert.equal(source.getSnapshot().status, "connecting");
+    second.release();
+    const failure = await waitForSource(source, state => state.status === "unavailable");
+    assert.deepEqual(failure.issue, { kind: "domain", code: "not-owned", field: "sessionId" });
+    await setImmediate(); assert.equal(opens, 2);
+    controller.observeSessionAvailability("root", true);
+    controller.observeSessionAvailability("root", true);
+    await waitForSource(source, state => state.status === "live");
+    controller.observeSessionAvailability("root", true);
+    end.release();
+    await waitForSource(source, state => state.status === "unavailable");
+    assert.deepEqual(source.getSnapshot().issue, { kind: "transport", code: "internal" });
+    await setImmediate(); assert.equal(opens, 3);
+  } finally { first.release(); second.release(); end.release(); stop(); controller.dispose(); }
 });

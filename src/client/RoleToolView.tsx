@@ -49,6 +49,8 @@ export function RoleToolView(props: Props) {
   const raw = props.phase === "preparing" ? partial!.preview : props.phase === "start" ? props.block.argsRaw : props.block.call?.argsRaw ?? "";
   const requested = partial?.requested ?? requestedRoleTool(props.toolName, raw);
   const observation = props.useRoleCalls(state => state.calls.get(props.callId));
+  const observationStatus = props.useRoleCalls(state => state.status);
+  const observationIssue = props.useRoleCalls(state => state.issue);
   const result = props.phase === "result" ? props.block : undefined;
   const failed = result !== undefined && (result.isError || result.error != null);
   const persisted = result === undefined ? undefined : actualRoleTool(props.toolName, result.meta, failed);
@@ -130,6 +132,10 @@ export function RoleToolView(props: Props) {
           {actualRoute !== undefined ? <span className="dsmm-role-model">
             {" · "}{t("actualRoute")}: {actualRoute.status === "known" ? routeLabel(actualRoute.route, true) : t("routeUnknown")}
           </span> : props.phase !== "preparing" && <span className="dsmm-role-model">{" · "}{t("actualRoute")}: {t("routeUnknown")}</span>}
+        </p>
+        <p className="dsmm-role-identity" data-observation-status={observationStatus}>
+          {t("observation")}: {t(({ unavailable: "observationUnavailable", connecting: "observationConnecting", live: "observationLive", stale: "observationStale" } as const)[observationStatus])}
+          {observationIssue !== undefined && ` · ${observationIssue.kind}/${observationIssue.code}`}
         </p>
         {requested.description !== undefined && <p className="dsmm-role-task">{requested.description}</p>}
         {result?.error != null && <div className="dsmm-role-failure">

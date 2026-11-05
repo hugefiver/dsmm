@@ -10,10 +10,8 @@ import type { ReactNode } from "react";
 import type { ToolCallViewProps } from "@deepseek-ai/dsh-client-ui-tool/client";
 import { roleToolEn, roleToolZh } from "../src/client/RoleToolView-locales.ts";
 
-test("native lazy argument reads update requested labels and preserve dispatched, result and replay detail", {
-  skip: !process.env.DSMM_TEST_DSH_ENTRY && "requires an explicit installed SDK anchor",
-}, async () => {
-  const sdk = createRequire(process.env.DSMM_TEST_DSH_ENTRY!);
+test("native lazy argument reads update requested labels and preserve dispatched, result and replay detail", async () => {
+  const sdk = createRequire(process.env.DSMM_TEST_DSH_ENTRY ?? createRequire(import.meta.url).resolve("@deepseek-ai/dsh-client-ui-tool"));
   const { PartialArguments } = sdk("@deepseek-ai/dsh-util-values");
   const output = await build({ entryPoints: [fileURLToPath(new URL("../src/client/RoleToolView.tsx", import.meta.url))],
     bundle: true, write: false, platform: "browser", format: "cjs", jsx: "automatic",
@@ -161,6 +159,28 @@ test("native lazy argument reads update requested labels and preserve dispatched
     block: { ...result, isError: true, error: { code: "failed" } } } as Parameters<typeof module.exports.RoleToolView>[0]);
   assert.equal(observedFailure.props["data-identity"], "actual");
   assert.match(text(observedFailure), /Actual: fixture\/fallback/u);
+
+  for (const status of ["connecting", "unavailable", "stale", "live"] as const) {
+    const state = { sessionId: "root", status, calls: new Map(), issue: status === "live" ? undefined : { kind: "domain" as const, code: "not-owned" as const } };
+    const tree = module.exports.RoleToolView({ ...common,
+      useRoleCalls: <T,>(selector: (value: typeof state) => T) => selector(state), phase: "start", block: startWithDesc } as Parameters<typeof module.exports.RoleToolView>[0]);
+    const diagnostic = tree.props.children[0].props.children.props.children.find((node: ReactNode) => isValidElement<Record<string, unknown>>(node) && node.props["data-observation-status"] === status);
+    assert.ok(diagnostic, "an empty call map still exposes observation status");
+    assert.equal(tree.props["data-state"], "running", "observation failure is not a child execution failure");
+    assert.equal(text(diagnostic).includes("domain/not-owned"), status !== "live");
+  }
+  const settledMeta = { ...activeMeta, phase: "settled", stopReason: "completed" };
+  const settledTree = module.exports.RoleToolView({ ...common,
+    useRoleCalls: <T,>(selector: (value: typeof observedState) => T) => selector(observedState), phase: "result",
+    block: { ...bgResult, meta: settledMeta } } as Parameters<typeof module.exports.RoleToolView>[0]);
+  assert.equal(settledTree.props["data-state"], "result");
+  const settledIdentity = text(settledTree.props.children[0].props.children.props.children[0]);
+  assert.match(settledIdentity, /Actual: fixture\/old-actual/u);
+  assert.doesNotMatch(settledIdentity, /fallback/u, "settled persisted evidence wins over a live observation");
+  const foreignCallState = { ...observedState, calls: new Map([["another-call", observedCall]]) };
+  const foreignTree = module.exports.RoleToolView({ ...common,
+    useRoleCalls: <T,>(selector: (value: typeof foreignCallState) => T) => selector(foreignCallState), phase: "start", block: startWithDesc } as Parameters<typeof module.exports.RoleToolView>[0]);
+  assert.equal(foreignTree.props["data-identity"], "requested", "rootCallId and neighboring calls cannot substitute for callId");
 
   const registrations: Array<{ options: { key: string; inject(sessionId: string): { hooks: { roleCalls: object } } }; component: unknown }> = [];
   const sharedSource = { getSnapshot: () => observedState, subscribe: () => () => {} };

@@ -14,7 +14,7 @@ import type { Service } from "@deepseek-ai/cordis";
 import * as ConnectionHost from "@deepseek-ai/dsh-client-connection";
 import * as SlotCore from "@deepseek-ai/dsh-client-ui-slots";
 import { TypertGatewayService } from "@deepseek-ai/dsh-api-gateway";
-import { remoteErrorOf } from "@deepseek-ai/dsh-typert-protocol";
+import { RemoteError, remoteErrorOf } from "@deepseek-ai/dsh-typert-protocol";
 import { TypertRegistry } from "@deepseek-ai/dsh-typert-registry";
 import type * as ConnectionClient from "@deepseek-ai/dsh-client-connection/client";
 import type * as RendererClient from "@deepseek-ai/dsh-client-ui-renderer/client";
@@ -33,7 +33,9 @@ import { createSnapshotStore } from "@deepseek-ai/dsh-client-store";
 import type { SessionSnapshot, SessionEventWindow } from "@deepseek-ai/dsh-api-session-controller/client";
 import type { StandardSourceBinding } from "@deepseek-ai/dsh-client-ui-slots";
 import { Session, SessionId } from "@deepseek-ai/dsh-session";
-import { LlmAttemptId } from "@deepseek-ai/dsh-llm";
+import { LlmAttemptId, ToolCallId } from "@deepseek-ai/dsh-llm";
+import type { HostObservable } from "@deepseek-ai/dsh-client-ui-slots";
+import type { RoleCallObservationState } from "../src/client/role-call-observations.ts";
 import type { SessionProfileSnapshot, SessionProfileSelectRequest } from "../src/profile-types.js";
 import { nativeRoutingFixture } from "./native-routing-fixture.ts";
 
@@ -109,6 +111,7 @@ async function nativeClient<T>(packageName: string, document: ReturnType<typeof 
 
 const SettingsShell: SlotComponent<ComposedProps<"root", string, "settings.section" | "conversation.header.leading", undefined, object>> = (props) => [props.renderSlot("settings.section", { close() {} }), props.renderSlot("conversation.header.leading", {})];
 const PluginsShell: SlotComponent<ComposedProps<"root", string, "plugins.bundle.config", undefined, object>> = props => props.renderSlot("plugins.bundle.config", { view: "page" }, { entryKey: "@dsmm/dsmm" });
+const RoleToolsShell: SlotComponent<ComposedProps<"root", string, "tool.call.toolview", undefined, object>> = () => null;
 
 let sourceBundle: Promise<string> | undefined;
 function currentClientSource(): Promise<string> {
@@ -118,7 +121,7 @@ function currentClientSource(): Promise<string> {
 }
 
 type FixtureRpc = (endpoint: string, args: Record<string, unknown>, signal?: AbortSignal) => Promise<Awaited<ReturnType<ConnectionClient.ConnectionHandle["rpc"]["call"]>>> | undefined;
-async function fixture(deferUi = false, fixtureRpc?: FixtureRpc, nativeHost?: Context) {
+async function fixture(deferUi = false, fixtureRpc?: FixtureRpc, nativeHost?: Context, streamFailure?: (endpoint: string, error: unknown) => Promise<void>) {
   const root = await mkdtemp(join(tmpdir(), "dsmm-client-startup-"));
   const host = nativeHost ?? new Context();
   const client = new Context();
@@ -176,10 +179,18 @@ async function fixture(deferUi = false, fixtureRpc?: FixtureRpc, nativeHost?: Co
       },
       async *open(channel, endpoint, payload, signal, uplink) {
         assert.equal(channel, "/api");
-        for await (const frame of await gateway.wireStream.open(endpoint, JSON.parse(JSON.stringify(payload)), uplink ?? (async function* () {})(), host.connection.browserPeer, signal)) {
-          // Decode arrays in the consuming Gateway realm; strict record values
-          // use null prototypes shared by the Gateway and contribution codecs.
-          yield parseClientJson(JSON.stringify(frame));
+        if (endpoint === "dsmmChildren/observe") requests.push(endpoint);
+        try {
+          for await (const frame of await gateway.wireStream.open(endpoint, JSON.parse(JSON.stringify(payload)), uplink ?? (async function* () {})(), host.connection.browserPeer, signal)) {
+            // Decode arrays in the consuming Gateway realm; strict record values
+            // use null prototypes shared by the Gateway and contribution codecs.
+            yield parseClientJson(JSON.stringify(frame));
+          }
+        } catch (error) {
+          await streamFailure?.(endpoint, error);
+          const failure = remoteErrorOf(error);
+          if (failure === undefined) throw error;
+          throw new RemoteError(failure.code, failure.message, parseClientJson(JSON.stringify(failure.details)) as typeof failure.details);
         }
       },
     } } });
@@ -200,6 +211,7 @@ async function fixture(deferUi = false, fixtureRpc?: FixtureRpc, nativeHost?: Co
     if (!deferUi) await installUi();
     const entry = client.plugin(production);
     return { host, client, production, entry, remoteFiber, calls, requests, styles: dom.styles, installUi,
+      declareRoleTools: () => client.slots.register({ name: "root", children: { "tool.call.toolview": { kind: "keyed", scope: "session" } } }, RoleToolsShell),
       declareSettings: () => client.slots.register({ name: "root", children: { "settings.section": { kind: "list", scope: "root" }, "conversation.header.leading": { kind: "single", scope: "root" } } }, SettingsShell),
       declarePlugins: () => client.slots.register({ name: "root", priority: 1, children: { "plugins.bundle.config": { kind: "keyed", scope: "root" } } }, PluginsShell),
       async dispose() { await client.fiber.dispose(); if (nativeHost === undefined) await host.fiber.dispose(); await rm(root, { recursive: true, force: true }); },
@@ -231,6 +243,13 @@ function profilesFace(f: Awaited<ReturnType<typeof fixture>>): ProfilesInjected 
   const face = entries[0].inject();
   assert.ok("hooks" in face && "refresh" in face && "save" in face && "apply" in face);
   return face as unknown as ProfilesInjected;
+}
+
+function roleCallsSource(f: Awaited<ReturnType<typeof fixture>>, sessionId: string): HostObservable<RoleCallObservationState> {
+  const entry = f.client.slots.entries("tool.call.toolview").find(entry => entry.options.key === "dsmm_category");
+  assert.ok(entry?.inject);
+  const inject = entry.inject as unknown as (id: string) => { hooks: { roleCalls: HostObservable<RoleCallObservationState> } };
+  return inject(sessionId).hooks.roleCalls;
 }
 
 async function settled(face: ProfilesInjected): Promise<void> {
@@ -504,6 +523,93 @@ test("current native Session running transition rereads stale busy capability be
     await face.resetSession();
     assert.deepEqual(writes, [{ sessionId: id, id: null, expectedSelectionRevision: "absent", expectedAdmissionEpoch: "live-epoch" }]);
   } finally { await f.dispose(); }
+});
+
+test("production role-call source recovers through real added events independently of current session and Profiles", { timeout: 20000 }, async t => {
+  for (const timing of ["after-error", "before-error"] as const) await t.test(timing, async child => {
+    const native = await nativeRoutingFixture({ defaultActive: true, subagents: { enableRunInBackground: true } }, { headless: true, controller: true, nativePresets: true, nativePermissionSettings: true });
+    native.ctx.provide("webServer", { host: "127.0.0.1" });
+    let admit!: () => void, releaseError!: () => void, captured!: () => void, releaseChild!: () => void;
+    const admission = new Promise<void>(resolve => { admit = resolve; });
+    const errorDelivery = new Promise<void>(resolve => { releaseError = resolve; });
+    const errorCaptured = new Promise<void>(resolve => { captured = resolve; });
+    const childHeld = new Promise<void>(resolve => { releaseChild = resolve; });
+    const runtime = native.ctx.get("dsmmProfileRuntime") as unknown as DsmmProfileRuntime;
+    if (timing === "after-error") {
+      const prepare = runtime.prepareRoot.bind(runtime);
+      child.mock.method(runtime, "prepareRoot", async (...args: Parameters<DsmmProfileRuntime["prepareRoot"]>) => { await admission; return prepare(...args); });
+    }
+    let first = true;
+    const f = await fixture(false, undefined, native.ctx, async (endpoint, error) => {
+      if (timing !== "before-error" || endpoint !== "dsmmChildren/observe" || !first) return;
+      first = false;
+      const failure = remoteErrorOf(error); assert.equal(failure?.code, "dsmm-children/refused");
+      assert.equal((failure?.details as { code: string }).code, "not-found");
+      captured(); await errorDelivery;
+    });
+    const id = SessionId("role-observation-before-native-agent"), summaries: { available: boolean; admitted: boolean }[] = [];
+    let creating: ReturnType<typeof native.create> | undefined, stop: (() => void) | undefined, replayAdded: (() => void) | undefined;
+    const opens = () => f.requests.filter(endpoint => endpoint === "dsmmChildren/observe").length;
+    try {
+      f.declareRoleTools(); await f.entry.await();
+      const source = roleCallsSource(f, id); stop = source.subscribe(() => {});
+      assert.equal(f.client.get("uiSession"), undefined);
+      assert.equal(f.calls.filter(endpoint => endpoint.endsWith("/describeSession")).length, 0);
+      if (timing === "before-error") await errorCaptured;
+      else {
+        for (let i = 0; i < 1000 && source.getSnapshot().issue?.code !== "not-found"; i++) await setImmediate();
+        assert.equal(source.getSnapshot().issue?.code, "not-found");
+      }
+      assert.equal(opens(), 1);
+      f.client.remote.$on("api-session/added", summary => {
+        const agent = native.agents.get(id);
+        if (summary.sessionId === id) {
+          summaries.push({ available: summary.agentAvailable, admitted: agent !== undefined && runtime.hasAdmission(agent as unknown as DshAgent) });
+          replayAdded = () => native.ctx.emit("api-session/added", summary);
+        }
+      });
+      creating = native.create({}, undefined, { sessionId: id });
+      if (timing === "after-error") {
+        for (let i = 0; i < 1000 && source.getSnapshot().issue?.code !== "not-owned"; i++) await setImmediate();
+        assert.equal(source.getSnapshot().issue?.code, "not-owned");
+        assert.equal(opens(), 2, "the first true reauthenticates before admission");
+      }
+      admit(); const root = await creating;
+      for (let i = 0; i < 1000 && summaries.length < 2; i++) await setImmediate();
+      assert.deepEqual(summaries.map(summary => summary.available), [true, true]);
+      assert.equal(summaries[1].admitted, true);
+      if (timing === "after-error") assert.equal(summaries[0].admitted, false);
+      releaseError();
+      for (let i = 0; i < 1000 && source.getSnapshot().status !== "live"; i++) await setImmediate();
+      assert.equal(source.getSnapshot().status, "live"); assert.equal(source.getSnapshot().issue, undefined);
+      assert.equal(opens(), timing === "after-error" ? 3 : 2);
+      native.adapter.beforeStream = () => childHeld;
+      const result = await root.ctx.tools.execute({ agent: root, name: "dsmm_category", callId: ToolCallId("startup-recovered-call"),
+        arguments: { category: "dsmm-coding", description: "startup observation", prompt: "Return fixture answer", run_in_background: true }, signal: new AbortController().signal });
+      assert.equal(result.isError, false, JSON.stringify(result));
+      for (let i = 0; i < 1000 && source.getSnapshot().calls.get("startup-recovered-call")?.actualRoute.status !== "known"; i++) await setImmediate();
+      const observed = source.getSnapshot().calls.get("startup-recovered-call");
+      assert.equal(observed?.actualRoute.status, "known");
+      assert.equal(observed?.childId, (result.meta as { childId: string }).childId);
+      const generation = (f.client.connection as unknown as ConnectionClient.ConnectionHandle).generation.getSnapshot();
+      let cleared = false;
+      const stopState = source.subscribe(() => { if (source.getSnapshot().status === "unavailable" && source.getSnapshot().calls.size === 0) cleared = true; });
+      (f.client.connection as unknown as ConnectionClient.ConnectionHandle).reconnect();
+      for (let i = 0; i < 1000 && ((f.client.connection as unknown as ConnectionClient.ConnectionHandle).generation.getSnapshot() === generation || source.getSnapshot().status !== "live"); i++) await setImmediate();
+      assert.equal(cleared, true, "generation withdrawal clears the old cache");
+      assert.notEqual((f.client.connection as unknown as ConnectionClient.ConnectionHandle).generation.getSnapshot(), generation);
+      assert.equal(source.getSnapshot().status, "live");
+      for (let i = 0; i < 1000 && source.getSnapshot().calls.get("startup-recovered-call")?.actualRoute.status !== "known"; i++) await setImmediate();
+      assert.equal(source.getSnapshot().calls.get("startup-recovered-call")?.childId, observed?.childId);
+      stopState();
+      await f.entry.dispose();
+      const finalOpens = opens(), finalState = source.getSnapshot(), delivered = summaries.length;
+      assert.ok(replayAdded); replayAdded();
+      for (let i = 0; i < 1000 && summaries.length === delivered; i++) await setImmediate();
+      assert.equal(summaries.length, delivered + 1, "the Remote channel actually delivers the late hint");
+      assert.equal(opens(), finalOpens); assert.equal(source.getSnapshot(), finalState);
+    } finally { admit(); releaseError(); releaseChild(); stop?.(); await creating?.catch(() => {}); await f.dispose(); await native.dispose(); }
+  });
 });
 
 test("historical open idle binding recovers after native Agent admission through the Remote added channel", async t => {

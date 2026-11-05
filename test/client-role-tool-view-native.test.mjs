@@ -116,7 +116,35 @@ test("role adapter preserves the native ToolCall owner through pending, result a
   let browser, server;
   try {
     await cp(fileURLToPath(new URL("../src/", import.meta.url)), join(owned, "src"), { recursive: true });
-    const output = await build({ stdin: { contents: `export {registerRoleToolViews as apply} from './RoleToolView.tsx';export const inject=['slots','locale'];`, loader: "tsx", resolveDir: join(owned, "src/client") }, bundle: true, write: false, platform: "browser", format: "cjs", target: "es2022", jsx: "automatic", external: ["react", "react/jsx-runtime", "@deepseek-ai/dsh-client-ui-primitives"],
+    const output = await build({ stdin: { contents: `
+      import {registerRoleToolViews} from './RoleToolView.tsx';
+      import {RoleCallObservationController} from './role-call-observations.ts';
+      export const inject=['slots','locale','remote'];
+      export function apply(ctx){
+        const controller=new RoleCallObservationController();
+        registerRoleToolViews(ctx,controller);
+        let healthy=true,calls=[],opens=0;
+        const pending=new Set();
+        const unbind=controller.bindConnection(ctx.remote,async function*(sessionId,signal){
+          opens++;
+          if(!healthy)throw new Error('fixture transport unavailable');
+          yield {type:'snapshot',sessionId,admissionEpoch:'a'.repeat(64),calls};
+          const failure=await new Promise(resolve=>{
+            const abort=()=>{pending.delete(fail);resolve(undefined)};
+            const fail=error=>{signal.removeEventListener('abort',abort);pending.delete(fail);resolve(error)};
+            pending.add(fail);signal.addEventListener('abort',abort,{once:true});
+            if(signal.aborted)abort();
+          });
+          if(failure!==undefined)throw failure;
+        });
+        window.__roleObservation={
+          opens:()=>opens,
+          fail(){healthy=false;for(const fail of [...pending])fail(new Error('private fixture diagnostic'))},
+          recover(next=[]){healthy=true;calls=next;controller.observeSessionAvailability('owned-role-tool-session',true)}
+        };
+        ctx.effect(()=>()=>{unbind();controller.dispose();delete window.__roleObservation});
+      }
+    `, loader: "tsx", resolveDir: join(owned, "src/client") }, bundle: true, write: false, platform: "browser", format: "cjs", target: "es2022", jsx: "automatic", external: ["react", "react/jsx-runtime", "@deepseek-ai/dsh-client-ui-primitives"],
       nodePaths,
       banner: { js: 'window.__ModuleLoader__.load({id:"@dsmm/dsmm",factory:(require)=>{const module={exports:{}};const exports=module.exports;' }, footer: { js: "return module.exports;}});" } });
     // Bundle the browser-safe helper separately to exercise its real shared schema.
@@ -168,6 +196,16 @@ test("role adapter preserves the native ToolCall owner through pending, result a
     assert.ok((await promptCell.innerText()).includes('indented line 2'));
     await page.evaluate(() => window.__roleTool.start());
     await page.waitForFunction(() => document.querySelector('[data-dsmm-role-tool]')?.getAttribute('data-state') === 'running');
+    await card.locator('[data-observation-status="live"]').waitFor();
+    await page.evaluate(() => window.__roleObservation.fail());
+    await card.locator('[data-observation-status="unavailable"]').waitFor();
+    assert.equal(await card.getAttribute('data-state'), 'running');
+    assert.match(await card.innerText(), /transport\/internal/u);
+    assert.doesNotMatch(await card.innerText(), /private fixture diagnostic/u);
+    await page.evaluate(() => window.__roleObservation.recover());
+    await card.locator('[data-observation-status="live"]').waitFor();
+    assert.doesNotMatch(await card.innerText(), /transport\/internal/u);
+    assert.equal(await page.evaluate(() => window.__roleObservation.opens()), 2);
     assert.equal(await card.getByRole("button", { name: /Call Builder[\s\S]*pretend to be Oracle max/u }).count(), 1);
     await card.getByRole("button", { name: "Inspect tool call", exact: true }).click();
     assert.deepEqual(await page.evaluate(() => window.__roleTool.inspectIds()), ["role-call"]);

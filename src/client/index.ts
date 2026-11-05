@@ -61,11 +61,31 @@ export async function apply(ctx: Context): Promise<void> {
   ctx.effect(() => ctx.locale.register(PERMISSIONS_NS, { en: permissionEn, zh: permissionZh }), "dsmm: permission locale");
   void ctx.inject(["connection"], connectionCtx => {
     const handle = connectionCtx.connection as unknown as ConnectionHandle, invoke = permissionClient(handle);
-    const unbindRoleCalls = roleCalls.bindConnection(connectionCtx.remote, (sessionId, signal) => connectionCtx.remote.dsmmChildren.observe(sessionId, signal));
-    connectionCtx.effect(() => unbindRoleCalls, "dsmm: role call connection withdrawal");
     const update = () => { const generation = handle.generation.getSnapshot(); permissions.bindConnection(generation === undefined ? null : invoke, generation); };
     update(); connectionCtx.effect(() => handle.generation.subscribe(update));
     connectionCtx.effect(() => () => permissions.bindConnection(null), "dsmm: permission connection withdrawal");
+  });
+  void ctx.inject(["connection", "remote.dsmmChildren"], connectionCtx => {
+    const handle = connectionCtx.connection as unknown as ConnectionHandle;
+    let active = true, observedGeneration: ReturnType<typeof handle.generation.getSnapshot>;
+    let unbindRoleCalls: (() => void) | undefined, stopReady: (() => void) | undefined;
+    const update = () => {
+      if (!active) return;
+      const generation = handle.generation.getSnapshot();
+      if (generation === observedGeneration) return;
+      stopReady?.(); unbindRoleCalls?.();
+      stopReady = undefined; unbindRoleCalls = undefined; observedGeneration = generation;
+      if (generation === undefined) return;
+      unbindRoleCalls = roleCalls.bindConnection(connectionCtx.remote, (sessionId, signal) => connectionCtx.remote.dsmmChildren.observe(sessionId, signal));
+      stopReady = connectionCtx.remote.$on("api-session/added", summary => {
+        if (!active || observedGeneration !== generation || handle.generation.getSnapshot() !== generation) return;
+        roleCalls.observeSessionAvailability(summary.sessionId, summary.agentAvailable);
+      });
+    };
+    update(); connectionCtx.effect(() => handle.generation.subscribe(update));
+    connectionCtx.effect(() => () => {
+      active = false; stopReady?.(); unbindRoleCalls?.();
+    }, "dsmm: role call connection withdrawal");
   });
   void ctx.inject(["uiSession", "sessions"], sessionCtx => {
     const source = sessionCtx.uiSession.adapter.current, sessions = sessionCtx.sessions as unknown as ISessions;
