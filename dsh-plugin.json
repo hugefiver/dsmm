@@ -3,7 +3,7 @@
   "manifestVersion": "0.15",
   "id": "com.hugefiver.dsmm",
   "name": "DSMM",
-  "version": "0.3.23",
+  "version": "0.3.24",
   "facets": {
     "host": {
       "entry": "lib/index.js",
