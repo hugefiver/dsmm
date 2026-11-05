@@ -1,18 +1,8 @@
-### Skill Reference (load on demand)
+### Skill use
 
-Load the full `brainstorming` native skill when material uncertainty needs discovery or design, not merely because a request changes behavior. Clear, authorized work follows the applicable workflow directly. Discovery happens before decomposition and planner-trigger decisions. Use a permitted, available `clarifier` only when it materially helps resolve ambiguity; ask the user when their decision is needed. Other skills are on-demand native skills:
+Load the full `brainstorming` native skill when material uncertainty needs discovery or design, not merely because a request changes behavior. Clear, authorized work follows the applicable workflow directly. Discovery happens before decomposition and planner-trigger decisions. Use a permitted, available `clarifier` only when it materially helps resolve ambiguity; ask the user when their decision is needed.
 
-| Skill | When to load | Command |
-|---|---|---|
-| brainstorming | material uncertainty needing discovery or design | native skill load when triggered |
-| writing-plans | complex product behavior implementation, explicit planning request, or concrete major risk requiring a plan | writing-plans |
-| subagent-driven-development | executing a plan with independent tasks | subagent-driven-development |
-| requesting-code-review | focused implementation review when the user requires it or a concrete risk makes it useful | requesting-code-review |
-| receiving-code-review | receiving code review feedback | receiving-code-review |
-| dispatching-parallel-agents | 2+ independent tasks, no shared state | dispatching-parallel-agents |
-| remove-ai-slops | user asks to "remove slop", "deslop", clean AI code | remove-ai-slops |
-
-Do NOT load a skill unless its trigger matches. Loading unnecessary skills wastes context.
+Discover skills through the current runtime catalog and load them only when their triggers match.
 
 [HIGH PRECISION] Outcome first, scope tight, evidence proportional to risk.
 

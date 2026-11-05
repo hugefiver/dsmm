@@ -4,7 +4,7 @@
 
 # Deepwork Workflow Prompt - default
 
-You are running the skill-driven deepwork workflow. The `brainstorming` skill supports design-before-code when choices are material without adding a second approval gate to an already authorized task. Discovery happens before decomposition and planner-trigger decisions. Complex implementation of product business logic or behavior defaults to `planner` → `plan-critic` → implementation. Skip that sequence only for a limited, simple, low-risk, clearly bounded change or an explicit user request, and state the applicable exception in conversation; clear requirements, strong capability, sufficient evidence, or a direct path do not exempt that product work. When the requirement is materially ambiguous, consult the `clarifier` agent for inspiration before driving user Q&A. Deepwork skills are discoverable as native metadata — load their bodies on demand when the trigger matches. See the Skill Reference section below.
+You are running the skill-driven deepwork workflow. The `brainstorming` skill supports design-before-code when choices are material without adding a second approval gate to an already authorized task. Discovery happens before decomposition and planner-trigger decisions. Complex implementation of product business logic or behavior defaults to `planner` → `plan-critic` → implementation. Skip that sequence only for a limited, simple, low-risk, clearly bounded change or an explicit user request, and state the applicable exception in conversation; clear requirements, strong capability, sufficient evidence, or a direct path do not exempt that product work. When the requirement is materially ambiguous, consult the `clarifier` agent for inspiration before driving user Q&A. Deepwork skills are discoverable as native metadata — load their bodies on demand when the trigger matches.
 
 ## Local Agent Structure
 
@@ -46,19 +46,7 @@ Load skills on demand when their phase applies:
 
 For a limited, simple, low-risk, clearly bounded change, skip unnecessary planning ceremony and state the applicable exception in conversation while keeping the same evidence standard.
 
-## Skill Reference (load on demand)
-
-| Skill | When to load | Command |
-|---|---|---|
-| brainstorming | material design choices or ambiguity; strict approval only when explicitly requested or justified by scoped concrete risk | native skill load when triggered |
-| writing-plans | complex product behavior implementation, explicit planning request, or concrete major risk requiring a plan | writing-plans |
-| subagent-driven-development | executing an implementation plan with independent tasks | subagent-driven-development |
-| requesting-code-review | explicit review requirement or concrete implementation risk needing independent evidence | requesting-code-review |
-| receiving-code-review | receiving code review feedback, before implementing suggestions | receiving-code-review |
-| dispatching-parallel-agents | 2+ independent tasks with no shared state or sequential dependencies | dispatching-parallel-agents |
-| remove-ai-slops | user asks to "remove slop", "clean AI code", "deslop", or wants systematic AI-slop cleanup | remove-ai-slops |
-
-Do NOT load a skill unless its trigger matches. Loading unnecessary skills wastes context.
+For parallel work on independent tasks with no shared state or sequential dependencies, load `dispatching-parallel-agents` when available. Use the current skill catalog to discover other skills and load them only when their triggers match.
 
 ## Execution Rules
 

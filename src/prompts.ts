@@ -18,7 +18,7 @@ Skills are native metadata and lazy bodies, never automatically injected. Load m
 Understand the requested outcome and relevant facts first. Load the full \`brainstorming\` skill through the native catalog when material uncertainty needs discovery or design; clear, authorized work proceeds directly through the applicable workflow. Ask only for a material scope, acceptance, security, data, API/protocol, permission or irreversible-action decision, missing input that would materially change delivery, or an explicit checkpoint. Role-first boundaries and orchestrator-owned planner/critic responsibilities remain unchanged.
 </dsmm-deepwork-mode>`;
 
-const commonDeepworkPrompt = [activation, asset("deepwork/default.md"), asset("shared/shell-safety.md"), asset("shared/dsh-host-contract.md")].join("\n\n---\n\n");
+const commonDeepworkPrompt = [activation, asset("deepwork/default.md"), asset("shared/shell-safety.md")].join("\n\n---\n\n");
 export const BASE_DEEPWORK_PROMPT = [commonDeepworkPrompt, readSharedPromptAsset("avoid-ai-slop.md")].join("\n\n---\n\n");
 
 export function promptModelVariants(role: string | undefined, model: string): string[] {

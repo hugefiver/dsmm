@@ -41,7 +41,10 @@ base Deepwork prompt, run `pnpm run generate:roles`. CI uses
 `pnpm run check:roles` and fails if `agent-presets/` or `prompts/deepwork.md` is
 stale. Generated assets are package resources, not an alternate source of truth.
 
-Model guidance is subordinate to the selected role and native DSH host contract.
+Model guidance is subordinate to the selected role and the current runtime's tools
+and permissions. Role and workflow prompts contain usage guidance rather than a
+static Host contract or duplicate skill/MCP inventories; availability comes from
+the current runtime catalog.
 Model identifiers and families select resources in code; calibration text, headings
 and tags are model-neutral. Source filenames retain selector identities. Kimi
 models share `deepwork/kimi.md`; Gemini 4.x, including Argon, receives the selected

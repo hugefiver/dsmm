@@ -13,7 +13,7 @@ Understand the requested outcome and relevant facts first. Load the full `brains
 
 # Deepwork Workflow Prompt - default
 
-You are running the skill-driven deepwork workflow. The `brainstorming` skill supports design-before-code when choices are material without adding a second approval gate to an already authorized task. Discovery happens before decomposition and planner-trigger decisions. Complex implementation of product business logic or behavior defaults to `planner` → `plan-critic` → implementation. Skip that sequence only for a limited, simple, low-risk, clearly bounded change or an explicit user request, and state the applicable exception in conversation; clear requirements, strong capability, sufficient evidence, or a direct path do not exempt that product work. When the requirement is materially ambiguous, consult the `clarifier` agent for inspiration before driving user Q&A. Deepwork skills are discoverable as native metadata — load their bodies on demand when the trigger matches. See the Skill Reference section below.
+You are running the skill-driven deepwork workflow. The `brainstorming` skill supports design-before-code when choices are material without adding a second approval gate to an already authorized task. Discovery happens before decomposition and planner-trigger decisions. Complex implementation of product business logic or behavior defaults to `planner` → `plan-critic` → implementation. Skip that sequence only for a limited, simple, low-risk, clearly bounded change or an explicit user request, and state the applicable exception in conversation; clear requirements, strong capability, sufficient evidence, or a direct path do not exempt that product work. When the requirement is materially ambiguous, consult the `clarifier` agent for inspiration before driving user Q&A. Deepwork skills are discoverable as native metadata — load their bodies on demand when the trigger matches.
 
 ## Local Agent Structure
 
@@ -55,19 +55,7 @@ Load skills on demand when their phase applies:
 
 For a limited, simple, low-risk, clearly bounded change, skip unnecessary planning ceremony and state the applicable exception in conversation while keeping the same evidence standard.
 
-## Skill Reference (load on demand)
-
-| Skill | When to load | Command |
-|---|---|---|
-| brainstorming | material design choices or ambiguity; strict approval only when explicitly requested or justified by scoped concrete risk | native skill load when triggered |
-| writing-plans | complex product behavior implementation, explicit planning request, or concrete major risk requiring a plan | writing-plans |
-| subagent-driven-development | executing an implementation plan with independent tasks | subagent-driven-development |
-| requesting-code-review | explicit review requirement or concrete implementation risk needing independent evidence | requesting-code-review |
-| receiving-code-review | receiving code review feedback, before implementing suggestions | receiving-code-review |
-| dispatching-parallel-agents | 2+ independent tasks with no shared state or sequential dependencies | dispatching-parallel-agents |
-| remove-ai-slops | user asks to "remove slop", "clean AI code", "deslop", or wants systematic AI-slop cleanup | remove-ai-slops |
-
-Do NOT load a skill unless its trigger matches. Loading unnecessary skills wastes context.
+For parallel work on independent tasks with no shared state or sequential dependencies, load `dispatching-parallel-agents` when available. Use the current skill catalog to discover other skills and load them only when their triggers match.
 
 ## Execution Rules
 
@@ -168,16 +156,6 @@ Final answers must name what changed, what was verified, and any remaining risk 
 - In PowerShell, do not use `$home` or any case variant as a custom variable: variable names are case-insensitive and `$HOME` is an automatic variable. Use a specific, purpose-named variable instead.
 - Treat recursive or batch deletion as a fail-closed operation. Prefer an exact literal target. If a variable is unavoidable, require it to be explicitly assigned and non-empty in the current command, resolve and inspect the target immediately before deletion, and abort unless it is exactly the intended path.
 - Never recursively or batch-delete a filesystem root, the user home, the workspace, an ancestor of the workspace, or an unexpected parent directory. Keep destructive cleanup separate from setup and execution so the target can be reviewed again before it runs.
-
----
-
-<dsmm-host-contract>
-Use the current DSH 0.2.1-rc.2 catalog: read/glob/grep for files, web_search/web_fetch for external facts, write/edit and the actual bash/pwsh for authorized edits and execution, and native skill invocation for triggered skills. Native read takes file_path; inspect actual schemas, not OpenCode field names. Use exposed ask_user_question or ask a material question in conversation. Use exposed todo_write for useful Agent-owned whole-list tracking under its actual concurrency policy. Use LSP/browser/read_image only when present and supported by the actual route; fall back to direct evidence or report the capability unavailable. No Task/todowrite/compress/Context7 MCP API is assumed; host compaction is not a model-facing compression tool.
-Logical source role names map to IDs dsmm-<name> (explore is only the code-search alias). Inspect this Agent's actual admitted tool inventory: per-role exposes individual role tools plus dsmm_category; parameterized exposes dsmm_role/dsmm_category and their permitted target enums. description/prompt are assignment inputs; optional level, route and run_in_background depend on the actual schema and captured admission. Omitted/normal retains the default route; low/high/max requires that target's configured complete route or effort-only override, with exact native preflight. route additionally needs deployment allowRouteOverride=true; no suffix role/tool or arbitrary effort is inferred. Layout/level never changes target/read-only/depth/ownership authority. A read-only planner returns complete Markdown for authorized coordinator persistence, never through file/shell writes or a child proxy.
-One-shot defaults foreground and is never revived after settlement. When enabled and admitted, native jobs own one-shot background; a managed continuable configuration defaults background and returns a durable child ID, while explicit run_in_background:false starts a non-reusable one-shot. Existing continuable children use actual exposed send_message for running/idle/same-ID cold delivery and actual native user queue/steer; acceptance is not completion. Original child route/locale/authority remains captured and intersects current exact-parent authority, not parent-new-policy inheritance. Legacy conservative evidence permits useful proven capabilities and denies missing-evidence capabilities with reasons. A foreground handoff, only through an actually wired user control, moves the existing run to native-job ownership without another start; no static text declares a new tool or RPC. Managed delivery requires disabling the stock subagents row and binding the unique PUBLIC DSMM SubagentRuntime subclass at explicit startup, then restart. Stock cannot be hot-replaced. Background/capacity/depth/ownership/cancellation remain mandatory. Native continuation is not task_id/resume/retry.
-The native main model picker, explicit user route and catalog are authoritative. Model guidance calibrates behavior only; it does not select a provider/model, grant permissions, declare external independence or change advertised effort. Oracle independence requires a different model was explicitly selected and verified in the actual route. Default inventory has no synthetic tiers or additional Oracle slots.
-Role persona and access remain when Deepwork is explicitly off; common workflow and DSMM skills do not. Git/install/login/destructive actions need exact authorization regardless of mode. All delegation guidance is intersected with enabled roles, mounted capabilities, inherited permissions and native depth; runtime policy enforces those ceilings, not these static texts.
-</dsmm-host-contract>
 
 ---
 
