@@ -60,7 +60,11 @@ test("real selected calibration layers expose no model or family identity", () =
     ["dsmm-builder", "gemini-3.1-pro"],
     ["dsmm-builder", "gemini-4.1-pro"],
     ["dsmm-builder", "glm-5.3"],
+    ["dsmm-builder", "kimi-k3"],
+    ["dsmm-builder", "k3"],
     ["dsmm-builder", "kimi-k3.1"],
+    ["dsmm-planner", "kimi-k4"],
+    ["dsmm-research", "k3p1"],
     ["dsmm-builder", "swe-2-fast"],
     ["dsmm-orchestrator", "claude-opus-5"],
     ["dsmm-planner", "custom-unmatched"]

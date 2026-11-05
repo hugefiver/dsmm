@@ -193,6 +193,49 @@ test("Gemini 4 recognition rejects malformed versions and respects the first ide
   }
 });
 
+test("Kimi K versions stay local to their first identity", () => {
+  for (const [model, version] of [
+    ["kimi-k3", [3, 0, 0]], ["kimi-k3.1", [3, 1, 0]], ["kimi-k3-1", [3, 1, 0]],
+    ["kimi-k3p1", [3, 1, 0]], ["gateway/KIMI/K3/2/preview", [3, 2, 0]],
+    ["kimi-k4", [4, 0, 0]], ["kimi-k10", [10, 0, 0]], ["kimi-k27", [2, 7, 0]],
+    ["auto-kimi-k27", [2, 7, 0]], ["kimi-k27-preview", [2, 7, 0]], ["kimi-k27.1", [2, 7, 0]],
+    ["kimi-k270", [270, 0, 0]], ["kimi-k3-kimi-k3.1", [3, 0, 0]],
+    ["kimi-k3/kimi-k4", [3, 0, 0]], ["gpt-6-kimi-k3.1", [6, 0, 0]]
+  ] as const) {
+    assert.deepEqual(recognizeModelName(model, { promptAliases: true })?.version, version, model);
+    assert.deepEqual(recognizeModelName(model)?.version, model.startsWith("gpt") ? version : undefined, model);
+    assert.equal(classifyModelFamily({ modelID: model }), model.startsWith("gpt") ? "gpt" : "kimi", model);
+  }
+  for (const model of ["kimi", "kimi-latest", "kimi-k3.1foo", "kimi-k3p1foo", "kimi-k3.1.2.3",
+    "kimi-k3.9007199254740992", "kimi-unknown-k4"]) {
+    assert.equal(recognizeModelName(model, { promptAliases: true })?.version, undefined, model);
+    assert.equal(classifyModelFamily({ modelID: model }), "kimi", model);
+  }
+});
+
+test("bare K aliases are opt-in prompt identities and retain ordinary provider classification", () => {
+  for (const [model, version] of [
+    ["k3", [3, 0, 0]], ["k3.0", [3, 0, 0]], ["k3p0", [3, 0, 0]],
+    ["k3p1", [3, 1, 0]], ["k3.1", [3, 1, 0]], ["k3-1", [3, 1, 0]],
+    ["k3-k3.1", [3, 0, 0]], ["k3.0/k3p1", [3, 0, 0]],
+    ["auto/K3.2", [3, 2, 0]], ["group/k4/preview", [4, 0, 0]], ["k27", [27, 0, 0]]
+  ] as const) {
+    assert.equal(recognizeModelName(model), undefined, model);
+    assert.equal(classifyModelFamily({ modelID: model }), "unknown", model);
+    assert.equal(classifyModelFamily({ providerID: "google", modelID: model }), "gemini", model);
+    assert.equal(classifyModelFamily({ providerID: "moonshot", modelID: model }), "kimi", model);
+    const recognized = recognizeModelName(model, { promptAliases: true })!;
+    assert.equal(recognized.identifier, "kimi", model);
+    assert.deepEqual(recognized.version, version, model);
+  }
+  for (const model of ["k3p1foo", "xk3.1", "xkimi-k3", "xkimi-k3.1", "not-k3p1"]) {
+    assert.equal(recognizeModelName(model, { promptAliases: true }), undefined, model);
+    assert.equal(classifyModelFamily({ modelID: model }), "unknown", model);
+  }
+  assert.equal(classifyModelFamily({ modelID: "k3.1-gpt-6" }), "gpt");
+  assert.equal(recognizeModelName("k3.1-gpt-6", { promptAliases: true })?.identifier, "kimi");
+});
+
 test("malformed numeric spans cannot restart at later numeric series fragments", () => {
   for (const model of ["6.1foo.5opus", "6_1foo/5-opus", "6.1foo.5.5opus"]) {
     assert.equal(recognizeModelName(model), undefined, model);

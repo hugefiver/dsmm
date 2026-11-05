@@ -27,11 +27,10 @@ const { BASE_DEEPWORK_PROMPT, SOURCE_ROLE_CATALOG, buildDeepworkPrompt, promptMo
 hook.deregister();
 const { DEFAULT_DSMM_SETTINGS } = await import("../src/settings.ts");
 
-test("Kimi generations and coding aliases share prompt calibration without provider-name inference", () => {
-  // Synthetic names check open-ended family matching, not released model availability.
-  const syntheticNames = ["kimi-latest", "kimi-k4-preview", "kimi.future", "kimi_future"];
-  for (const model of ["kimi", "kimi-k2", "kimi-k2-thinking", "kimi-k2.5", "kimi-k2.6", "kimi-k2.7", "kimi-k27", "kimi-k2-8-preview",
-    "kimi-k3", "kimi-k3.1", "kimi-k3-1-preview", "kimi-for-coding", "kimi-for-coding-highspeed", "k2-p5", "k2p6", "k2.p7", "k2-p8",
+test("older and unknown Kimi generations retain the existing prompt calibration", () => {
+  const syntheticNames = ["kimi-latest", "kimi.future", "kimi_future"];
+  for (const model of ["kimi", "kimi-k2", "kimi-k2-thinking", "kimi-k2.5", "kimi-k2.6", "kimi-k2.7", "kimi-k27", "auto-kimi-k27", "kimi-k27-preview", "kimi-k27.1", "kimi-k2-8-preview",
+    "kimi-k3", "kimi-k3.0", "kimi-k3.0.9", "k3", "k3.0", "k3p0", "k3-k3.1", "k3.0/k3p1", "kimi-for-coding", "kimi-for-coding-highspeed", "k2-p5", "k2p6", "k2.p7", "k2-p8",
     "not-kimi-k3", "kimi-provider/unrelated-model", "auto-k2p8", ...syntheticNames]) {
     for (const fullId of [model, `moonshotai/${model.toUpperCase()}`]) {
       assert.deepEqual(promptModelVariants("builder", fullId), ["kimi"], fullId);
@@ -40,6 +39,26 @@ test("Kimi generations and coding aliases share prompt calibration without provi
   }
   for (const model of ["moonshotai/unrelated", "xkimi-k3", "kimish", "kimiko-latest", "k2-p70", "k2p80"]) {
     assert.deepEqual(promptModelVariants("builder", model), [], model);
+  }
+});
+
+test("Kimi K3.1 and future local versions select only the new additive", () => {
+  for (const model of ["kimi-k3.1", "kimi-k3-1-preview", "kimi-k3p1", "kimi-k3.1.2", "kimi-k3.2",
+    "kimi-k4", "kimi-k4-preview", "kimi-k10", "kimi-k270", "k3p1", "k3.1", "k3-1", "k3.2", "k4", "k10", "k27"]) {
+    for (const fullId of [model, `moonshotai/${model.toUpperCase()}`, `group/${model}/preview`]) {
+      assert.deepEqual(promptModelVariants("builder", fullId), ["kimi-k3-1"], fullId);
+      assert.deepEqual(promptModelVariants("planner", fullId), ["planner", "kimi-k3-1"], fullId);
+    }
+  }
+  for (const model of ["kimi-k3.1foo", "kimi-k3p1foo", "kimi-k3.1.2.3", "kimi-k3.9007199254740992",
+    "kimi-k3-kimi-k3.1", "kimi-k3/kimi-k4", "kimi-unknown-k4", "kimi-k3-20261101", "kimi-k3-128k"]) {
+    assert.deepEqual(promptModelVariants("builder", model), ["kimi"], model);
+  }
+  for (const model of ["k3p1foo", "k3.1.2.3", "xk3.1", "xkimi-k3.1", "not-k3p1"]) {
+    assert.deepEqual(promptModelVariants("builder", model), [], model);
+  }
+  for (const model of ["gpt-6-kimi-k3.1", "gpt-6/k3.1", "gpt-6/kimi/k4"]) {
+    assert.deepEqual(promptModelVariants("builder", model), ["gpt"], model);
   }
 });
 
@@ -70,7 +89,7 @@ test("base role selection and additive deduplication retain GPT, Codex, Opus and
   assert.deepEqual(promptModelVariants("builder", "swe-2-fast"), ["swe-2"]);
   const planner = SOURCE_ROLE_CATALOG.find(row => row.sourceId === "planner")!;
   for (const [model, additives] of [["gpt-6.1-sol", ["gpt"]], ["gemini-3.1-pro", []], ["glm-5.2", []],
-    ["kimi-k3.1", ["kimi"]], ["gemini-4-argon", ["gemini-4"]], ["swe-2", ["swe-2"]],
+    ["kimi-k3.1", ["kimi-k3-1"]], ["gemini-4-argon", ["gemini-4"]], ["swe-2", ["swe-2"]],
     ["claude-opus-5", []], ["gpt-5.5-codex", ["gpt"]]] as const) {
     assert.equal(roleModelCalibration(planner, model), ["planner", ...additives].map(variant => marker(`deepwork/${variant}.md`)).join("\n\n---\n\n"), model);
   }
@@ -80,7 +99,8 @@ test("category composition keeps its family layer before additives without impor
   const category = SOURCE_ROLE_CATALOG.find(row => row.kind === "category" && row.promptArtifact !== null)!;
   for (const [model, family, additives] of [
     ["gemini-4-argon", "gemini", ["gemini-4"]], ["gemini-3.1-pro", "gemini", []],
-    ["kimi-k3.1", "unknown", ["kimi"]], ["swe-2-fast", "unknown", ["swe-2"]],
+    ["kimi-k3", "unknown", ["kimi"]], ["kimi-k3.1", "unknown", ["kimi-k3-1"]],
+    ["k3p1", "unknown", ["kimi-k3-1"]], ["k3.1-gpt-6", "unknown", ["kimi-k3-1"]], ["swe-2-fast", "unknown", ["swe-2"]],
     ["gpt-6.1-sol", "gpt", ["gpt"]], ["glm-5.2", "glm", []],
     ["auto-gpt/6.1/sol", "gpt", ["gpt"]], ["prefix-gpt-5.6-codex-fast", "gpt", ["gpt"]],
     ["claude-opus-5-gpt-6-codex", "claude", []], ["gemini-4-pro-gpt-6-codex", "gemini", ["gemini-4"]],
@@ -100,10 +120,11 @@ test("shared name recognition bounds prompt attributes to the leftmost identifie
     ["auto_gemini 4/pro", ["gemini", "gemini-4"]], ["gpt-6-sol/gemini-4-pro", ["gpt"]],
     ["gemini-3-gemini-4-pro", ["gemini"]], ["gemini-gpt-6", ["gemini"]],
     ["auto-k2p8-gpt-6", ["kimi"]], ["auto-swe/2/high-gpt-6", ["swe-2"]],
+    ["kimi-k3-kimi-k3.1", ["kimi"]], ["gpt-6-kimi-k3.1", ["gpt"]], ["kimi/k3.1/preview", ["kimi-k3-1"]],
     ["swe-20", []], ["xkimi-k3", []], ["notgpt-6", []], ["codexish", []]
   ] as const) {
     assert.deepEqual(promptModelVariants("builder", model), variants, model);
-    assert.deepEqual(promptModelVariants("planner", model), ["planner", ...variants.filter(variant => ["gpt", "kimi", "gemini-4", "swe-2"].includes(variant))], model);
+    assert.deepEqual(promptModelVariants("planner", model), ["planner", ...variants.filter(variant => ["gpt", "kimi", "kimi-k3-1", "gemini-4", "swe-2"].includes(variant))], model);
   }
 });
 
@@ -138,7 +159,10 @@ test("partial numeric Gemini versions cannot acquire the Gemini 4 calibration", 
 
 test("structured prompt routes isolate provider metadata and preserve complete native identity", () => {
   for (const [provider, model, variants] of [
-    ["provider-kimi-for-coding", "unrelated", []], ["gemini-4-provider", "unrelated", []],
+    ["provider-kimi-for-coding", "unrelated", []], ["kimi-k3.1-provider", "unrelated", []],
+    ["kimi-k4-provider", "kimi-k3", ["kimi"]], ["gateway", "kimi-k3.1/preview", ["kimi-k3-1"]],
+    ["gateway", "kimi-k3/kimi-k3.1", ["kimi"]], ["gateway", "gpt-6/kimi-k3.1", ["gpt"]],
+    ["gemini-4-provider", "unrelated", []],
     ["swe-2-provider", "unrelated", []], ["gpt-6-sol", "gemini-4-pro", ["gemini", "gemini-4"]],
     ["gateway", "gpt-6-sol/gemini-4-pro", ["gpt"]], ["google", "google/gpt/6.1/sol", ["gpt"]],
     ["codex", "gpt-5.6", ["gpt"]], ["gateway", "auto-swe/2/high-gpt-6", ["swe-2"]],
@@ -148,7 +172,7 @@ test("structured prompt routes isolate provider metadata and preserve complete n
   ] as const) {
     const route = Object.freeze({ provider, model, reasoningEffort: "low" });
     const prompt = buildDeepworkPrompt(DEFAULT_DSMM_SETTINGS, { selectedPreset: "dsmm-builder", route });
-    for (const variant of ["codex", "gpt", "gemini", "gemini-4", "glm", "kimi", "swe-2", "claude-opus-5"]) {
+    for (const variant of ["codex", "gpt", "gemini", "gemini-4", "glm", "kimi", "kimi-k3-1", "swe-2", "claude-opus-5"]) {
       assert.equal(prompt.includes(marker(`deepwork/${variant}.md`)), (variants as readonly string[]).includes(variant), `${provider}/${model}: ${variant}`);
     }
     assert.deepEqual(route, { provider, model, reasoningEffort: "low" });
@@ -164,7 +188,7 @@ test("common activation composes once ahead of selected layers and respects expl
       const prompt = buildDeepworkPrompt(DEFAULT_DSMM_SETTINGS, { selectedPreset, route });
       assert.ok(prompt.startsWith(activation));
       assert.equal(prompt.split(activation).length, 2);
-      assert.ok(prompt.indexOf(marker("deepwork/default.md")) < prompt.indexOf(marker(`deepwork/${model.startsWith("kimi") ? "kimi" : model.startsWith("gemini") ? "gemini-4" : "gpt"}.md`)));
+      assert.ok(prompt.indexOf(marker("deepwork/default.md")) < prompt.indexOf(marker(`deepwork/${model.startsWith("kimi") ? "kimi-k3-1" : model.startsWith("gemini") ? "gemini-4" : "gpt"}.md`)));
       assert.deepEqual(route, { provider: "fixture", model, reasoningEffort: "low" });
     }
   }
@@ -249,6 +273,47 @@ test("Gemini 4 wildcard and compact names compose each role layer once in order"
       assert.equal(prompt.includes(marker("deepwork/gemini-4.md")), false, `${provider}/${model}`);
     }
   }
+});
+
+test("Kimi generation layers are exclusive and follow planner and category layers", () => {
+  for (const [model, additive] of [["kimi-k3", "kimi"], ["k3", "kimi"], ["k3.0", "kimi"], ["kimi-latest", "kimi"],
+    ["kimi-k3.1", "kimi-k3-1"], ["k3p1", "kimi-k3-1"], ["kimi-k4", "kimi-k3-1"]] as const) {
+    for (const [roleId, prefix] of [[undefined, []], ["dsmm-builder", []],
+      ["dsmm-planner", [marker("deepwork/planner.md")]], ["dsmm-research", ["[fixture:category:unknown]"]]] as const) {
+      const prompt = buildDeepworkPrompt(DEFAULT_DSMM_SETTINGS, { roleId, route: { provider: "fixture", model } });
+      let previous = prompt.indexOf(marker("deepwork/default.md"));
+      assert.ok(previous >= 0);
+      for (const selected of [...prefix, marker(`deepwork/${additive}.md`)]) {
+        assert.equal(prompt.split(selected).length - 1, 1, `${roleId}/${model}: ${selected}`);
+        assert.ok(prompt.indexOf(selected) > previous, `${roleId}/${model}: layer order`);
+        previous = prompt.indexOf(selected);
+      }
+      const other = additive === "kimi" ? "kimi-k3-1" : "kimi";
+      assert.equal(prompt.includes(marker(`deepwork/${other}.md`)), false, `${roleId}/${model}`);
+    }
+  }
+});
+
+test("native Kimi root and child prompts preserve persona order and independent generation layers", async () => {
+  const { renderPrompt } = await import("@deepseek-ai/dsh-system-prompt");
+  const { nativeRoutingFixture } = await import("./native-routing-fixture.ts");
+  const f = await nativeRoutingFixture({ defaultActive: true, roleRouting: {
+    "dsmm-coding": { primary: { provider: "fixture", model: "kimi/k3p1/preview" } }
+  } }, { nativePresets: true });
+  try {
+    const root = await f.create({ agentPreset: "dsmm-orchestrator" }, undefined,
+      { agentOptions: { provider: "kimi-k4-provider", model: "kimi-k3" } });
+    const child = await f.createAuxiliary("dsmm-coding", undefined, "continuable", root);
+    for (const [agent, roleId, additive] of [[root, "dsmm-orchestrator", "kimi"], [child, "dsmm-coding", "kimi-k3-1"]] as const) {
+      const prompt = renderPrompt(await f.ctx.systemPrompt.assemble({ scope: agent }));
+      const selected = marker(`deepwork/${additive}.md`);
+      assert.equal(prompt.split(selected).length - 1, 1, roleId);
+      assert.equal(prompt.includes(marker(`deepwork/${additive === "kimi" ? "kimi-k3-1" : "kimi"}.md`)), false, roleId);
+      const identity = `You are ${SOURCE_ROLE_CATALOG.find(row => row.id === roleId)!.name}.`;
+      assert.ok(prompt.indexOf(identity) >= 0, roleId);
+      assert.ok(prompt.indexOf(identity) < prompt.indexOf(selected), roleId);
+    }
+  } finally { await f.dispose(); }
 });
 
 test("native root and child prompts load Gemini 4 once and retain exact-Agent off behavior", async () => {

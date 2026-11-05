@@ -32,6 +32,8 @@ Ask whether a sentence changes the reader's understanding or decision, and wheth
 
 Choose checks that can expose a failure of the required behavior or external interface. Preserve meaningful safety and regression coverage. Do not add tautological assertions, snapshots of incidental prose, tests for an intermediate implementation, or tests whose only purpose is to fill a quota. Mock interactions can be valid interface checks; they do not prove product behavior they never exercise.
 
+Before adding a test, identify the observable requirement it protects, a plausible regression it would catch, and why existing coverage would miss that regression. Prefer extending the existing behavior-owning test or its cases over repeating the same check through another wrapper or package. Don't add a production export, flag, getter, reset hook, wrapper, or injection point solely for a test when no production caller needs it; exercise the existing boundary instead.
+
 A new optional artifact does not automatically justify a verifier for that artifact. A check needs a concrete requirement it can falsify. Reuse passing evidence when it still covers the current behavior; supplement affected or missing coverage instead of repeating unchanged checks for reassurance.
 
 Distinguish compilation, a harness result, and an exercised product surface. Report checks that failed, were blocked, or were not run without claiming completion from an unrelated success. Keep required checks and disclose missing evidence rather than weakening them to get green output.

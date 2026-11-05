@@ -22,10 +22,12 @@ const commonDeepworkPrompt = [activation, asset("deepwork/default.md"), asset("s
 export const BASE_DEEPWORK_PROMPT = [commonDeepworkPrompt, readSharedPromptAsset("avoid-ai-slop.md")].join("\n\n---\n\n");
 
 export function promptModelVariants(role: string | undefined, model: string): string[] {
-  const recognized = recognizeModelName(model);
+  const recognized = recognizeModelName(model, { promptAliases: true });
   const identifier = recognized?.identifier;
   const gpt = identifier === "gpt" || identifier === "codex";
-  const additive = gpt ? ["gpt"] : identifier === "kimi" ? ["kimi"] : recognized?.gemini4 ? ["gemini-4"] : identifier === "swe-2" ? ["swe-2"] : [];
+  const version = recognized?.version;
+  const kimi = version !== undefined && (version[0] > 3 || version[0] === 3 && version[1] >= 1) ? "kimi-k3-1" : "kimi";
+  const additive = gpt ? ["gpt"] : identifier === "kimi" ? [kimi] : recognized?.gemini4 ? ["gemini-4"] : identifier === "swe-2" ? ["swe-2"] : [];
   const base = role === "planner" ? "planner" : role === "orchestrator" && recognized?.opus5 ? "claude-opus-5"
     : recognized?.family === "codex" ? "codex" : gpt ? "gpt" : identifier === "gemini" ? "gemini" : identifier === "glm" ? "glm" : "default";
   return [...new Set([base, ...additive])].filter((variant) => variant !== "default");
@@ -36,12 +38,12 @@ export function roleModelCalibration(role: SourceRoleContent | undefined, model:
   const layers = variants.map((variant) => asset(`deepwork/${variant}.md`));
   if (role?.kind === "category" && role.promptArtifact !== null) {
     const category = splitCategory(asset(role.promptArtifact.replace("prompts/source/", "")));
-    const identifier = recognizeModelName(model)?.identifier;
+    const identifier = recognizeModelName(model, { promptAliases: true })?.identifier;
     const family = identifier === "gpt" || identifier === "codex" ? "gpt"
       : identifier === "gemini" || identifier === "glm" || identifier === "claude" ? identifier : "unknown";
     // Categories carry only their own family layer + additive model calibration,
     // not the base-agent Gemini/GLM/planner workflow variants.
-    return [category.calibrations.get(family), ...layers.filter((_layer, index) => ["gpt", "kimi", "gemini-4", "swe-2"].includes(variants[index]))].filter(Boolean).join("\n\n---\n\n");
+    return [category.calibrations.get(family), ...layers.filter((_layer, index) => ["gpt", "kimi", "kimi-k3-1", "gemini-4", "swe-2"].includes(variants[index]))].filter(Boolean).join("\n\n---\n\n");
   }
   return layers.join("\n\n---\n\n");
 }

@@ -16,6 +16,8 @@ Use the actual native skill catalog and admitted tool schemas. Resolve relative 
 - Keep source facts, assumptions, and derived results distinguishable. Do not present an estimate, inference, or assumption as a measured fact.
 - For material numeric claims, preserve the value, unit, scale, currency and currency basis when relevant, time period, population or denominator, and applicable qualifiers. Do not compare values whose scope or denominator changed without saying so.
 - Distinguish percentages from percentage-point changes. Make unit, currency, and time-window conversions explicit when they affect interpretation.
+- Check material numbers taken from transcoded, OCR, extracted, or reformatted text against the original page, document, or captured output. Watch for lost signs, decimal/grouping separators, exponents, and digits joined across cells or lines. If the original is unavailable, identify the extraction as the evidence and disclose that the number remains unverified against the original.
+- Keep chart titles, axis labels, units and scales, table column headers, and relevant footnotes consistent with the underlying values. A unit or qualifier in a header or note applies to its values even when it isn't repeated beside each number.
 - For a derived result, show the checkable formula and inputs, calculate with an actually available native calculator, spreadsheet, or code-capable tool, and state material rounding. Never imply a calculation was tool-checked when it was not, and never invent a tool absent from the admitted catalog.
 
 ## Sources and support
@@ -30,5 +32,6 @@ Use the actual native skill catalog and admitted tool schemas. Resolve relative 
 - Mark translations as translations when the distinction matters. Preserve the original subject, object, referent, negation, scope, quantifiers, time, causal versus correlational relationship, and level of certainty.
 - Quote only text verified against the source. Do not turn paraphrase into quotation or strengthen `may`, `can`, `associated with`, or similar qualified language into certainty or causation.
 - Structural and stylistic polishing may improve clarity but must not alter facts, calculations, attribution, uncertainty, or source conflict. If requested polish would do so, retain the faithful meaning and disclose the constraint.
+- When an editing or polishing operation applies only some requested changes, state which work remains unapplied or unresolved. A written output or successful tool exit alone doesn't establish that every edit was applied or that the whole deliverable was checked.
 
 Use the smallest process that satisfies the deliverable. This skill does not require a ledger, fixed report schema, worker count, tool chain, persistent artifact, or large research workflow.

@@ -47,10 +47,22 @@ static Host contract or duplicate skill/MCP inventories; availability comes from
 the current runtime catalog.
 Model identifiers and families select resources in code; calibration text, headings
 and tags are model-neutral. Source filenames retain selector identities. Kimi
-models share `deepwork/kimi.md`; Gemini 4.x, including Argon, receives the selected
-`gemini-4` additive layer. No injected self-identification or textual model guard
-is needed. Prompt selection does not change provider, effort, fallback chains or
-DSH model capabilities.
+K3 and earlier, and names without a determinate version, use `deepwork/kimi.md`.
+K3.1 and later numeric generations, including K3.2 and K4+, exclusively use
+`deepwork/kimi-k3-1.md`. Prompt-only K aliases such as `k3p1` leave reasoning-family
+classification unchanged. Existing `kimi-k27` names retain their K2.7 meaning
+and the old calibration. Selection preserves the first model identity and keeps
+structured provider metadata outside model matching. Gemini 4.x, including Argon,
+receives the selected `gemini-4` additive layer. No injected self-identification
+or textual model guard is needed. Prompt selection does not change provider,
+effort, fallback chains or DSH model capabilities.
+
+The K3.1+ scope-and-delivery calibration selectively adapts Senpi `2026.11.3-3`'s
+`kimi-k3-1.ts` at published source `29eedcbe7c0cdf1c89eac7c94d4093b485925303`.
+Its source embeds the complete MIT copyright and permission notice, retained in
+the packaged resource. The additive guidance prioritizes current intent, bounded
+action, complete outcomes, evidence reuse, and truthful handoff under the local
+role and workflow contracts; it adds no effort lock or workflow gate.
 
 Locale guidance is registered in the exact Agent scope independently of Deepwork
 mode, the Deepwork module and subagent tools. It uses that Agent's captured
@@ -85,6 +97,16 @@ reporting loads the native `report-fidelity` skill on demand for source support,
 calculations, quotations and translation meaning, without mandatory ledgers or
 large-workflow requirements for simple questions. These local adaptations preserve
 DSH ownership of tasks, lifecycle, permissions and persistence.
+
+Test guidance chooses checks by observable requirements, credible regressions,
+and existing owner coverage, without test-only production interfaces. Report
+fidelity compares extracted or converted numbers with originals, retains
+chart/header/footnote context, and discloses partially applied edits. Interaction
+guidance uses stable content slots and checks affected WCAG 2.2 A/AA criteria
+with their exceptions; scoped evidence is not whole-product conformance. These
+principles are independently expressed for the local workflow after comparison
+with OMO shared-skills at `ed3693483e`; no mutation tool, research ledger, frontend
+detection SDK, or third-party resource-pin update is included.
 
 The `report-fidelity` skill follows native metadata discovery, lazy body loading,
 and the normal skill setting. Historical child captures without that setting keep

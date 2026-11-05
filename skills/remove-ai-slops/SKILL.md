@@ -75,10 +75,10 @@ Filter out: deleted files, binary files, generated files.
 ### Phase 2: Establish valid regression coverage (NON-NEGOTIABLE)
 
 For each in-scope behavior-bearing file:
-1. Identify final valid functional requirements and committed public/observable contracts.
-2. Check if existing tests cover it.
-3. If a meaningful regression seam lacks coverage, write the narrowest test for that requirement.
-4. Tests must be GREEN before cleanup starts.
+1. Identify final valid functional requirements and committed public/observable contracts, and the plausible regression a test needs to catch.
+2. Check whether existing coverage already catches that regression. Extend the behavior-owning test or its cases when appropriate; don't duplicate the same coverage through another package or wrapper.
+3. If coverage is missing, test at an existing production boundary. Don't add an export, flag, getter, reset hook, wrapper, or injection point that no production caller needs merely to make the test possible.
+4. Write the narrowest missing regression test. Required regression evidence must be GREEN before cleanup starts.
 
 If you can't establish passing evidence for a required functional contract, stop cleanup of that behavior. Documentation-only edits use semantic review and applicable loading/delivery checks, not invented text-lock tests.
 

@@ -35,7 +35,7 @@ function versionStartsAt(name: string, start: number): boolean {
   return /^\d/u.test(token) && !suffixNumber(token);
 }
 
-function readVersion(name: string, start: number, family?: ModelIdentifier) {
+function readVersion(name: string, start: number, family?: ModelIdentifier, kimiPVersion = false) {
   const parts: number[] = [];
   let end = start;
   let cursor = start;
@@ -46,6 +46,10 @@ function readVersion(name: string, start: number, family?: ModelIdentifier) {
     const numberEnd = cursor + digits.length;
     parts.push(Number(digits));
     end = numberEnd;
+    if (kimiPVersion && parts.length === 1 && /^p(?=\d)/u.test(name.slice(numberEnd))) {
+      cursor = numberEnd + 1;
+      continue;
+    }
     if (/^[a-z]/u.test(name.slice(numberEnd))) {
       series = seriesAt(name, numberEnd, family);
       if (series === undefined || versionStartsAt(name, skipSeparators(name, numberEnd + series.length))) {
@@ -80,9 +84,9 @@ function identifierFor(marker: string): ModelIdentifier {
 }
 
 /** Model fields are complete names here; route owners separate provider metadata. */
-export function recognizeModelName(model: string): ModelNameRecognition | undefined {
+export function recognizeModelName(model: string, options: { promptAliases?: boolean } = {}): ModelNameRecognition | undefined {
   const name = model.trim().toLowerCase();
-  const markers = name.matchAll(/(?<![a-z0-9])(?:(?:chatgpt|gpt|codex|claude|fable|gemini|glm|deepseek|kimi|opus|sonnet|haiku|sol|terra|astra|luna)(?=\d|[^a-z0-9]|$)|(?:k2[-_.\s/]*p[5-8]|swe[-_.\s/]+2)(?![a-z0-9])|\d+)/gu);
+  const markers = name.matchAll(/(?<![a-z0-9])(?:(?:chatgpt|gpt|codex|claude|fable|gemini|glm|deepseek|kimi|opus|sonnet|haiku|sol|terra|astra|luna)(?=\d|[^a-z0-9]|$)|(?:k2[-_.\s/]*p[5-8]|swe[-_.\s/]+2)(?![a-z0-9])|k(?=\d)|\d+)/gu);
   let first: ModelNameRecognition | undefined;
   let consumedEnd = 0;
   for (const marker of markers) {
@@ -91,7 +95,12 @@ export function recognizeModelName(model: string): ModelNameRecognition | undefi
     let parsed: ReturnType<typeof readVersion>;
     let wildcardGemini4 = false;
     let series = seriesAt(name, marker.index);
-    if (/^\d/u.test(marker[0])) {
+    if (marker[0] === "k") {
+      if (!options.promptAliases || marker.index > 0 && name[marker.index - 1] !== "/") continue;
+      identifier = "kimi";
+      parsed = readVersion(name, marker.index + 1, identifier, true);
+      if (parsed.version === undefined || parsed.version[0] < 3) continue;
+    } else if (/^\d/u.test(marker[0])) {
       // Numeric spans include malformed segments; never restart at their later digits.
       if (/(?:\d|(?<![a-z0-9])\d[a-z0-9]*)[-_.\s/]+$/u.test(name.slice(consumedEnd, marker.index))) continue;
       parsed = readVersion(name, marker.index);
@@ -107,6 +116,8 @@ export function recognizeModelName(model: string): ModelNameRecognition | undefi
       identifier = identifierFor(marker[0]);
       const markerEnd = marker.index + marker[0].length;
       let start = skipSeparators(name, markerEnd);
+      const kimiKVersion = options.promptAliases && identifier === "kimi" && /^k(?=\d)/u.test(name.slice(start));
+      if (kimiKVersion) start++;
       series = start > markerEnd ? seriesAt(name, start, identifier) : undefined;
       if (series !== undefined) start = skipSeparators(name, start + series.length);
       if (identifier === "gemini" && /^4\.x/u.test(name.slice(start))) {
@@ -117,7 +128,10 @@ export function recognizeModelName(model: string): ModelNameRecognition | undefi
         const compactGemini4 = identifier === "gemini" && /^4(?=[^a-z0-9]|$)/u.test(name.slice(start));
         parsed = start === markerEnd && identifier !== "gpt" && !compactGemini4
           ? { version: undefined, versionParts: undefined, series: undefined, end: markerEnd }
-          : readVersion(name, start, identifier);
+          : readVersion(name, start, identifier, options.promptAliases && identifier === "kimi");
+      }
+      if (kimiKVersion && /^27(?=[^a-z0-9]|$)/u.test(name.slice(start))) {
+        parsed = { ...parsed, version: [2, 7, 0], versionParts: 2 };
       }
       series ??= parsed.series;
     }

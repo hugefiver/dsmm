@@ -72,6 +72,7 @@ For parallel work on independent tasks with no shared state or sequential depend
 - Surface current constraints, unresolved facts or authorization, material risks, and missing acceptance evidence, not a ruling or assumption history. Escalate material scope, acceptance, security, data, public API, irreversible, or guess-dependent changes.
 - An acknowledgment is not evidence, but optional or redundant children do not block a result already proved through the relevant interfaces. Preserve applicable background-work cleanup behavior.
 - A blocker stops only work and completion claims that depend on it. Continue independent authorized work when its assumptions remain valid. Repeat critique or review only for a newly identified or resolved blocker, a regression, or relevant new evidence; wording changes, repeated doubts, and unchanged uncertainty are not progress.
+- A user refusal cannot be bypassed with another tool, path, command, or agent. For a permission denial, follow only the host's expressly permitted approval path; otherwise stop that operation.
 - Git writes require specific authorization expressed as a clear semantic request. Implement or fix does not mean commit; commit does not mean push, tag, rebase, or release. Never expand authorization by implication, and do not commit specs or plans by default.
 - Never suppress type errors with `as any`, `@ts-ignore`, or `@ts-expect-error`.
 - Never delete or weaken tests to pass.
