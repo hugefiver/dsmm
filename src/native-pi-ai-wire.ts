@@ -26,6 +26,35 @@ export interface DsmmPiAiOwnerOptions {
   readonly resolveApiKey: (provider: string, reference: string, signal?: AbortSignal) => Promise<string | undefined>;
 }
 
+interface DsmmPiAiRequestHeaderContext extends Readonly<Pick<GenerateOptions, "provider" | "model" | "sessionId">> {
+  readonly purpose?: string;
+  readonly baseURL: string;
+}
+
+interface DsmmPiAiHeaderOptions {
+  prepareHeaders(request: DsmmPiAiRequestHeaderContext, headers: Headers): Headers;
+}
+
+interface DsmmPiAiHeaderEvents {
+  waterfall(event: "llm-pi-ai/request-headers", request: DsmmPiAiRequestHeaderContext, headers: Headers, next: () => Headers): Headers;
+}
+
+/** 0.2.2 requires image-offload bounds the 0.2.1 profile schema does not declare. */
+interface DsmmImageOffloadProfileFields {
+  maxRequestImages: number;
+  imageOffloadCountQuantum: number;
+}
+
+function imageOffloadProfileFields(profile: object): DsmmImageOffloadProfileFields {
+  const extended = profile as { maxRequestImages?: number; imageOffloadCountQuantum?: number };
+  if (extended.maxRequestImages === undefined && extended.imageOffloadCountQuantum === undefined) {
+    // 0.2.1 profiles carry no image-offload fields and its adapter has no such contract.
+    return {} as DsmmImageOffloadProfileFields;
+  }
+  const maxRequestImages = extended.maxRequestImages ?? 50;
+  return { maxRequestImages, imageOffloadCountQuantum: extended.imageOffloadCountQuantum ?? Math.min(10, maxRequestImages) };
+}
+
 function normalizeDeclaredProfiles(config: Options): ReadonlyMap<string, ResolvedPiAiProviderProfile> {
   const profiles = new Map<string, ResolvedPiAiProviderProfile>();
   const normalized: Config = Config(config);
@@ -70,6 +99,7 @@ function normalizeDeclaredProfiles(config: Options): ReadonlyMap<string, Resolve
       apiKeyEnv: brandString<NonNullable<ResolvedPiAiProviderProfile["apiKeyEnv"]>>(profile.apiKeyEnv),
       streamIdleTimeoutMs: profile.streamIdleTimeoutMs!, maxRequestImageBytes: profile.maxRequestImageBytes!,
       requestImagePixelBudget: profile.requestImagePixelBudget!, requestImageMaxBytes: profile.requestImageMaxBytes!,
+      ...imageOffloadProfileFields(profile),
       retryPolicy: resolveRetryPolicy(profile.retryPolicy?.mode === "normal" ? { ...profile.retryPolicy,
         retryableCodes: profile.retryPolicy.retryableCodes === undefined ? undefined : [...profile.retryPolicy.retryableCodes] } : profile.retryPolicy, `dsmm.providers.${provider}.retryPolicy`), piProvider, modelErrors: new Map(),
       configuredMaxTokens: new Map(profile.models.flatMap(model => model.maxTokens === undefined ? [] : [[model.id, model.maxTokens]])),
@@ -143,9 +173,12 @@ export function createDsmmPiAiProviderPlugin(options: DsmmPiAiOwnerOptions, read
       const expected = Config(options.config).providers.get();
       if (!isDeepStrictEqual(config.providers.get(), expected)) throw new LlmError("Cold provider entry differs from the Host-owned declaration", "INVALID_CONFIG");
       ctx.effect(() => ctx.settings.configure({ auto: false }, ctx.fiber));
-      ctx.on("internal/config", function(_raw, next) {
+      ctx.on("internal/config", function(this: unknown, first: unknown, next: () => any) {
         const candidate = next();
-        if (this === ctx.fiber && !isDeepStrictEqual(Config(candidate).providers.get(), expected)) throw new LlmError("Provider ownership changes require a cold Host restart", "INVALID_CONFIG");
+        // cordis 4.0.5 invokes this listener as (this: Fiber, rawConfig, next);
+        // 4.1.0 passes the fiber as the first argument and no raw config.
+        if ((this === ctx.fiber || first === ctx.fiber)
+          && !isDeepStrictEqual(Config(candidate).providers.get(), expected)) throw new LlmError("Provider ownership changes require a cold Host restart", "INVALID_CONFIG");
         return candidate;
       });
       const owner = createDsmmPiAiProviderOwner(ctx, options);
@@ -176,7 +209,8 @@ export function createDsmmPiAiProviderOwner(ctx: Context, options: DsmmPiAiOwner
     return assertUsableApiKey(key, "dsmm", profile.apiKeyEnv);
   };
   const resolveApiKey: PiAiAdapterOptions["resolveApiKey"] = (provider, profile) => resolveNamedKey(provider, profile, life.signal);
-  const adapterOptions: PiAiAdapterOptions = { profiles: () => profiles, resolveApiKey, auth: options.auth,
+  const adapterOptions: PiAiAdapterOptions & DsmmPiAiHeaderOptions = { profiles: () => profiles, resolveApiKey, auth: options.auth,
+    prepareHeaders: (request, headers) => (ctx as DsmmPiAiHeaderEvents).waterfall("llm-pi-ai/request-headers", request, headers, () => headers),
     resolveAttachments: () => ctx.get("attachments"),
     resolveImageAccess: (attachments, ref) => resolveImageAttachmentAccess(attachments, path => ctx.get("fs")?.processPathFromHostPath(path), ref),
     onReplayDegrade: () => ctx.logger.warn("DSMM provider replay degraded to native content"),

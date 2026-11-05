@@ -367,10 +367,12 @@ for (const unavailable of [false, true]) test(`cold child retains its own accept
     assert.equal(f.adapter.calls.at(-1)?.model, "manual-current");
     if (unavailable) f.adapter.unavailableModels.add("configured");
     const resumed = await f.resumeAuxiliary(child); await runFixtureTurn(resumed);
+    const resumedAgain = await f.resumeAuxiliary(resumed); await runFixtureTurn(resumedAgain);
+    assert.notEqual(resumedAgain, resumed);
     assert.deepEqual(f.adapter.calls.filter(call => call.sessionId === child.id).map(call => [call.model, call.reasoningEffort]), [
-      ["configured", "max"], ["manual-current", "low"], ["manual-current", "low"]
+      ["configured", "max"], ["manual-current", "low"], ["manual-current", "low"], ["manual-current", "low"]
     ]);
-    assert.equal(resumed.session.snapshotEvents().filter(event => event.type === "turn/end").at(-1)?.data.reason.kind, "completed");
+    assert.equal(resumedAgain.session.snapshotEvents().filter(event => event.type === "turn/end").at(-1)?.data.reason.kind, "completed");
   } finally { await f.dispose(); }
 });
 

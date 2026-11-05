@@ -38,6 +38,15 @@ export const moduleSuites = Object.freeze({
 });
 
 export const integrationSuites = Object.freeze({
+  "adaptation-remaining": Object.freeze([
+    "native-apply-patch.test.ts",
+    "native-role-observation-integration.test.ts",
+    "pi-ai-request-headers.test.ts",
+  ]),
+  "host-boundaries": Object.freeze([
+    "native-host-route-boundaries.test.ts",
+    "web-fetch-fakeip-rc1.test.ts",
+  ]),
   "native-runtime": Object.freeze([
     "host-core-integration.test.ts",
     "host-llm-startup.test.ts",

@@ -118,7 +118,7 @@ export async function resolveRoleInvocation(parent: Agent, target: DsmmRoleId, s
   const candidates = [project(route, effortSource), ...effectiveFallbacks];
   const selectedSource = selectedIndex === 0 || candidateEffort !== undefined ? effortSource : "dsmm-config";
   return freezeSettings({ target, ...(options.level === undefined ? {} : { requestedLevel: options.level }), effectiveLevel: level,
-    routeSource: source, initialRoute: project(selected.route, selectedSource), selectedCandidate: selected.requestedRoute, requestedRoute: initialCandidates[selectedIndex], candidates, exactEffort,
+    routeSource: source, initialRoute: project(selected.proposal, selectedSource), selectedCandidate: selected.requestedRoute, requestedRoute: initialCandidates[selectedIndex], candidates, exactEffort,
     effortSource: selectedSource, modelParameterPolicy,
     requestedPolicy: { ...policy, primary: route, fallbackRoutes },
     policy: { ...policy, primary: project(route, effortSource), fallbackRoutes: effectiveFallbacks } });

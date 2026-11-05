@@ -215,7 +215,7 @@ function registerRoleTool(agent: DshAgent, agentCtx: Context, tools: ToolRuntime
        signal.throwIfAborted();
        const requestedBackground = background && args.run_in_background === true;
        assertCurrent();
-        const pending = await admission.reserve(exec, invocation, provider, request.maxDepth);
+        const pending = await admission.reserve(exec, invocation, provider, args.description, requestedBackground ? "parent" : "caller", request.maxDepth);
        let activation: import("@deepseek-ai/dsh-subagent").SubagentActivation | undefined;
        let cancellation: Promise<void> | undefined;
        const cancel = () => { if (activation) { cancellation ??= activation.dispose(); void cancellation.catch(() => {}); } };
@@ -224,15 +224,15 @@ function registerRoleTool(agent: DshAgent, agentCtx: Context, tools: ToolRuntime
          admission.track(activation);
          pending.signal.addEventListener("abort", cancel, { once: true });
          if (pending.signal.aborted) { cancel(); await cancellation; pending.signal.throwIfAborted(); }
-         const view = invocationView(invocation, args.description, "continuable", { childId: activation.childId });
-         if (requestedBackground) return { kind: "continuable", subagentId: activation.childId, messageId: activation.messageId ?? null, invocation: { ...view } };
+
+         if (requestedBackground) return { kind: "continuable", subagentId: activation.childId, messageId: activation.messageId ?? null, invocation: { ...pending.view() } };
          const result = await activation.result;
          if (result.stopReason !== "completed") incomplete.set(exec.token, result);
          if (cancellation) await cancellation;
          pending.signal.throwIfAborted();
          if (result.stopReason !== "completed") throw new SubagentError(`Role activation ended: ${result.stopReason}`, "DSMM_INCOMPLETE");
          return { kind: "foreground", output: result.output as unknown as Extract<ToolExecutionResult, { isError: false }>["value"],
-           ...(result.structured === undefined ? {} : { structured: result.structured as unknown as Extract<ToolExecutionResult, { isError: false }>["value"] }), invocation: { ...view } };
+           ...(result.structured === undefined ? {} : { structured: result.structured as unknown as Extract<ToolExecutionResult, { isError: false }>["value"] }), invocation: { ...pending.view() } };
        } finally {
          pending.signal.removeEventListener("abort", cancel);
          await pending.release();

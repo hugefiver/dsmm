@@ -17,6 +17,10 @@ import { normalizeModelRouteJson } from "./route-json.js";
 type RegistrationHandle = ReturnType<LlmRuntime["registerAdapter"]>;
 type ProviderConfig = ReturnType<typeof Config>["providers"];
 const original = (value: object): object => Reflect.get(value, symbols.original) ?? value;
+const providerConfig = (scope: Context): unknown => {
+  const fiber: { readonly effectiveConfig?: unknown; readonly config: unknown } = scope.fiber;
+  return "effectiveConfig" in fiber ? fiber.effectiveConfig : fiber.config;
+};
 interface Registration {
   readonly scope: Context;
   readonly adapter: LlmAdapter;
@@ -28,7 +32,7 @@ interface Registration {
 /** Captures public registering-fiber provenance; the native runtime remains the sole registry. */
 export class LivePiAiOwner implements DsmmLlmRouteResolver {
   private readonly registrations = new Map<string, Registration>();
-  constructor(private readonly ctx: Context, private readonly native: LlmRuntime) {}
+  constructor(_ctx: Context, private readonly native: LlmRuntime) {}
 
   supportsNativeStop(provider: string): boolean {
     const registration = this.registrations.get(provider);
@@ -71,7 +75,7 @@ export class LivePiAiOwner implements DsmmLlmRouteResolver {
     if (record === undefined) throw new LlmError("Provider registration is not ready", "DSMM_PROVIDER_NOT_READY");
     const { scope, adapter } = record;
     if (!(adapter instanceof PiAiAdapter) || scope.fiber.entry?.options.name !== "@deepseek-ai/dsh-llm-pi-ai") throw new LlmError("This provider has no raw executor", "UNSUPPORTED_ROUTE_PARAMETERS");
-    const config: unknown = scope.fiber.config;
+    const config = providerConfig(scope);
     if (config === null || typeof config !== "object" || !("providers" in config) || config.providers === null || typeof config.providers !== "object"
       || !("get" in config.providers) || typeof config.providers.get !== "function") throw new LlmError("Pi-AI live configuration is unavailable", "DSMM_PROVIDER_NOT_READY");
     const ref = config.providers as ProviderConfig;
@@ -88,15 +92,16 @@ export class LivePiAiOwner implements DsmmLlmRouteResolver {
     const signal = AbortSignal.any([record.life.signal, retire.signal]);
     const assertCurrent = (): void => {
       signal.throwIfAborted();
-      if (this.registrations.get(provider) !== record || scope.fiber.state !== 2 || scope.fiber.entry?.fiber !== scope.fiber
-        || scope.fiber.config !== config || !isDeepStrictEqual(ref.get()[provider], profile)
+      const registeredFiber = scope.fiber.entry?.fiber;
+      if (this.registrations.get(provider) !== record || scope.fiber.state !== 2 || registeredFiber === undefined || original(registeredFiber.ctx.fiber) !== original(scope.fiber)
+        || providerConfig(scope) !== config || !isDeepStrictEqual(ref.get()[provider], profile)
         || (credentials === undefined ? scope.get("credentials") !== undefined : scope.get("credentials") === undefined || original(scope.get("credentials")!) !== original(credentials))) {
         retire.abort(new LlmError("Provider configuration or owner changed", "INVALID_PREPARED_CALL"));
         signal.throwIfAborted();
       }
     };
     assertCurrent();
-    const owner = createDsmmPiAiProviderOwner(this.ctx, {
+    const owner = createDsmmPiAiProviderOwner(scope, {
       config: { providers: { [provider]: structuredClone(profile) as NonNullable<Options["providers"]>[string] } },
       settingsNamespace: scope.fiber.entry!.options.id,
       auth: { credentials: new InMemoryCredentialStore(), authContext: {

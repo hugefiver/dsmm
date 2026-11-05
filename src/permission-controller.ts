@@ -1,5 +1,6 @@
 import { Service } from "@deepseek-ai/cordis";
 import type { Context } from "@deepseek-ai/cordis";
+import type {} from "@deepseek-ai/dsh-user-approval";
 import { HarnessError } from "@deepseek-ai/dsh-llm";
 import { TOOL_ABORTED } from "@deepseek-ai/dsh-tools";
 import type { ToolDefinition, ToolExecution, ToolRunContext, ToolRuntime } from "@deepseek-ai/dsh-tools";

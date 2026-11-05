@@ -2,13 +2,15 @@ import type { Context } from "@deepseek-ai/cordis";
 import type {} from "@deepseek-ai/dsh-client-locale/client";
 import type {} from "@deepseek-ai/dsh-client-ui-renderer/client";
 import type { ToolCallViewProps } from "@deepseek-ai/dsh-client-ui-tool/client";
-import type { PropsLocale } from "@deepseek-ai/dsh-client-ui-slots";
+import type { HostObservable, InjectFace, PropsLocale } from "@deepseek-ai/dsh-client-ui-slots";
 import { useState } from "react";
 import { Button, CodeBlock, DisclosureRow, IconAgentPresetOutlineRegular, SegmentedControl, StateDot, TextShimmer } from "@deepseek-ai/dsh-client-ui-primitives";
-import { actualRoleTool, preparingRoleTool, requestedRoleTool, roleToolDisplay, roleToolKeys, technicalJsonData, technicalTableRows } from "./RoleToolView-data.js";
+import { actualRoleTool, observedRoleTool, preparingRoleTool, requestedRoleTool, roleToolDisplay, roleToolKeys, technicalJsonData, technicalTableRows } from "./RoleToolView-data.js";
 import { ROLE_TOOL_NS, roleToolEn, roleToolZh } from "./RoleToolView-locales.js";
+import type { RoleCallObservationController, RoleCallObservationState } from "./role-call-observations.js";
 
-type Props = ToolCallViewProps & PropsLocale<typeof ROLE_TOOL_NS>;
+type ObservationInject = { hooks: { roleCalls: HostObservable<RoleCallObservationState> } };
+type Props = ToolCallViewProps & PropsLocale<typeof ROLE_TOOL_NS> & InjectFace<ObservationInject>;
 const styles = `
 .dsmm-role-tool{min-width:0;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);font-size:14px;line-height:22px}
 .dsmm-role-tool .dsmm-role-heading{color:var(--dsw-alias-label-primary);height:auto;min-height:32px}
@@ -46,9 +48,20 @@ export function RoleToolView(props: Props) {
   const { t } = props;
   const raw = props.phase === "preparing" ? partial!.preview : props.phase === "start" ? props.block.argsRaw : props.block.call?.argsRaw ?? "";
   const requested = partial?.requested ?? requestedRoleTool(props.toolName, raw);
+  const observation = props.useRoleCalls(state => state.calls.get(props.callId));
   const result = props.phase === "result" ? props.block : undefined;
   const failed = result !== undefined && (result.isError || result.error != null);
-  const actual = result === undefined ? undefined : actualRoleTool(props.toolName, result.meta, failed);
+  const persisted = result === undefined ? undefined : actualRoleTool(props.toolName, result.meta, failed);
+  const observed = observation === undefined ? undefined : observedRoleTool(props.toolName, observation);
+  const inactivePersisted = persisted === undefined || persisted.phase === "settled" ? persisted : persisted.childId === undefined
+    ? { ...persisted, routeComparison: undefined }
+    : { ...persisted, routeComparison: { childId: persisted.childId,
+      initialRoute: persisted.routeComparison?.initialRoute ?? (persisted.route === undefined
+        ? { status: "unknown" as const, reason: "missing-invocation-capture" as const }
+        : { status: "known" as const, source: "invocation-capture" as const, route: persisted.route }),
+      liveRoute: { status: "unknown" as const, reason: "not-observed" as const } } };
+  const actual = persisted?.phase === "settled" ? persisted : observed ?? inactivePersisted;
+  const comparison = actual?.routeComparison;
   const target = actual?.role ?? requested.target;
 
   const action = props.phase === "preparing" ? t("calling") : t("call");
@@ -57,7 +70,11 @@ export function RoleToolView(props: Props) {
   const singleLineDesc = rawDesc ? rawDesc.replace(/\s+/gu, " ") : undefined;
   const title = `${action} ${targetLabel}`;
 
-  const state = result?.error?.code === "interrupted" ? "stopped" : failed ? "error" : result === undefined ? props.phase === "preparing" ? "preparing" : "running" : actual?.jobId !== undefined || actual?.mode === "continuable" ? "background" : "result";
+  const observedStop = actual?.phase === "settled" ? actual.stopReason : undefined;
+  const state = result?.error?.code === "interrupted" || observedStop === "aborted" ? "stopped"
+    : failed || observedStop !== undefined && observedStop !== "completed" ? "error"
+    : result === undefined ? props.phase === "preparing" ? "preparing" : "running"
+    : actual?.delivery === "parent" && actual.phase !== "settled" ? "background" : "result";
   const isOngoing = state === "running" || props.phase === "preparing";
   const code = (value: string) => <CodeBlock code={value} copyLabel={t("copy")} copiedLabel={t("copied")} />;
 
@@ -67,12 +84,16 @@ export function RoleToolView(props: Props) {
     { value: "table" as const, label: t("table") },
     { value: "json" as const, label: t("json") },
   ];
-  const tableRows = technicalTableRows(props.toolName, props.callId, raw, result?.meta, actual?.routeSource);
-  const jsonData = technicalJsonData(props.toolName, props.callId, raw, result?.meta, actual?.routeSource);
+  const tableRows = technicalTableRows(props.toolName, props.callId, raw, result?.meta, actual?.routeSource, observation);
+  const jsonData = technicalJsonData(props.toolName, props.callId, raw, result?.meta, actual?.routeSource, observation);
 
   const roleDiffers = requested.target !== undefined && actual !== undefined && actual.role !== requested.target;
   const levelDiffers = requested.level !== undefined && actual !== undefined && actual.level !== requested.level;
   const showRequestedVsActual = roleDiffers || levelDiffers;
+  const initialRoute = comparison?.initialRoute ?? (actual?.route === undefined ? undefined : { status: "known" as const, source: "invocation-capture" as const, route: actual.route });
+  const actualRoute = comparison?.liveRoute;
+  const routeLabel = (route: { provider: string; model: string; reasoningEffort?: string }, missingEffort = false) =>
+    `${route.provider}/${route.model}${route.reasoningEffort === undefined ? missingEffort ? ` · ${t("effortUnreported")}` : "" : ` · ${route.reasoningEffort}`}`;
 
   const collapsedContent = singleLineDesc ? <>
     <span className="dsmm-role-sep" aria-hidden="true" />
@@ -83,7 +104,8 @@ export function RoleToolView(props: Props) {
 
   const stateDotState = state === "error" ? "error" : state === "stopped" ? "warning" : result === undefined ? "ongoing" : state === "background" ? "idle" : "done";
 
-  return <div className="dsmm-role-tool" data-dsmm-role-tool={props.toolName} data-identity={actual === undefined ? "requested" : "actual"} data-state={state} data-expanded={expanded ? "true" : "false"}>
+  return <div className="dsmm-role-tool" data-dsmm-role-tool={props.toolName} data-identity={actual === undefined ? "requested" : "actual"}
+    data-state={state} data-delivery={actual?.delivery} data-phase={actual?.phase} data-expanded={expanded ? "true" : "false"}>
     <DisclosureRow title={title} titleClassName="dsmm-role-title" rowClassName="dsmm-role-heading" contentClassName="dsmm-role-text"
       icon={<IconAgentPresetOutlineRegular size={14} className="dsmm-role-icon" />}
       collapsedContent={collapsedContent} keepContentWhenOpen running={isOngoing}
@@ -97,13 +119,17 @@ export function RoleToolView(props: Props) {
             <span className="dsmm-role-dim">{t("actual")}: </span>
             <span>{roleToolDisplay(actual!.role)} ({actual!.level})</span>
           </> : <span>
+            {actual === undefined && <span className="dsmm-role-dim">{t("requested")}: </span>}
             {actual !== undefined ? roleToolDisplay(actual.role) : requested.target === undefined ? t("unknownTarget") : roleToolDisplay(requested.target)}
             {(actual?.level ?? requested.level) !== undefined && ` · ${actual?.level ?? requested.level}`}
-            {result !== undefined && actual === undefined && <span className="dsmm-role-dim"> · {t("actualUnknown")}</span>}
+            {props.phase !== "preparing" && actual === undefined && <span className="dsmm-role-dim"> · {t("actualUnknown")}</span>}
           </span>}
-          {actual?.route !== undefined && <span className="dsmm-role-model">
-            {" · "}{actual.route.provider}/{actual.route.model}{actual.route.reasoningEffort ? ` · ${actual.route.reasoningEffort}` : ""}
+          {initialRoute !== undefined && <span className="dsmm-role-model">
+            {" · "}{t("initialRoute")}: {initialRoute.status === "known" ? routeLabel(initialRoute.route) : t("routeUnknown")}
           </span>}
+          {actualRoute !== undefined ? <span className="dsmm-role-model">
+            {" · "}{t("actualRoute")}: {actualRoute.status === "known" ? routeLabel(actualRoute.route, true) : t("routeUnknown")}
+          </span> : props.phase !== "preparing" && <span className="dsmm-role-model">{" · "}{t("actualRoute")}: {t("routeUnknown")}</span>}
         </p>
         {requested.description !== undefined && <p className="dsmm-role-task">{requested.description}</p>}
         {result?.error != null && <div className="dsmm-role-failure">
@@ -152,14 +178,15 @@ export function RoleToolView(props: Props) {
 }
 
 /** Called once by the parent client apply(ctx), alongside the other slot registrations. */
-export function registerRoleToolViews(ctx: Context): void {
+export function registerRoleToolViews(ctx: Context, observations: RoleCallObservationController): void {
   ctx.effect(() => ctx.locale.register(ROLE_TOOL_NS, { en: roleToolEn, zh: roleToolZh }), "dsmm: role tool locale");
   ctx.effect(() => {
     const style = document.createElement("style"); style.dataset.dsmmRoleToolStyles = ""; style.textContent = styles;
     document.head.append(style); return () => style.remove();
   }, "dsmm: role tool styles");
   ctx.slots.inject("tool.call.toolview", () => {
-    const disposers = [...Object.keys(roleToolKeys), "dsmm_role", "dsmm_category"].map(key => ctx.slots.register({ name: "tool.call.toolview", key, locale: ROLE_TOOL_NS }, RoleToolView));
+    const disposers = [...Object.keys(roleToolKeys), "dsmm_role", "dsmm_category"].map(key => ctx.slots.register({ name: "tool.call.toolview", key, locale: ROLE_TOOL_NS,
+      inject: sessionId => ({ hooks: { roleCalls: observations.source(sessionId) } }) }, RoleToolView));
     return () => { for (const dispose of disposers.reverse()) dispose(); };
   });
 }

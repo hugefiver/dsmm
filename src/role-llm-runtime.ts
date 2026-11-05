@@ -5,7 +5,7 @@ import type { DsmmLlmHostOwner, DsmmLlmAdmission, DsmmLlmRequestFrame, DsmmLlmGe
 import type { DsmmPiAiProviderOwner } from "./native-pi-ai-wire.js";
 import type { DshAgent } from "./dsh-types.js";
 import { resolvedModelParameterPolicy } from "./model-parameter-policy.js";
-import { modelRouteFromCall, projectModelRouteParameters } from "./role-llm.js";
+import { modelRouteFromCall, modelRouteToCall } from "./role-llm.js";
 import { prepareDsmmRequest } from "./model-routing.js";
 import type { AgentRequestFrame } from "./dsh-types.js";
 import { preparedRequestRouting } from "./request-routing.js";
@@ -50,7 +50,7 @@ export function createDsmmRoleLlmOwner(ctx: Context, providers: Pick<DsmmPiAiPro
       const originalAdmission = admission;
       admission = Object.freeze({ ...originalAdmission, assertCurrent() { originalAdmission.assertCurrent(); routing.assertCurrent(); } });
       const effortSource = routing.effortSource ?? captureDsmmEffortSource(frame.agent);
-      const config = snapshotDsmmCall(projectModelRouteParameters(modelRouteFromCall(routed), effortSource, policy.mode !== "native-defaults"));
+      const config = snapshotDsmmCall(modelRouteToCall(modelRouteFromCall(routed)));
       admission.assertCurrent();
       if (routing.decision.configuredRoot && routing.decision.policy !== undefined) {
         const lock = roleRouteLock(agent, routing.decision.policy)!;

@@ -3,7 +3,9 @@ import type { LookupAddress } from "node:dns";
 import { isIP } from "node:net";
 import ipaddr from "ipaddr.js";
 import { WebError } from "@deepseek-ai/dsh-web";
-import type { HttpFetchResolver } from "@deepseek-ai/dsh-web-fetch-http";
+
+/** The 0.2.1 injected-resolver contract, kept locally: 0.2.2 removed the seam and the export. */
+export type AddressResolver = (hostname: string, signal: AbortSignal) => Promise<{ address: string; family: 4 | 6 }[]>;
 
 // Address classification and RFC 6052/7050 extraction adapted from DeepSeek's
 // MIT-licensed dsh-v0.2.1-rc.2 web-fetch-http/src/network.ts.
@@ -122,7 +124,7 @@ export class FakeIpAddressPolicy {
 export function createFakeIpResolver(
   policy = new FakeIpAddressPolicy(),
   lookup: AddressLookup = systemLookup,
-): HttpFetchResolver {
+): AddressResolver {
   return async (hostname, signal) => {
     checkAbort(signal);
     const host = stripIpv6Brackets(hostname);

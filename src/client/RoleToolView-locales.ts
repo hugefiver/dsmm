@@ -9,6 +9,7 @@ export const roleToolEn = {
   args: "Original arguments", preparingArgs: "Arguments received so far", output: "Complete result content", failure: "Error details", metadata: "Invocation metadata",
   inspect: "View call details", copy: "Copy", copied: "Copied", emptyArgs: "Arguments not available yet",
   unavailable: "Actual identity unavailable; requested identity only", level: "Level", route: "Reported route", routeSource: "Route source",
+  initialRoute: "Initial", actualRoute: "Actual", routeUnknown: "unknown", effortUnreported: "effort not reported",
   table: "Table", json: "JSON", viewMode: "View mode", property: "Property", value: "Value",
 } as const;
 export const roleToolZh: Record<keyof typeof roleToolEn, string> = {
@@ -21,6 +22,7 @@ export const roleToolZh: Record<keyof typeof roleToolEn, string> = {
   args: "原始参数", preparingArgs: "目前已收到的参数", output: "完整结果内容", failure: "错误详情", metadata: "调用元数据",
   inspect: "查看调用详情", copy: "复制", copied: "已复制", emptyArgs: "参数尚不可用",
   unavailable: "实际身份不可用，仅显示请求身份", level: "等级", route: "报告的路由", routeSource: "路由来源",
+  initialRoute: "初始", actualRoute: "实际", routeUnknown: "未知", effortUnreported: "effort 未报告",
   table: "表格", json: "JSON", viewMode: "视图模式", property: "属性", value: "值",
 };
 declare module "@deepseek-ai/dsh-client-ui-slots" { interface LocaleNamespaceMap { "conversation.dsmm-role-tool": keyof typeof roleToolEn } }

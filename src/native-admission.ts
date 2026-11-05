@@ -6,13 +6,15 @@ import type { Agent } from "@deepseek-ai/dsh-agent";
 import { SessionId } from "@deepseek-ai/dsh-session";
 import { ReasoningEffortId } from "@deepseek-ai/dsh-llm";
 import { SubagentError, delegationDepthOf, foldSubagentDescriptor } from "@deepseek-ai/dsh-subagent";
-import type { SubagentProvider, SubagentActivation, ContinuableCreateRequest } from "@deepseek-ai/dsh-subagent";
-import type { ToolExecution } from "@deepseek-ai/dsh-tools";
+import type { SubagentProvider, SubagentActivation, ContinuableCreateRequest, SubagentRunInfo, SubagentRunEndInfo } from "@deepseek-ai/dsh-subagent";
+import type { ToolExecution, ToolExecutionResult } from "@deepseek-ai/dsh-tools";
 import type { DshAgent } from "./dsh-types.js";
+import type { DsmmAdmissionRouteInfo, DsmmAdmissionRouteInstallation, DsmmPreparedAdmissionRoute } from "./model-routing.js";
 import type { DsmmProfileRuntime } from "./profile-runtime.js";
-import type { DsmmProfileAdmission, DsmmSettingsGetter } from "./settings.js";
+import type { DsmmModelRoute, DsmmProfileAdmission, DsmmSettingsGetter } from "./settings.js";
 import { freezeSettings } from "./settings.js";
 import type { ResolvedRoleInvocation } from "./role-invocation.js";
+import { invocationView } from "./role-invocation.js";
 import type { DsmmRolePolicy } from "./role-policy.js";
 import { scopeLifetime } from "./lifetime.js";
 import { sessionEvents, childOwnedSessionEvents } from "./session-scope.js";
@@ -24,8 +26,63 @@ import { resolveRoleInvocation } from "./role-invocation.js";
 import { resolvedModelParameterPolicy } from "./model-parameter-policy.js";
 import { roleFromProviderName } from "./role-providers.js";
 import { isDsmmRoleId } from "./roles.js";
-import { latestNativeModelSelection } from "./role-routing.js";
+import type { DsmmRoleId } from "./roles.js";
+import { captureSetupModelSelections, latestModelSelectionSeq, latestNativeModelSelection } from "./role-routing.js";
 import { hasOpenTurn } from "./state.js";
+import { modelRouteFromCall } from "./role-llm.js";
+import type { DsmmInvocationView } from "./profile-types.js";
+import { ROLE_CALL_STOP_REASONS } from "./role-control-types.js";
+import type { RoleCallActualRoute, RoleCallDelivery, RoleCallModelRoute, RoleCallObservation, RoleCallObservationFrame, RoleCallStopReason } from "./role-control-types.js";
+
+interface RoleCallRecord {
+  readonly parent: Agent;
+  readonly parentAdmission: DsmmProfileAdmission;
+  readonly token: ToolExecution["token"];
+  readonly callId: string;
+  readonly rootCallId: string;
+  readonly childId: SessionId;
+  readonly invocation: ResolvedRoleInvocation;
+  readonly role: Exclude<DsmmRoleId, "dsmm-orchestrator">;
+  readonly label: string;
+  readonly provider: string;
+  readonly delivery: RoleCallDelivery;
+  child?: Agent;
+  childAdmission?: DsmmProfileAdmission;
+  runId?: string;
+  phase: "reserved" | "active" | "settled";
+  actualRoute: RoleCallActualRoute;
+  stopReason?: RoleCallStopReason;
+}
+
+type RoleCallSubscriberChange = { readonly type: "update"; readonly call: RoleCallObservation } | { readonly type: "remove"; readonly callId: string };
+class RoleCallSubscriber {
+  private readonly pending = new Map<string, RoleCallSubscriberChange>();
+  private wake?: () => void;
+  constructor(readonly parent: Agent, readonly admission: DsmmProfileAdmission) {}
+  push(call: RoleCallObservation): void {
+    this.pending.set(call.callId, { type: "update", call });
+    this.wake?.();
+  }
+  remove(callId: string): void {
+    this.pending.set(callId, { type: "remove", callId });
+    this.wake?.();
+  }
+  take(): RoleCallSubscriberChange[] {
+    const changes = [...this.pending.values()];
+    this.pending.clear();
+    return changes;
+  }
+  async changed(signal: AbortSignal): Promise<void> {
+    if (this.pending.size > 0) return;
+    await new Promise<void>(resolve => {
+      const wake = () => { signal.removeEventListener("abort", wake); if (this.wake === wake) this.wake = undefined; resolve(); };
+      this.wake = wake;
+      signal.addEventListener("abort", wake, { once: true });
+      if (signal.aborted || this.pending.size > 0) wake();
+    });
+  }
+  notify(): void { this.wake?.(); }
+}
 
 interface Pending {
   readonly childId: SessionId;
@@ -37,12 +94,15 @@ interface Pending {
   readonly provider: SubagentProvider;
   /** Standing composition the child shares with its parent; delegation roles are not own presets. */
   readonly expectedPreset: string | undefined;
-  readonly presetScope: object;
+  readonly presetScope: object | undefined;
   readonly signal: AbortSignal;
   readonly maxDepth?: number;
   readonly toolFilter: import("@deepseek-ai/dsh-tools").ToolRestriction;
+  readonly observation: RoleCallRecord;
 }
 interface Live { readonly admission: DsmmProfileAdmission; readonly preset?: string; readonly scopeParent?: object; readonly parent?: Agent; readonly invocation?: ResolvedRoleInvocation; readonly dependencies?: readonly (object | undefined)[]; readonly provider?: SubagentProvider }
+interface AdmissionRouteCache { readonly candidate?: DsmmPreparedAdmissionRoute }
+interface AdmissionRouteFailure { readonly cache: AdmissionRouteCache; readonly error: unknown }
 declare module "@deepseek-ai/cordis" { interface Context { dsmmNativeAdmission: NativeAdmission } }
 
 /** Short-lived creation correlations and exact live bindings, never an execution queue. */
@@ -67,14 +127,27 @@ export class NativeAdmission {
   private readonly blankUpdates = new WeakMap<Agent, Promise<void>>();
   private readonly getters = new WeakMap<Agent, DsmmSettingsGetter>();
   private readonly executions = new WeakMap<Agent, Set<ToolExecution["token"]>>();
+  private readonly observedCalls = new WeakMap<Agent, Map<string, RoleCallRecord>>();
+  private readonly observedCallRecords = new WeakMap<Agent, Set<RoleCallRecord>>();
+  private readonly ambiguousCallIds = new WeakMap<Agent, Set<string>>();
+  private readonly observedCallTokens = new Map<ToolExecution["token"], RoleCallRecord>();
+  private readonly observedCallChildren = new Map<SessionId, RoleCallRecord>();
+  private readonly observedCallRuns = new Map<string, RoleCallRecord>();
+  private readonly callSubscribers = new Set<RoleCallSubscriber>();
   private readonly providerScopes = new Map<object, boolean>();
   private readonly opaqueAgents = new WeakSet<Agent>();
+  private readonly admissionRoutes = new WeakMap<Agent, AdmissionRouteCache>();
+  private readonly admissionRouteFailures = new WeakMap<Agent, AdmissionRouteFailure>();
+  private readonly setupSelectionCursors = new WeakMap<object, number>();
   private ready = false;
   private install?: (agent: Agent, getSettings: DsmmSettingsGetter) => Promise<void>;
+  private admissionModelSelection?: (agent: Agent, info: DsmmAdmissionRouteInfo) => Promise<DsmmPreparedAdmissionRoute | undefined>;
   constructor(readonly ctx: Context, readonly profiles: DsmmProfileRuntime, readonly policy: DsmmRolePolicy,
     private readonly configurationCommitted: (agents: readonly Agent[]) => void = () => {}) {
     scopeLifetime(ctx, "dsmm: close admission before owner teardown", () => {
       this.lifetime.abort(); this.pending.clear();
+      for (const subscriber of this.callSubscribers) subscriber.notify();
+      this.observedCallTokens.clear(); this.observedCallChildren.clear(); this.observedCallRuns.clear();
       for (const agent of this.agents) agent.cancel({ kind: "disposed" });
     });
     ctx.effect(() => async () => {
@@ -95,10 +168,34 @@ export class NativeAdmission {
     // Existing Agents may have unpublished starts from before this observer.
     for (const agent of ctx.agents.list()) this.opaqueAgents.add(agent);
     observeProviders();
+    ctx.on("subagent/start", info => { this.startObservedActivation(info); }, { global: true });
+    ctx.on("subagent/end", info => { this.endObservedActivation(info); }, { global: true });
+    ctx.on("session/created", session => {
+      this.setupSelectionCursors.set(session, latestModelSelectionSeq({ session } as unknown as DshAgent));
+    }, { global: true });
+    ctx.on("session/disposed", session => { this.setupSelectionCursors.delete(session); }, { global: true });
     ctx.on("agent/created", async frame => { await this.created(frame.agent, frame.source, frame.signal); }, { global: true, prepend: true });
+    ctx.on("agent/status", ({ agent, status }) => { if (status === "running") this.installCachedAdmissionRouteSafely(agent); }, { global: true });
+    ctx.on("agent/inbox/claimed", ({ agent }) => { this.installCachedAdmissionRouteSafely(agent); }, { global: true });
+    ctx.on("session/event", (session, event) => {
+      if (event.type === "request/header") this.observeCallRequestHeader(session, event.data.header.config);
+      if (event.type !== "model/selection") return;
+      const agent = this.ctx.agents.get(session.id), cache = agent === undefined ? undefined : this.admissionRoutes.get(agent);
+      if (agent === undefined || agent.session !== session || cache?.candidate?.restoresConfiguredPrimary !== true) return;
+      queueMicrotask(() => {
+        try {
+          if (this.lifetime.signal.aborted || this.agentLifetimes.get(agent)?.signal.aborted || this.selecting.has(agent)
+            || this.admissionRoutes.get(agent) !== cache) return;
+          this.installCachedAdmissionRouteSafely(agent, cache);
+        } catch (error) {
+          if (this.admissionRoutes.get(agent) === cache) this.admissionRouteFailures.set(agent, { cache, error });
+        }
+      });
+    }, { global: true });
     ctx.on("agent/disposed", ({ agent }) => {
       void this.retireAgent(agent).catch(() => {});
-      this.live.delete(agent); this.candidates.delete(agent); this.agents.delete(agent);
+      this.retireObservedParent(agent);
+      this.live.delete(agent); this.candidates.delete(agent); this.admissionRoutes.delete(agent); this.admissionRouteFailures.delete(agent); this.agents.delete(agent);
       for (const activation of this.activations) if (activation.childId === agent.id) this.activations.delete(activation);
       profiles.release(agent as DshAgent); policy.release(agent as DshAgent);
     }, { global: true });
@@ -116,7 +213,10 @@ export class NativeAdmission {
       }
       return next();
     }, { global: true, prepend: true });
-    ctx.on("tools/result", exec => { if (exec.agent) this.executions.get(exec.agent)?.delete(exec.token); }, { global: true });
+    ctx.on("tools/result", (exec, result) => {
+      if (exec.agent) this.executions.get(exec.agent)?.delete(exec.token);
+      this.finishObservedTool(exec, result);
+    }, { global: true });
     ctx.on("agent-preset/selected", id => {
       const agent = ctx.agents.get(id);
       if (!agent || !this.live.has(agent)) return;
@@ -127,6 +227,159 @@ export class NativeAdmission {
   }
   activate(install: NonNullable<NativeAdmission["install"]>): void {
     this.lifetime.signal.throwIfAborted(); this.install = install; this.ready = true;
+  }
+  /** Bind asynchronous metadata preparation; later lifecycle callbacks only install its immutable result. */
+  bindAdmissionModelSelection(hook: (agent: Agent, info: DsmmAdmissionRouteInfo) => Promise<DsmmPreparedAdmissionRoute | undefined>): void {
+    this.admissionModelSelection = hook;
+  }
+  private callsFor(parent: Agent): Map<string, RoleCallRecord> {
+    let calls = this.observedCalls.get(parent);
+    if (calls === undefined) { calls = new Map(); this.observedCalls.set(parent, calls); }
+    return calls;
+  }
+  private recordsFor(parent: Agent): Set<RoleCallRecord> {
+    let records = this.observedCallRecords.get(parent);
+    if (records === undefined) { records = new Set(); this.observedCallRecords.set(parent, records); }
+    return records;
+  }
+  private observationRoute(route: DsmmModelRoute): RoleCallModelRoute {
+    return Object.freeze({ provider: route.provider, model: route.model,
+      ...(route.reasoningEffort === undefined ? {} : { reasoningEffort: route.reasoningEffort }) });
+  }
+  private observedCall(record: RoleCallRecord): RoleCallObservation {
+    return Object.freeze({ parentSessionId: record.parent.id, parentAdmissionEpoch: record.parentAdmission.epoch,
+      ...(record.childAdmission === undefined ? {} : { childAdmissionEpoch: record.childAdmission.epoch }),
+      callId: record.callId, rootCallId: record.rootCallId, childId: record.childId,
+      ...(record.runId === undefined ? {} : { runId: record.runId }), role: record.role,
+      level: record.invocation.effectiveLevel, routeSource: record.invocation.routeSource,
+      initialRoute: Object.freeze({ status: "known", source: "invocation-capture", route: this.observationRoute(record.invocation.initialRoute) }),
+      actualRoute: record.actualRoute, phase: record.phase, delivery: record.delivery,
+      ...(record.stopReason === undefined ? {} : { stopReason: record.stopReason }) });
+  }
+  private publishObservedCall(record: RoleCallRecord): void {
+    if (this.observedCalls.get(record.parent)?.get(record.callId) !== record || this.ambiguousCallIds.get(record.parent)?.has(record.callId)) return;
+    const call = this.observedCall(record);
+    for (const subscriber of this.callSubscribers) {
+      if (subscriber.parent === record.parent && subscriber.admission === record.parentAdmission) subscriber.push(call);
+    }
+  }
+  private publishObservedRemoval(parent: Agent, admission: DsmmProfileAdmission, callId: string): void {
+    for (const subscriber of this.callSubscribers) {
+      if (subscriber.parent === parent && subscriber.admission === admission) subscriber.remove(callId);
+    }
+  }
+  private observedInvocation(record: RoleCallRecord): DsmmInvocationView {
+    const call = this.observedCall(record);
+    return { ...invocationView(record.invocation, record.label, "continuable", { childId: record.childId, ...(record.runId === undefined ? {} : { runId: record.runId }) }),
+      role: record.role, route: this.observationRoute(record.invocation.initialRoute),
+      routeComparison: { childId: record.childId, initialRoute: call.initialRoute, liveRoute: call.actualRoute },
+      delivery: record.delivery, phase: record.phase, ...(record.stopReason === undefined ? {} : { stopReason: record.stopReason }) };
+  }
+  private startObservedActivation(info: SubagentRunInfo): void {
+    const record = this.observedCallChildren.get(info.id);
+    if (record === undefined || info.provider !== record.provider || !info.local || record.phase === "settled") return;
+    if (record.runId !== undefined && record.runId !== info.runId) return;
+    record.runId = info.runId; record.phase = "active";
+    this.observedCallRuns.set(info.runId, record);
+    this.publishObservedCall(record);
+  }
+  private endObservedActivation(info: SubagentRunEndInfo): void {
+    const record = this.observedCallRuns.get(info.runId);
+    if (record === undefined || record.childId !== info.id || record.provider !== info.provider || !info.local) return;
+    this.settleObservedActivation(record, info.stopReason);
+  }
+  private settleObservedActivation(record: RoleCallRecord, stopReason?: string): void {
+    if (record.phase === "settled") return;
+    record.phase = "settled";
+    if ((ROLE_CALL_STOP_REASONS as readonly string[]).includes(stopReason ?? "")) record.stopReason = stopReason as RoleCallStopReason;
+    if (record.runId !== undefined && this.observedCallRuns.get(record.runId) === record) this.observedCallRuns.delete(record.runId);
+    if (this.observedCallChildren.get(record.childId) === record) this.observedCallChildren.delete(record.childId);
+    this.publishObservedCall(record);
+  }
+  private bindObservedChild(record: RoleCallRecord, child: Agent, admission: DsmmProfileAdmission): void {
+    if (record.phase === "settled" || record.parentAdmission !== this.get(record.parent)
+      || this.observedCallChildren.get(record.childId) !== record || child.id !== record.childId) return;
+    record.child = child; record.childAdmission = admission;
+    if (record.actualRoute.status === "unknown" && record.actualRoute.reason === "not-observed") record.actualRoute = Object.freeze({ status: "unknown", reason: "no-own-request-header" });
+    this.publishObservedCall(record);
+  }
+  private observeCallRequestHeader(session: Agent["session"], value: unknown): void {
+    const record = this.observedCallChildren.get(session.id), child = this.ctx.agents.get(session.id);
+    if (record === undefined || child === undefined || child !== record.child || child.session !== session
+      || record.parentAdmission !== this.get(record.parent) || record.childAdmission !== this.get(child) || record.phase === "settled") return;
+    const config = typeof value === "object" && value !== null ? value as { provider?: unknown; model?: unknown; reasoningEffort?: unknown } : undefined;
+    if (typeof config?.provider !== "string" || typeof config.model !== "string"
+      || config.reasoningEffort !== undefined && typeof config.reasoningEffort !== "string") {
+      record.actualRoute = Object.freeze({ status: "unknown", reason: "invalid-own-request-header" });
+    } else {
+      try {
+        const route = modelRouteFromCall({ provider: config.provider, model: config.model,
+          ...(config.reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(config.reasoningEffort) }) });
+        record.actualRoute = Object.freeze({ status: "known", source: "own-native-request-header", route: Object.freeze(route) });
+      } catch { record.actualRoute = Object.freeze({ status: "unknown", reason: "invalid-own-request-header" }); }
+    }
+    this.publishObservedCall(record);
+  }
+  private finishObservedTool(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): void {
+    const record = this.observedCallTokens.get(exec.token);
+    if (record === undefined) return;
+    this.observedCallTokens.delete(exec.token);
+    if (record.phase === "reserved" || record.delivery === "caller" && record.phase === "active"
+      || record.delivery === "parent" && result.isError && record.runId === undefined) {
+      this.settleObservedActivation(record, result.isError ? undefined : "completed");
+    }
+  }
+  private retireObservedParent(parent: Agent): void {
+    for (const record of this.observedCallRecords.get(parent) ?? []) {
+      this.observedCallTokens.delete(record.token);
+      if (this.observedCallChildren.get(record.childId) === record) this.observedCallChildren.delete(record.childId);
+      if (record.runId !== undefined && this.observedCallRuns.get(record.runId) === record) this.observedCallRuns.delete(record.runId);
+    }
+    this.observedCalls.delete(parent); this.observedCallRecords.delete(parent); this.ambiguousCallIds.delete(parent);
+    for (const subscriber of this.callSubscribers) if (subscriber.parent === parent) subscriber.notify();
+  }
+  async *observeRoleCalls(parent: Agent, admission: DsmmProfileAdmission, signal: AbortSignal, check: () => void): AsyncIterable<RoleCallObservationFrame> {
+    const subscriber = new RoleCallSubscriber(parent, admission);
+    this.callSubscribers.add(subscriber);
+    try {
+      const assertCurrent = () => {
+        signal.throwIfAborted(); check();
+        if (this.assert(parent) !== admission) throw new SubagentError("Call observation admission changed", "UNAUTHORIZED");
+      };
+      assertCurrent();
+      const calls = [...this.observedCalls.get(parent)?.values() ?? []]
+        .filter(record => record.parentAdmission === admission).map(record => this.observedCall(record));
+      const snapshot: RoleCallObservationFrame = Object.freeze({ type: "snapshot", sessionId: parent.id,
+        admissionEpoch: admission.epoch, calls: Object.freeze(calls) });
+      yield snapshot;
+      while (!signal.aborted) {
+        await subscriber.changed(signal); assertCurrent();
+        for (const change of subscriber.take()) {
+          assertCurrent();
+          const update: RoleCallObservationFrame = change.type === "update"
+            ? Object.freeze({ type: "update", sessionId: parent.id, admissionEpoch: admission.epoch, call: change.call })
+            : Object.freeze({ type: "remove", sessionId: parent.id, admissionEpoch: admission.epoch, callId: change.callId });
+          yield update;
+        }
+      }
+    } finally { this.callSubscribers.delete(subscriber); }
+  }
+  private notifyObservedParent(parent: Agent): void {
+    for (const subscriber of this.callSubscribers) if (subscriber.parent === parent) subscriber.notify();
+  }
+  private installCachedAdmissionRoute(agent: Agent, expected?: AdmissionRouteCache): DsmmAdmissionRouteInstallation | undefined {
+    const cache = expected ?? this.admissionRoutes.get(agent), live = this.live.get(agent);
+    if (cache === undefined || cache !== this.admissionRoutes.get(agent) || live === undefined || this.failedInstallations.has(agent)
+      || !this.isReady || this.ctx.agents.get(agent.id) !== agent || this.agentLifetimes.get(agent)?.signal.aborted) return undefined;
+    return cache.candidate?.install(live.admission);
+  }
+  private installCachedAdmissionRouteSafely(agent: Agent, expected?: AdmissionRouteCache): void {
+    const cache = expected ?? this.admissionRoutes.get(agent);
+    if (cache?.candidate?.restoresConfiguredPrimary !== true || this.admissionRouteFailures.get(agent)?.cache === cache) return;
+    try { this.installCachedAdmissionRoute(agent, cache); }
+    catch (error) {
+      if (this.admissionRoutes.get(agent) === cache) this.admissionRouteFailures.set(agent, { cache, error });
+    }
   }
   get isReady(): boolean {
     const current = this.ctx.get("dsmmNativeAdmission");
@@ -182,6 +435,10 @@ export class NativeAdmission {
     if (this.failedInstallations.has(agent)) throw new SubagentError("Session configuration restoration failed; create a new session", "UNAUTHORIZED");
     if (this.selecting.has(agent) && agent !== maintenanceRoot) throw new SubagentError("Session configuration maintenance is in progress", "UNAUTHORIZED");
     if (!this.isReady || !live || this.ctx.agents.get(agent.id) !== agent) throw new SubagentError("No trusted live admission; create a new session", "UNAUTHORIZED");
+    const routeFailure = this.admissionRouteFailures.get(agent);
+    if (routeFailure !== undefined && routeFailure.cache === this.admissionRoutes.get(agent)) {
+      throw new SubagentError("Configured model selection installation failed; create a new session", "UNAUTHORIZED");
+    }
     if (this.ctx.get("sessions")?.get(agent.id) !== agent.session || agent.session.id !== agent.id || agent.session.header.id !== agent.id
       || scopeOf(agent.ctx) !== agent || original(agent.ctx.get("agents")!) !== original(this.ctx.agents)
       || live.dependencies && this.dependencies(agent).some((value, index) => value !== live.dependencies![index])
@@ -264,6 +521,8 @@ export class NativeAdmission {
     }
     let prepared = false, committed = false;
     let publication!: Live;
+    const previousRouteCache = this.admissionRoutes.get(agent), previousRouteFailure = this.admissionRouteFailures.get(agent);
+    let installedRouteCache: AdmissionRouteCache | undefined, routeInstallation: DsmmAdmissionRouteInstallation | undefined;
     let providers: ReadonlyMap<string, SubagentProvider> = new Map();
     const assertCurrent = () => {
       assertAuthority();
@@ -304,21 +563,45 @@ export class NativeAdmission {
           }
         });
         assertCurrent();
+        const candidate = await this.admissionModelSelection?.(agent, { settings: admission.settings, epoch: admission.epoch,
+          admission, signal: preparationSignal, assertCurrent });
+        assertCurrent();
         prepared = true;
+        installedRouteCache = Object.freeze({ candidate });
+        this.admissionRoutes.set(agent, installedRouteCache);
+        this.admissionRouteFailures.delete(agent);
+        try { routeInstallation = candidate?.install(admission); }
+        catch (error) {
+          if (candidate?.preflightFailure !== error) this.failedInstallations.add(agent);
+          throw error;
+        }
         await install(admission); assertCurrent();
         this.installing.run({ agent, admission }, describe);
         publication = Object.freeze({ ...previous, admission });
       },
-      committed: () => { this.live.set(agent, publication); committed = true; this.configurationCommitted(tree); },
+      committed: () => { this.live.set(agent, publication); committed = true; this.notifyObservedParent(agent); this.configurationCommitted(tree); },
       close: async () => {
-        try { if (prepared && !committed && this.ctx.agents.get(agent.id) === agent && !this.lifetime.signal.aborted) await install(previous.admission); }
-        catch (error) {
-          this.failedInstallations.add(agent);
-          const refusal = new DsmmProfileError("activation", "Session configuration restoration failed. Execution is disabled; create a new session.");
-          refusal.cause = error;
-          throw refusal;
-        }
-        finally {
+        try {
+          if (prepared && !committed) {
+            const errors: unknown[] = [];
+            const canRestore = this.ctx.agents.get(agent.id) === agent && !this.lifetime.signal.aborted;
+            if (canRestore) {
+              try { await install(previous.admission); } catch (error) { errors.push(error); }
+              try { routeInstallation?.rollback(); } catch (error) { errors.push(error); }
+            }
+            if (installedRouteCache !== undefined && this.admissionRoutes.get(agent) === installedRouteCache) {
+              if (previousRouteCache === undefined) this.admissionRoutes.delete(agent); else this.admissionRoutes.set(agent, previousRouteCache);
+              if (previousRouteFailure !== undefined && previousRouteFailure.cache === previousRouteCache) this.admissionRouteFailures.set(agent, previousRouteFailure);
+              else this.admissionRouteFailures.delete(agent);
+            }
+            if (errors.length > 0) {
+              this.failedInstallations.add(agent);
+              const refusal = new DsmmProfileError("activation", "Session configuration restoration failed. Execution is disabled; create a new session.");
+              refusal.cause = errors.length === 1 ? errors[0] : new AggregateError(errors, "Session configuration restoration failed");
+              throw refusal;
+            }
+          }
+        } finally {
           this.selecting.delete(agent); this.blankUpdates.delete(agent); finish();
           await Promise.allSettled(reservations);
         }
@@ -330,29 +613,44 @@ export class NativeAdmission {
     const active = this.executions.get(exec.agent) ?? new Set<ToolExecution["token"]>();
     active.add(exec.token); this.executions.set(exec.agent, active);
   }
-  async reserve(exec: Readonly<ToolExecution>, invocation: ResolvedRoleInvocation, provider: SubagentProvider, maxDepth?: number): Promise<{ childId: SessionId; release(): Promise<void>; signal: AbortSignal }> {
+  async reserve(exec: Readonly<ToolExecution>, invocation: ResolvedRoleInvocation, provider: SubagentProvider, label: string,
+    delivery: RoleCallDelivery, maxDepth?: number): Promise<{ childId: SessionId; release(): Promise<void>; signal: AbortSignal; view(): DsmmInvocationView }> {
     const parent = exec.agent; if (!parent) throw new SubagentError("Calling Agent required", "UNAUTHORIZED");
-    const parentAdmission = this.assert(parent);
-    this.policy.assertDelegation(parent as DshAgent, invocation.target);
+    const parentAdmission = this.assert(parent), role = invocation.target;
+    if (role === "dsmm-orchestrator") throw new SubagentError("Orchestrator is not a delegated role", "UNAUTHORIZED");
+    this.policy.assertDelegation(parent as DshAgent, role);
     const toolFilter = this.policy.delegationToolFilter(exec);
     const presets = this.ctx.get("agentPresets");
     if (!presets) throw new SubagentError("Native preset registry unavailable", "UNSUPPORTED_CAPABILITY");
     // The child shares the parent's standing composition; its role is carried
     // by the admitted invocation, not by an own registered preset.
     const expectedPreset = presets.composedPreset(parent.ctx);
-    const lease = await presets.acquireScope(expectedPreset);
+    const lease = expectedPreset === undefined ? undefined : await presets.acquireScope(expectedPreset);
+    const presetScope = expectedPreset === undefined ? scopeParentOf(parent) : lease!.key;
     try {
       exec.signal.throwIfAborted(); this.assert(parent);
       const currentProvider = this.ctx.get("subagents")?.getProvider(provider.name);
       if (!currentProvider || original(currentProvider) !== original(provider) || this.get(parent) !== parentAdmission) throw new SubagentError("Creation dependencies changed", "UNAUTHORIZED");
       const childId = SessionId(randomUUID()), signal = AbortSignal.any([exec.signal, this.lifetime.signal, this.agentLifetimes.get(parent)!.signal]);
       const admission = freezeSettings({ ...parentAdmission, settings: structuredClone(parentAdmission.settings) });
-      const pending: Pending = Object.freeze({ childId, parent, parentAdmission, callId: exec.callId, invocation, admission, provider, expectedPreset, presetScope: lease.key, signal, maxDepth, toolFilter });
+      const callId = String(exec.callId), rootCallId = String(exec.rootCallId), calls = this.callsFor(parent);
+      let ambiguous = this.ambiguousCallIds.get(parent);
+      if (ambiguous === undefined) { ambiguous = new Set(); this.ambiguousCallIds.set(parent, ambiguous); }
+      const duplicate = calls.has(callId) || ambiguous.has(callId);
+      if (duplicate) { ambiguous.add(callId); calls.delete(callId); }
+      const observation: RoleCallRecord = { parent, parentAdmission, token: exec.token, callId, rootCallId, childId, invocation, role,
+        label, provider: provider.name, delivery, phase: "reserved", actualRoute: Object.freeze({ status: "unknown", reason: "not-observed" }) };
+      const pending: Pending = Object.freeze({ childId, parent, parentAdmission, callId: exec.callId, invocation, admission, provider, expectedPreset, presetScope, signal, maxDepth, toolFilter, observation });
+      this.recordsFor(parent).add(observation);
+      if (!duplicate) calls.set(callId, observation);
+      this.observedCallTokens.set(exec.token, observation); this.observedCallChildren.set(childId, observation);
       this.pending.set(childId, pending);
+      if (duplicate) this.publishObservedRemoval(parent, parentAdmission, callId); else this.publishObservedCall(observation);
       const revoke = () => { if (this.pending.get(childId) === pending) this.pending.delete(childId); };
       signal.addEventListener("abort", revoke, { once: true });
-      return { childId, signal, release: async () => { revoke(); signal.removeEventListener("abort", revoke); await lease[Symbol.asyncDispose](); } };
-    } catch (error) { await lease[Symbol.asyncDispose](); throw error; }
+      return { childId, signal, view: () => this.observedInvocation(observation),
+        release: async () => { revoke(); signal.removeEventListener("abort", revoke); await lease?.[Symbol.asyncDispose](); } };
+    } catch (error) { await lease?.[Symbol.asyncDispose](); throw error; }
   }
   async duringCall<T>(agent: Agent, signal: AbortSignal, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
     this.assert(agent);
@@ -374,7 +672,10 @@ export class NativeAdmission {
   }
   track(activation: SubagentActivation): void {
     this.activations.add(activation);
-    void activation.result.finally(() => { if (!this.ctx.agents.get(activation.childId)) this.activations.delete(activation); }).catch(() => {});
+    const observation = this.observedCallChildren.get(activation.childId);
+    void activation.result.then(result => { if (observation !== undefined) this.settleObservedActivation(observation, result.stopReason); }, () => {
+      if (observation !== undefined) this.settleObservedActivation(observation);
+    }).finally(() => { if (!this.ctx.agents.get(activation.childId)) this.activations.delete(activation); }).catch(() => {});
     if (this.lifetime.signal.aborted) void activation.dispose().catch(error => this.ctx.logger.error(error));
   }
   private guardTools(agent: Agent): void {
@@ -439,6 +740,9 @@ export class NativeAdmission {
     if (parents.length > 1 || this.ctx.agents.get(agent.id) !== agent || this.ctx.get("sessions")?.get(agent.id) !== agent.session
       || agent.session.id !== agent.id || agent.session.header.id !== agent.id || scopeOf(agent.ctx) !== agent
       || original(agent.ctx.get("agents")!) !== original(this.ctx.agents)) throw new SubagentError("Invalid native ownership", "UNAUTHORIZED");
+    const setupCursor = this.setupSelectionCursors.get(agent.session);
+    this.setupSelectionCursors.delete(agent.session);
+    if (setupCursor !== undefined) captureSetupModelSelections(agent as DshAgent, setupCursor);
     const own = childOwnedSessionEvents(agent.session);
     const descriptor = foldSubagentDescriptor(own as Parameters<typeof foldSubagentDescriptor>[0]);
     if (!pending && parent && !this.owns(parent)) {
@@ -453,7 +757,7 @@ export class NativeAdmission {
     agent.ctx.effect(() => async () => {
       try { await this.retireAgent(agent); }
       finally {
-        this.live.delete(agent); this.candidates.delete(agent); this.agents.delete(agent);
+        this.live.delete(agent); this.candidates.delete(agent); this.admissionRoutes.delete(agent); this.admissionRouteFailures.delete(agent); this.agents.delete(agent);
         this.profiles.release(agent as DshAgent); this.policy.release(agent as DshAgent);
       }
     });
@@ -504,9 +808,10 @@ export class NativeAdmission {
           if (!admission.settings.modules.deepwork.enabled || !admission.settings.roles[role]) throw new SubagentError("Role is disabled", "UNAUTHORIZED");
           this.policy.assertDelegation(parent as DshAgent, role);
           const manual = latestNativeModelSelection(agent as DshAgent)?.route;
-          continuation = await resolveRoleInvocation(parent, role, admission.settings, signal, metadata ? { level: metadata.level } : {}, manual === undefined ? undefined : {
-            provider: manual.provider, model: manual.model, ...(manual.reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(manual.reasoningEffort) })
-          }, resolvedModelParameterPolicy(admission));
+          continuation = await resolveRoleInvocation(parent, role, admission.settings, signal, metadata ? { level: metadata.level } : {},
+            manual === undefined ? undefined : { provider: manual.provider, model: manual.model,
+              ...(manual.reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(manual.reasoningEffort) }) },
+            resolvedModelParameterPolicy(admission));
           check();
         }
       } else {
@@ -538,11 +843,20 @@ export class NativeAdmission {
       if (continuationProvider && this.ctx.get("subagents")!.getProvider(continuationProvider.name) !== continuationProvider) throw new SubagentError("Role provider changed", "UNAUTHORIZED");
       // Occupancy precedes the installed guards' async policy and approval work.
       agent.ctx.on("tools/pre-execute", async (exec, next) => { if (exec.agent === agent) { this.trackExecution(exec); await this.ensure(agent); const denial = this.policy.preToolDenial(agent as DshAgent, exec.name, undefined, exec); if (denial) return { kind: "deny" as const, reason: denial }; } return next(); }, { prepend: true });
+      const routeCandidate = await this.admissionModelSelection?.(agent, {
+        settings: admission.settings, epoch: admission.epoch, admission, signal, assertCurrent: check,
+      });
+      check();
+      const routeCache = Object.freeze({ candidate: routeCandidate });
+      this.admissionRoutes.set(agent, routeCache);
+      this.admissionRouteFailures.delete(agent);
+      routeCandidate?.install(admission);
+      check();
       this.profiles.publish(agent as DshAgent, admission);
       const published = this.profiles.admission(agent as DshAgent);
       this.live.set(agent, Object.freeze({ admission: published, preset, scopeParent: scopeParentOf(agent), parent, invocation: pending?.invocation ?? continuation, dependencies, provider: pending?.provider ?? continuationProvider }));
-      if (pending) this.pending.delete(agent.id);
-    } catch (error) { this.policy.release(agent as DshAgent); throw error; }
+      if (pending) { this.bindObservedChild(pending.observation, agent, published); this.pending.delete(agent.id); }
+    } catch (error) { this.admissionRoutes.delete(agent); this.admissionRouteFailures.delete(agent); this.policy.release(agent as DshAgent); throw error; }
     finally { this.candidates.delete(agent); }
   }
 }

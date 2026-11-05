@@ -1,5 +1,6 @@
 import { parseDsmmInvocationView } from "../profile-remote.js";
 import type { DsmmInvocationView } from "../profile-types.js";
+import type { RoleCallObservation } from "../role-control-types.js";
 import type { ToolArgs } from "@deepseek-ai/dsh-client-ui-conversation/client";
 
 /** Presentation keys only; this table does not describe callable admission. */
@@ -49,6 +50,17 @@ export function actualRoleTool(toolName: string, meta: unknown, failed: boolean)
   } catch { return undefined; }
 }
 
+export function observedRoleTool(toolName: string, observation: RoleCallObservation): DsmmInvocationView | undefined {
+  if (!(toolName === "dsmm_category" ? categories : roles).has(observation.role)) return undefined;
+  return { role: observation.role, label: roleToolDisplay(observation.role), level: observation.level,
+    routeSource: observation.routeSource, mode: "continuable", childId: observation.childId,
+    ...(observation.runId === undefined ? {} : { runId: observation.runId }),
+    ...(observation.initialRoute.status === "known" ? { route: { ...observation.initialRoute.route } } : {}),
+    routeComparison: { childId: observation.childId, initialRoute: observation.initialRoute, liveRoute: observation.actualRoute },
+    delivery: observation.delivery, phase: observation.phase,
+    ...(observation.stopReason === undefined ? {} : { stopReason: observation.stopReason }) };
+}
+
 export function roleToolDisplay(target: string): string {
   return target.slice("dsmm-".length).split("-").map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
 }
@@ -65,6 +77,7 @@ export function technicalTableRows(
   rawArgs: string,
   meta?: unknown,
   routeSource?: string,
+  observation?: RoleCallObservation,
 ): TechnicalRow[] {
   const rows: TechnicalRow[] = [];
   rows.push({ property: "toolName", value: toolName, isComplex: false });
@@ -93,6 +106,7 @@ export function technicalTableRows(
       rows.push({ property: "meta", value: meta, isComplex: typeof meta === "object" });
     }
   }
+  if (observation !== undefined) rows.push({ property: "observation", value: observation, isComplex: true });
 
   return rows;
 }
@@ -103,6 +117,7 @@ export function technicalJsonData(
   rawArgs: string,
   meta?: unknown,
   routeSource?: string,
+  observation?: RoleCallObservation,
 ): Record<string, unknown> {
   const parsedArgs = roleToolArguments(rawArgs);
   const data: Record<string, unknown> = {
@@ -113,8 +128,7 @@ export function technicalJsonData(
     data.routeSource = routeSource;
   }
   data.args = parsedArgs !== undefined ? parsedArgs : rawArgs;
-  if (meta !== undefined && meta !== null) {
-    data.meta = meta;
-  }
+  if (meta !== undefined && meta !== null) data.meta = meta;
+  if (observation !== undefined) data.observation = observation;
   return data;
 }

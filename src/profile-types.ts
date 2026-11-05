@@ -31,6 +31,11 @@ export interface DsmmInvocationView {
   childId?: string;
   jobId?: string;
   routeComparison?: DsmmRoleRouteComparison;
+  /** Native activation delivery is independent of whether the child is continuable. */
+  delivery?: "caller" | "parent";
+  /** Exact observation phase for this invocation, when a live call correlation supplied it. */
+  phase?: "reserved" | "active" | "settled";
+  stopReason?: "completed" | "aborted" | "error" | "max-tokens" | "refusal";
 }
 
 export interface SubagentRuntimeAdmissionView {

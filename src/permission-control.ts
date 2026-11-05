@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { symbols } from "@deepseek-ai/cordis";
 import type { Context } from "@deepseek-ai/cordis";
+import type {} from "@deepseek-ai/dsh-user-approval";
 import type { Agent } from "@deepseek-ai/dsh-agent";
 import { HarnessError } from "@deepseek-ai/dsh-llm";
 import { TOOL_ABORTED } from "@deepseek-ai/dsh-tools";

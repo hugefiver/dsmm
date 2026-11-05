@@ -121,6 +121,31 @@ test("configured root consumes no-output 429 pending fallback and retains its lo
   } finally { await fixture.dispose(); }
 });
 
+test("request-time configured recovery switches complete parameters for a same provider/model/effort triple", async () => {
+  const same = { provider: "fixture", model: "same-triple", reasoningEffort: "high" };
+  const first = { ...same, temperature: 0.2, maxTokens: 20, stop: ["PRIMARY"] };
+  const second = { ...same, temperature: 0.8 };
+  const fixture = await nativeRoutingFixture({ rootModelPolicy: "configured", defaultActive: true,
+    roleRouting: { "dsmm-orchestrator": { primary: first, fallbackRoutes: [second], strategy: "rate-limit-fallback", rateLimit: bounds } } }, { dsmmLlm: true });
+  try {
+    const agent = await fixture.create({}, selection(same), { setup(scope) {
+      scope.on("agent/request", async (_frame, next) => {
+        const config = await next();
+        return fixture.adapter.calls.length >= 2 ? { ...config, maxTokens: 20, stop: ["PRIMARY"] } : config;
+      });
+    } });
+    fixture.adapter.beforeStream = async () => {
+      if (fixture.adapter.calls.length === 1) throw new LlmError("same-triple first candidate rate limit", "RATE_LIMIT", { status: 429 });
+    };
+    await runFixtureTurn(agent); await runFixtureTurn(agent);
+    assert.deepEqual(fixture.adapter.calls.map(call => ({ temperature: call.temperature, maxTokens: call.maxTokens, stop: call.stop })), [
+      { temperature: 0.2, maxTokens: 20, stop: ["PRIMARY"] },
+      { temperature: 0.8, maxTokens: undefined, stop: undefined },
+      { temperature: 0.8, maxTokens: undefined, stop: undefined },
+    ]);
+  } finally { await fixture.dispose(); }
+});
+
 test("stock Host request waterfall also uses configured root recovery after routing capture", async () => {
   const fixture = await nativeRoutingFixture({ rootModelPolicy: "configured", defaultActive: true,
     roleRouting: { "dsmm-orchestrator": { primary, fallbackRoutes: [backup], strategy: "rate-limit-fallback", rateLimit: bounds } } });
@@ -130,6 +155,27 @@ test("stock Host request waterfall also uses configured root recovery after rout
     await runFixtureTurn(agent);
     assert.deepEqual(routes(fixture.adapter), [primary, backup]);
     assert.deepEqual(headerRoutes(agent), [primary, backup]);
+  } finally { await fixture.dispose(); }
+});
+
+test("stock configured same-route retry preserves the persisted actual request controls", async () => {
+  const fixture = await nativeRoutingFixture({ rootModelPolicy: "configured", defaultActive: true,
+    roleRouting: { "dsmm-orchestrator": { primary, fallbackRoutes: [backup], strategy: "rate-limit-fallback",
+      rateLimit: { ...bounds, maxRetries: 1, switchAfterRateLimits: 2 } } } });
+  try {
+    const agent = await fixture.create({}, selection(), { setup(scope) {
+      scope.on("agent/request", async (_frame, next) => ({ ...await next(), temperature: 0, maxTokens: 90, stop: ["END"] }));
+    } });
+    fixture.adapter.rateLimitModels.add(primary.model);
+    fixture.adapter.beforeStream = async () => {
+      if (fixture.adapter.calls.length === 2) fixture.adapter.rateLimitModels.delete(primary.model);
+    };
+    await runFixtureTurn(agent);
+    assert.deepEqual(fixture.adapter.calls.map(call => ({ model: call.model, reasoningEffort: call.reasoningEffort,
+      temperature: call.temperature, maxTokens: call.maxTokens, stop: call.stop })), [
+      { model: primary.model, reasoningEffort: primary.reasoningEffort, temperature: 0, maxTokens: 90, stop: ["END"] },
+      { model: primary.model, reasoningEffort: primary.reasoningEffort, temperature: 0, maxTokens: 90, stop: ["END"] },
+    ]);
   } finally { await fixture.dispose(); }
 });
 

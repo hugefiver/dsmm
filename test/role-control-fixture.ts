@@ -5,12 +5,14 @@ import { TypertRegistry } from "@deepseek-ai/dsh-typert-registry";
 import { TypertGatewayService } from "@deepseek-ai/dsh-api-gateway";
 import * as Connection from "@deepseek-ai/dsh-client-connection";
 import { nativeFixturePlugin, nativeRoutingFixture } from "./native-routing-fixture.ts";
+import type { DsmmPluginConfig } from "../src/settings.ts";
 export { remoteErrorOf } from "@deepseek-ai/dsh-typert-protocol";
 export { ROLE_CONTROL_REMOTE } from "../lib/role-control-remote.js";
 
 export function gate() { let release!: () => void; const promise = new Promise<void>(resolve => { release = resolve; }); return { promise, release }; }
-export async function nativeControlFixture() {
-  const f = await nativeRoutingFixture({ defaultActive: true, subagents: { enableRunInBackground: true } }, { nativePresets: true });
+export async function nativeControlFixture(config: DsmmPluginConfig = {}) {
+  const f = await nativeRoutingFixture({ ...config, defaultActive: true,
+    subagents: { ...config.subagents, enableRunInBackground: true } }, { nativePresets: true });
   const { CredentialProvider } = await nativeFixturePlugin("@deepseek-ai/dsh-credentials", "@deepseek-ai/dsh-client-connection");
   class MemoryCredentials extends CredentialProvider {
     readonly records = new Map<string, unknown>();

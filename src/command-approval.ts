@@ -1,6 +1,9 @@
 import { isDeepStrictEqual } from "node:util";
 import { symbols } from "@deepseek-ai/cordis";
 import type { Context } from "@deepseek-ai/cordis";
+// The cordis Context.approval augmentation: 0.2.1 reached it transitively through
+// dsh-tools; 0.2.2 dropped that chain, so the dependency is explicit here.
+import type {} from "@deepseek-ai/dsh-user-approval";
 import type { Agent } from "@deepseek-ai/dsh-agent";
 import type { PreToolDecision, ToolExecution } from "@deepseek-ai/dsh-tools";
 import { PermissionRefusal } from "./permission-errors.js";

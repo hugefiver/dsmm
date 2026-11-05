@@ -1,5 +1,6 @@
 import { isAbsolute, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
+import type {} from "@deepseek-ai/dsh-user-approval";
 import type { PreToolDecision, ToolDefinition, ToolExecution } from "@deepseek-ai/dsh-tools";
 import { PermissionRefusal, permissionApprovalAdapter } from "./permission-control.js";
 import type { PermissionExecutionIntegrity } from "./permission-control.js";

@@ -128,7 +128,7 @@
   },
   "engines": {
     "node": ">=22",
-    "dsh": ">=0.2.1-rc.2 <0.3.0"
+    "dsh": ">=0.2.1-rc.2 <0.2.2-0 || >=0.2.2-rc.1 <0.3.0"
   },
   "dependencies": {
     "@deepseek-ai/dsh-web-fetch-http": "0.2.1-rc.2",

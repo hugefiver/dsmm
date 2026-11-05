@@ -1,10 +1,12 @@
-import type { InvocationDescriptor, RemoteResult, TypertCodec, TypertRemoteContribution } from "@deepseek-ai/dsh-typert-protocol";
+import type { InvocationDescriptor, RemoteResult, RemoteStreamHandle, TypertCodec, TypertRemoteContribution } from "@deepseek-ai/dsh-typert-protocol";
 import type { TypertContribution } from "@deepseek-ai/dsh-typert-registry";
-import { parseDsmmInvocationView, parseDsmmRoleRouteComparison, parseSubagentRuntimeAdmissionView, isNativeSessionId } from "./profile-remote.js";
-import { ROLE_CONTROL_DISABLED_REASONS, ROLE_CONTROL_ERROR_CODES, ROLE_CONTROL_ERROR_FIELDS } from "./role-control-types.js";
-import type { ChildSessionSnapshot, RoleControlAvailability, RoleControlCapabilities, RoleControlChildView, RoleControlDescendantsSnapshot, RoleControlErrorInfo, RoleControlInterruptRequest, SubagentInterruptReceipt, SubagentPromptReceipt, SubagentPromptRequest } from "./role-control-types.js";
+import { parseDsmmInvocationView, parseDsmmRoleId, parseDsmmRoleRouteComparison, parseSubagentRuntimeAdmissionView, isNativeSessionId } from "./profile-remote.js";
+import { ROLE_CALL_DELIVERIES, ROLE_CALL_PHASES, ROLE_CALL_STOP_REASONS, ROLE_CONTROL_DISABLED_REASONS, ROLE_CONTROL_ERROR_CODES, ROLE_CONTROL_ERROR_FIELDS } from "./role-control-types.js";
+import type { ChildSessionSnapshot, RoleCallActualRoute, RoleCallInitialRoute, RoleCallObservation, RoleCallObservationFrame, RoleControlAvailability, RoleControlCapabilities, RoleControlChildView, RoleControlDescendantsSnapshot, RoleControlErrorInfo, RoleControlInterruptRequest, SubagentInterruptReceipt, SubagentPromptReceipt, SubagentPromptRequest } from "./role-control-types.js";
+import { DSMM_ROUTE_SOURCES } from "./profile-types.js";
 
 export interface DsmmChildrenRemote {
+  observe(sessionId: string, signal?: AbortSignal): RemoteStreamHandle<RoleCallObservationFrame, never>;
   describe(sessionId: string): Promise<RemoteResult<ChildSessionSnapshot>>;
   descendants(sessionId: string): Promise<RemoteResult<RoleControlDescendantsSnapshot>>;
   prompt(sessionId: string, request: SubagentPromptRequest): Promise<RemoteResult<SubagentPromptReceipt>>;
@@ -12,6 +14,7 @@ export interface DsmmChildrenRemote {
 }
 declare module "@deepseek-ai/dsh-typert-protocol/types" {
   interface TypertRemoteMap {
+    "dsmmChildren/observe": DsmmChildrenRemote["observe"];
     "dsmmChildren/describe": DsmmChildrenRemote["describe"];
     "dsmmChildren/descendants": DsmmChildrenRemote["descendants"];
     "dsmmChildren/prompt": DsmmChildrenRemote["prompt"];
@@ -85,6 +88,71 @@ function child(value: unknown): RoleControlChildView {
     controls: { prompt, interrupt }, ...(Object.hasOwn(row, "label") ? { label: text(row.label, 120) } : {}),
     ...(invocation === undefined ? {} : { invocation }), ...(routeComparison === undefined ? {} : { routeComparison }) };
 }
+function callIdentity(value: unknown): string { const valueText = text(value, 512); if (valueText.length === 0) fail(); return valueText; }
+function observedRoute(value: unknown) {
+  const row = object(value, ["provider", "model"], ["reasoningEffort"]);
+  const provider = text(row.provider, 1024), model = text(row.model, 4096);
+  const reasoningEffort = Object.hasOwn(row, "reasoningEffort") ? text(row.reasoningEffort, 128) : undefined;
+  if (provider.length === 0 || model.length === 0 || reasoningEffort === "") fail();
+  return { provider, model, ...(reasoningEffort === undefined ? {} : { reasoningEffort }) };
+}
+function observedInitialRoute(value: unknown): RoleCallInitialRoute {
+  const row = object(value, ["status"], ["source", "route", "reason"]);
+  if (row.status === "known") {
+    object(row, ["status", "source", "route"]);
+    if (row.source !== "invocation-capture") fail();
+    return { status: "known", source: "invocation-capture", route: observedRoute(row.route) };
+  }
+  object(row, ["status", "reason"]);
+  if (row.status !== "unknown" || row.reason !== "missing-invocation-capture") fail();
+  return { status: "unknown", reason: "missing-invocation-capture" };
+}
+function observedActualRoute(value: unknown): RoleCallActualRoute {
+  const row = object(value, ["status"], ["source", "route", "reason"]);
+  if (row.status === "known") {
+    object(row, ["status", "source", "route"]);
+    if (row.source !== "own-native-request-header") fail();
+    return { status: "known", source: "own-native-request-header", route: observedRoute(row.route) };
+  }
+  object(row, ["status", "reason"]);
+  if (row.status !== "unknown" || !["no-own-request-header", "invalid-own-request-header", "not-observed"].includes(row.reason as string)) fail();
+  return { status: "unknown", reason: row.reason as Extract<RoleCallActualRoute, { status: "unknown" }>["reason"] };
+}
+function roleCall(value: unknown): RoleCallObservation {
+  const row = object(value, ["parentSessionId", "parentAdmissionEpoch", "callId", "rootCallId", "childId", "role", "level", "routeSource", "initialRoute", "actualRoute", "phase", "delivery"], ["childAdmissionEpoch", "runId", "stopReason"]);
+  const role = parseDsmmRoleId(row.role);
+  if (role === "dsmm-orchestrator") fail();
+  const childId = identity(row.childId), initialRoute = observedInitialRoute(row.initialRoute), actualRoute = observedActualRoute(row.actualRoute);
+  const phase = choice(row.phase, ROLE_CALL_PHASES), delivery = choice(row.delivery, ROLE_CALL_DELIVERIES);
+  const stopReason = Object.hasOwn(row, "stopReason") ? choice(row.stopReason, ROLE_CALL_STOP_REASONS) : undefined;
+  if (stopReason !== undefined && phase !== "settled") fail();
+  return { parentSessionId: identity(row.parentSessionId), parentAdmissionEpoch: epoch(row.parentAdmissionEpoch),
+    ...(Object.hasOwn(row, "childAdmissionEpoch") ? { childAdmissionEpoch: epoch(row.childAdmissionEpoch) } : {}),
+    callId: callIdentity(row.callId), rootCallId: callIdentity(row.rootCallId), childId,
+    ...(Object.hasOwn(row, "runId") ? { runId: identity(row.runId) } : {}), role,
+    level: choice(row.level, ["normal", "low", "high", "max"] as const), routeSource: choice(row.routeSource, DSMM_ROUTE_SOURCES),
+    initialRoute, actualRoute, phase, delivery,
+    ...(stopReason === undefined ? {} : { stopReason }) };
+}
+function observationFrame(value: unknown): RoleCallObservationFrame {
+  const row = object(value, ["type", "sessionId", "admissionEpoch"], ["calls", "call", "callId"]), sessionId = identity(row.sessionId), admissionEpoch = epoch(row.admissionEpoch);
+  if (row.type === "snapshot") {
+    object(row, ["type", "sessionId", "admissionEpoch", "calls"]);
+    const calls = array(row.calls).map(roleCall);
+    if (calls.some(call => call.parentSessionId !== sessionId || call.parentAdmissionEpoch !== admissionEpoch)
+      || new Set(calls.map(call => call.callId)).size !== calls.length) fail();
+    return { type: "snapshot", sessionId, admissionEpoch, calls };
+  }
+  if (row.type === "update") {
+    object(row, ["type", "sessionId", "admissionEpoch", "call"]);
+    const call = roleCall(row.call);
+    if (call.parentSessionId !== sessionId || call.parentAdmissionEpoch !== admissionEpoch) fail();
+    return { type: "update", sessionId, admissionEpoch, call };
+  }
+  object(row, ["type", "sessionId", "admissionEpoch", "callId"]);
+  if (row.type !== "remove") fail();
+  return { type: "remove", sessionId, admissionEpoch, callId: callIdentity(row.callId) };
+}
 function snapshot(value: unknown): ChildSessionSnapshot {
   const row = object(value, ["sessionId", "admissionEpoch", "children", "capabilities"]);
   const sessionId = identity(row.sessionId), admissionEpoch = epoch(row.admissionEpoch), children = array(row.children).map(child);
@@ -144,6 +212,7 @@ function errorInfo(value: unknown): RoleControlErrorInfo {
   return { code: choice(row.code, ROLE_CONTROL_ERROR_CODES), ...(Object.hasOwn(row, "field") ? { field: choice(row.field, ROLE_CONTROL_ERROR_FIELDS) } : {}),
     ...(Object.hasOwn(row, "reason") ? { reason: choice(row.reason, ROLE_CONTROL_DISABLED_REASONS) } : {}) };
 }
+export const parseRoleCallObservationFrame = (value: unknown): RoleCallObservationFrame => observationFrame(json(value));
 export const parseRoleControlErrorInfo = (value: unknown): RoleControlErrorInfo => errorInfo(json(value));
 export const parseChildSessionSnapshot = (value: unknown): ChildSessionSnapshot => snapshot(json(value));
 export const parseRoleControlDescendants = (value: unknown): RoleControlDescendantsSnapshot => descendants(json(value));
@@ -155,13 +224,15 @@ export const parseRoleControlSessionId = (value: unknown): string => identity(va
 function codec(symbol: string, parse: (value: unknown) => unknown): TypertCodec {
   return { mode: "strict", typeSymbol: `@dsmm/dsmm#${symbol}`, create: () => ({ parse: value => parse(json(value)) }) };
 }
-function descriptor(method: string, result: TypertCodec, request?: TypertCodec): InvocationDescriptor {
-  return { id: `@dsmm/dsmm-children#dsmmChildren/${method}`, service: "dsmmChildren", namespace: "dsmmChildren", method, invocation: { kind: "direct" },
+function descriptor(method: string, result: TypertCodec, request?: TypertCodec, stream = false): InvocationDescriptor {
+  return { id: `@dsmm/dsmm-children#dsmmChildren/${method}`, service: "dsmmChildren", namespace: "dsmmChildren", method,
+    ...(stream ? { mode: "stream" as const, cancellation: { parameter: "signal" as const } } : {}), invocation: { kind: "direct" },
     parameters: [{ name: "sessionId", wire: "sessionId", source: "json", codec: codec("ChildControlSessionId", identity) },
       ...(request === undefined ? [] : [{ name: "request", wire: "request", source: "json" as const, codec: request }])], result };
 }
 /** Separate package identity prevents replacing the Profiles contribution. */
 export const ROLE_CONTROL_REMOTE: TypertRemoteContribution = { package: "@dsmm/dsmm-children", descriptors: [
+  descriptor("observe", codec("RoleCallObservationFrame", observationFrame), undefined, true),
   descriptor("describe", codec("ChildSessionSnapshot", snapshot)),
   descriptor("descendants", codec("RoleControlDescendantsSnapshot", descendants)),
   descriptor("prompt", codec("SubagentPromptReceipt", promptReceipt), codec("SubagentPromptRequest", promptRequest)),

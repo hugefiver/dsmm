@@ -1,8 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { LlmError } from "@deepseek-ai/dsh-llm";
-import type { AgentRequestFrame, DshAgent, DshContext, DshLlmCallConfig, DshLlmRuntime, DshSessionEvent } from "./dsh-types.js";
-import { appendRolePolicyRecord } from "./session-metadata.js";
+import type { AgentRequestFrame, DshAgent, DshAgentModel, DshContext, DshLlmCallConfig, DshLlmRuntime, DshSessionEvent } from "./dsh-types.js";
+import { appendModelSelectionRecord, appendRolePolicyRecord, readModelSelectionRecord } from "./session-metadata.js";
 import { isDsmmRoleId } from "./roles.js";
 import type { DsmmRoleId } from "./roles.js";
 import { isCurrentRecoveryStep } from "./recovery-policy.js";
@@ -16,7 +16,8 @@ import type { DsmmLlmRouteResolver } from "./role-llm.js";
 
 const admittedRecoveryRoutes = new WeakMap<AgentRequestFrame, DsmmModelRoute>();
 const routeLocks = new WeakMap<DshAgent, RoleRouteLock>();
-const agentPolicies = new WeakMap<DshAgent, { fields: unknown; identity: string }>();
+export interface RolePolicyState { readonly fields: unknown; readonly identity: string }
+const agentPolicies = new WeakMap<DshAgent, RolePolicyState>();
 export const DSMM_ROLE_POLICY_EVENT = "dsmm/role-policy";
 
 export interface RoleRouteLock {
@@ -40,16 +41,104 @@ export interface NativeModelSelectionIntent {
   route: DsmmModelRoute;
 }
 
-/** Native user selection is authority; inherited headers/default configs are not. */
+/** DSMM's own pre-step selections, excluded from native manual-intent detection. */
+const selfModelSelectionSeqs = new WeakMap<DshAgent, Set<number>>();
+const selfSelectionWindows = new WeakMap<DshAgent, { afterSeq: number; route: DsmmModelRoute }>();
+
+function selectionRoute(event: DshSessionEvent): DsmmModelRoute | undefined {
+  if (event.type !== "model/selection" || typeof event.seq !== "number" || !Number.isSafeInteger(event.seq) || !isRecord(event.data)) return undefined;
+  const { provider, model, reasoningEffort } = event.data;
+  if (typeof provider !== "string" || provider.trim() === "" || typeof model !== "string" || model.trim() === ""
+    || reasoningEffort !== undefined && (typeof reasoningEffort !== "string" || reasoningEffort.trim() === "")) return undefined;
+  return { provider, model, ...(reasoningEffort === undefined ? {} : { reasoningEffort }) };
+}
+
+function nonManualSelections(agent: DshAgent, events: readonly DshSessionEvent[]): Set<number> {
+  const selected = new Map<number, DsmmModelRoute>();
+  for (const event of events) {
+    const route = selectionRoute(event);
+    if (route !== undefined) selected.set(Number(event.seq), route);
+  }
+  const result = new Set(selfModelSelectionSeqs.get(agent));
+  for (const event of events) {
+    const association = readModelSelectionRecord(event);
+    const route = association === undefined ? undefined : selected.get(association.selectionSeq);
+    if (association !== undefined && association.recordSeq > association.selectionSeq && route !== undefined
+      && sameExactModelRoute(route, association.route)) result.add(association.selectionSeq);
+  }
+  const window = selfSelectionWindows.get(agent);
+  if (window !== undefined) for (const [seq, route] of selected) {
+    if (seq > window.afterSeq && sameExactModelRoute(route, window.route)) result.add(seq);
+  }
+  return result;
+}
+
+/** DSH 0.2.2+ hosts fix the model selection before step preparation; 0.2.1 exposes no such seam. */
+export function hostModelSelection(agent: DshAgent): DshAgentModel | undefined {
+  const model = agent.model;
+  return typeof model?.select === "function" && typeof model.current === "function" ? model : undefined;
+}
+
+export function latestModelSelectionSeq(agent: DshAgent): number {
+  let seq = -1;
+  for (const event of policyEvents({ agent })) {
+    if (event.type === "model/selection" && typeof event.seq === "number") seq = Math.max(seq, event.seq);
+  }
+  return seq;
+}
+
+/** Persist only selections appended during this unpublished activation's trusted setup window. */
+export function captureSetupModelSelections(agent: DshAgent, cursor: number): void {
+  if (agent.session.header?.origin !== "subagent" || hostModelSelection(agent) === undefined) return;
+  const events = policyEvents({ agent });
+  const associated = new Set(events.flatMap(event => {
+    const record = readModelSelectionRecord(event);
+    return record?.source === "activation-setup" ? [record.selectionSeq] : [];
+  }));
+  for (const event of events) {
+    const route = selectionRoute(event);
+    if (route === undefined || event.seq! <= cursor || associated.has(event.seq!)) continue;
+    appendModelSelectionRecord(agent.session, { version: 1, source: "activation-setup", selectionSeq: event.seq!, route });
+  }
+}
+
+/**
+ * Record a DSMM-owned selection for future steps. On 0.2.1 hosts this is a no-op;
+ * callers keep their request-time route binding. Same-value selections append no
+ * event and record nothing, matching the native idempotent contract.
+ */
+export function selectModelRouteForNextStep(agent: DshAgent, route: Pick<DsmmModelRoute, "provider" | "model" | "reasoningEffort">): void {
+  const model = hostModelSelection(agent);
+  if (model === undefined) return;
+  const selected = canonicalRoute(route), cursor = latestModelSelectionSeq(agent);
+  selfSelectionWindows.set(agent, { afterSeq: cursor, route: selected });
+  try {
+    model.select({ provider: selected.provider, model: selected.model,
+      ...(selected.reasoningEffort === undefined ? {} : { reasoningEffort: selected.reasoningEffort }) });
+  } finally {
+    selfSelectionWindows.delete(agent);
+  }
+  const event = policyEvents({ agent }).filter(candidate => {
+    const candidateRoute = selectionRoute(candidate);
+    return candidateRoute !== undefined && Number(candidate.seq) > cursor && sameExactModelRoute(candidateRoute, selected);
+  }).sort((left, right) => Number(left.seq) - Number(right.seq))[0];
+  if (event === undefined) return;
+  const seq = Number(event.seq);
+  let seqs = selfModelSelectionSeqs.get(agent);
+  if (seqs === undefined) { seqs = new Set(); selfModelSelectionSeqs.set(agent, seqs); }
+  seqs.add(seq);
+  appendModelSelectionRecord(agent.session, { version: 1, source: "dsmm-selection", selectionSeq: seq, route: { provider: selected.provider, model: selected.model,
+    ...(selected.reasoningEffort === undefined ? {} : { reasoningEffort: selected.reasoningEffort }) } });
+}
+
+/** Native user selection is authority; inherited headers/default configs are not. DSMM's own selections are not manual intent. */
 export function latestNativeModelSelection(agent: DshAgent): NativeModelSelectionIntent | undefined {
   let selected: NativeModelSelectionIntent | undefined;
-  for (const event of policyEvents({ agent })) {
-    if (event.type !== "model/selection" || !("seq" in event) || !Number.isSafeInteger(event.seq)
-      || typeof event.seq !== "number" || event.seq < 0 || !isRecord(event.data)) continue;
-    const { provider, model, reasoningEffort } = event.data;
-    if (typeof provider !== "string" || provider.trim() === "" || typeof model !== "string" || model.trim() === ""
-      || (reasoningEffort !== undefined && (typeof reasoningEffort !== "string" || reasoningEffort.trim() === ""))) continue;
-    selected = { seq: event.seq, route: { provider, model, ...(reasoningEffort === undefined ? {} : { reasoningEffort }) } };
+  const events = policyEvents({ agent }), excluded = nonManualSelections(agent, events);
+  for (const event of events) {
+    const route = selectionRoute(event);
+    if (route === undefined || !("seq" in event) || typeof event.seq !== "number" || event.seq < 0 || excluded.has(event.seq)) continue;
+    selected = { seq: event.seq, route };
   }
   return selected;
 }
@@ -81,10 +170,16 @@ export function orderedModelRoutes(candidates: readonly DsmmModelRoute[]): DsmmM
 
 /** Exact metadata preparation, never a completion or advisory catalog health check. */
 export async function selectInitialModelRoute(llm: DshLlmRuntime, candidates: readonly DsmmModelRoute[], signal?: AbortSignal, resolver?: DsmmLlmRouteResolver, assertCurrent?: () => void): Promise<DsmmModelRoute> {
-  return (await selectInitialModelRouteChoice(llm, candidates, signal, resolver, undefined, assertCurrent)).route;
+  return (await selectInitialModelRouteChoice(llm, candidates, signal, resolver, undefined, assertCurrent)).proposal;
 }
 
-export async function selectInitialModelRouteChoice(llm: DshLlmRuntime, candidates: readonly DsmmModelRoute[], signal?: AbortSignal, resolver?: DsmmLlmRouteResolver, project?: (route: DsmmModelRoute) => DsmmModelRoute, assertCurrent?: () => void): Promise<{ route: DsmmModelRoute; requestedRoute: DsmmModelRoute }> {
+export interface InitialModelRouteChoice {
+  readonly requestedRoute: DsmmModelRoute;
+  readonly proposal: DsmmModelRoute;
+  readonly effective: DsmmModelRoute;
+}
+
+export async function selectInitialModelRouteChoice(llm: DshLlmRuntime, candidates: readonly DsmmModelRoute[], signal?: AbortSignal, resolver?: DsmmLlmRouteResolver, project?: (route: DsmmModelRoute) => DsmmModelRoute, assertCurrent?: () => void): Promise<InitialModelRouteChoice> {
   if (resolver === undefined && llm.resolveCallConfig === undefined) throw new Error("dsmm route admission requires the Host model service");
   let unavailable: unknown;
   for (const route of orderedModelRoutes(candidates)) {
@@ -92,13 +187,15 @@ export async function selectInitialModelRouteChoice(llm: DshLlmRuntime, candidat
     signal?.throwIfAborted();
     try {
       if (resolver === undefined && llm.listProviders !== undefined && !llm.listProviders().some(provider => provider.id === route.provider)) throw new DsmmMissingProviderError();
-      const projected = project?.(route) ?? route;
-      const call = modelRouteToCall(projected);
-      const prepared = resolver === undefined ? await llm.resolveCallConfig!(call, signal) : await resolver.resolveRoute(projected, signal);
+      const requestedRoute = canonicalRoute(route), proposal = canonicalRoute(project?.(route) ?? route);
+      const call = modelRouteToCall(proposal);
+      const prepared = resolver === undefined ? await llm.resolveCallConfig!(call, signal) : await resolver.resolveRoute(proposal, signal);
       assertCurrent?.();
       if (resolver === undefined && call.customParameters !== undefined) throw new LlmError("Raw route parameters require their declared Host provider owner", "UNSUPPORTED_ROUTE_PARAMETERS");
       signal?.throwIfAborted();
-      return { route: canonicalRoute(prepared), requestedRoute: canonicalRoute(route) };
+      const effective = canonicalRoute(prepared);
+      if (!sameModelRoute(proposal, effective)) throw new LlmError("Provider resolved another model during route admission", "INVALID_ADAPTER");
+      return { requestedRoute, proposal, effective };
     } catch (error) {
       assertCurrent?.();
       signal?.throwIfAborted();
@@ -124,6 +221,15 @@ export function pinRoleRoute(agent: DshAgent, identity: string, route: DsmmModel
 }
 
 export function clearRoleRouteLock(agent: DshAgent): void { routeLocks.delete(agent); }
+export function currentRoleRouteLock(agent: DshAgent): RoleRouteLock | undefined { return routeLocks.get(agent); }
+export function currentRolePolicyState(agent: DshAgent): RolePolicyState | undefined { return agentPolicies.get(agent); }
+export function restoreRolePolicyAndLock(agent: DshAgent, installedPolicy: RolePolicyState, installedLock: RoleRouteLock,
+  previousPolicy: RolePolicyState | undefined, previousLock: RoleRouteLock | undefined): boolean {
+  if (agentPolicies.get(agent) !== installedPolicy || routeLocks.get(agent) !== installedLock) return false;
+  if (previousPolicy === undefined) agentPolicies.delete(agent); else agentPolicies.set(agent, previousPolicy);
+  if (previousLock === undefined) routeLocks.delete(agent); else routeLocks.set(agent, previousLock);
+  return true;
+}
 
 export function roleRouteRuntimeState(agent: DshAgent, settings: DsmmSettings, role: DsmmRoleId | undefined, epoch?: string): DsmmRoleRuntimeState {
   const resolved = resolveRoleRuntimePolicy(settings, role);
@@ -217,7 +323,7 @@ export function effectiveRoleFallbackRoutes(settings: DsmmSettings, role: DsmmRo
   return resolveRoleRuntimePolicy(settings, role).fallbackRoutes;
 }
 
-export function applyModelRoute(config: DshLlmCallConfig, route: DsmmModelRoute): DshLlmCallConfig {
+export function applyModelRoute(_config: DshLlmCallConfig, route: DsmmModelRoute): DshLlmCallConfig {
   return modelRouteToCall(route);
 }
 

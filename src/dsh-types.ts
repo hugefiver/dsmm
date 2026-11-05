@@ -4,6 +4,9 @@ import type {} from "@deepseek-ai/dsh-skill-filesystem";
 
 export interface DshSessionEvent {
   type: string;
+  seq?: number;
+  time?: number;
+  ignorable?: true;
   data?: unknown;
 }
 
@@ -36,6 +39,20 @@ export interface DshAgent {
   options?: { provider?: string; model?: string; reasoningEffort?: string };
   steer?(message: unknown): unknown | Promise<unknown>;
   inject?(message: unknown): unknown | Promise<unknown>;
+  /** DSH 0.2.2+: Agent-owned durable model selection for future steps; absent on 0.2.1 Hosts. */
+  readonly model?: DshAgentModel;
+}
+
+export interface DshModelSelection {
+  provider: string;
+  model: string;
+  reasoningEffort?: string;
+}
+
+/** Duck-typed 0.2.2 `AgentModel`: `current()` is `pending ?? lastUsed`; `select()` is same-value idempotent. */
+export interface DshAgentModel {
+  current(): DshModelSelection | undefined;
+  select(selection: DshModelSelection): void;
 }
 
 export interface DshAgentsRegistry {

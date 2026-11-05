@@ -118,10 +118,11 @@ function integer(value: unknown, field: string, maximum = Number.MAX_SAFE_INTEGE
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 || value > maximum) fail(field);
   return value;
 }
-function role(value: unknown): DsmmRoleId {
+export function parseDsmmRoleId(value: unknown): DsmmRoleId {
   if (typeof value !== "string" || !rolePattern.test(value)) fail("role");
   return value as DsmmRoleId;
 }
+const role = parseDsmmRoleId;
 function object(value: unknown, required: readonly string[], optional: readonly string[] = []): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) fail("object");
   if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null || Object.getOwnPropertySymbols(value).length || Object.values(Object.getOwnPropertyDescriptors(value)).some(property => !Object.hasOwn(property, "value") || !property.enumerable)) fail("object");
@@ -278,13 +279,20 @@ export function parseDsmmRoleRouteComparison(value: unknown): DsmmRoleRouteCompa
   return { childId: sessionId(row.childId), initialRoute: initialRoleRoute(row.initialRoute), liveRoute: liveRoleRoute(row.liveRoute) };
 }
 export function parseDsmmInvocationView(value: unknown): DsmmInvocationView {
-  const row = object(jsonData(value), ["role", "label", "level", "routeSource", "mode"], ["route", "runId", "childId", "jobId", "routeComparison"]);
+  const row = object(jsonData(value), ["role", "label", "level", "routeSource", "mode"], ["route", "runId", "childId", "jobId", "routeComparison", "delivery", "phase", "stopReason"]);
   if (typeof row.level !== "string" || !["normal", "low", "high", "max"].includes(row.level) || !(DSMM_ROUTE_SOURCES as readonly unknown[]).includes(row.routeSource) || typeof row.mode !== "string" || !["one-shot", "continuable"].includes(row.mode)) fail("invocation");
+  if (Object.hasOwn(row, "delivery") && !["caller", "parent"].includes(row.delivery as string)
+    || Object.hasOwn(row, "phase") && !["reserved", "active", "settled"].includes(row.phase as string)
+    || Object.hasOwn(row, "stopReason") && !["completed", "aborted", "error", "max-tokens", "refusal"].includes(row.stopReason as string)
+    || Object.hasOwn(row, "stopReason") && row.phase !== "settled") fail("invocation lifecycle");
   const target = role(row.role);
   if (target === "dsmm-orchestrator") fail("invocation target");
   const routeComparison = Object.hasOwn(row, "routeComparison") ? parseDsmmRoleRouteComparison(row.routeComparison) : undefined;
   if (routeComparison !== undefined && (!Object.hasOwn(row, "childId") || routeComparison.childId !== row.childId)) fail("invocation routeComparison childId");
-  return { role: target, label: text(row.label, "label", 120), level: row.level as DsmmInvocationView["level"], routeSource: row.routeSource as DsmmInvocationView["routeSource"], mode: row.mode as DsmmInvocationView["mode"], ...optional(row, "route", modelRoute), ...optional(row, "runId", sessionId), ...optional(row, "childId", sessionId), ...optional(row, "jobId", sessionId), ...(routeComparison === undefined ? {} : { routeComparison }) };
+  return { role: target, label: text(row.label, "label", 120), level: row.level as DsmmInvocationView["level"], routeSource: row.routeSource as DsmmInvocationView["routeSource"], mode: row.mode as DsmmInvocationView["mode"], ...optional(row, "route", modelRoute), ...optional(row, "runId", sessionId), ...optional(row, "childId", sessionId), ...optional(row, "jobId", sessionId), ...(routeComparison === undefined ? {} : { routeComparison }),
+    ...(Object.hasOwn(row, "delivery") ? { delivery: row.delivery as NonNullable<DsmmInvocationView["delivery"]> } : {}),
+    ...(Object.hasOwn(row, "phase") ? { phase: row.phase as NonNullable<DsmmInvocationView["phase"]> } : {}),
+    ...(Object.hasOwn(row, "stopReason") ? { stopReason: row.stopReason as NonNullable<DsmmInvocationView["stopReason"]> } : {}) };
 }
 function selectionState(value: unknown): ProfileSelectionState {
   const item = object(value, ["selectedId", "appliedRevision", "selectionRevision"], ["sourceRevision", "refreshRequired"]);

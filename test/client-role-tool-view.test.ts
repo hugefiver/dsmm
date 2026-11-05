@@ -43,7 +43,9 @@ test("native lazy argument reads update requested labels and preserve dispatched
     return typeof tree.type === "function" ? text((tree.type as (props: unknown) => unknown)(tree.props)) : text(tree.props.children);
   };
   const args = new PartialArguments(); let inspect = 0;
+  const emptyObservation = { sessionId: "root", status: "live" as const, calls: new Map() };
   const common = { toolName: "dsmm_role", callId: "stream-call", useDisclosure: () => ({ expanded: true, setExpanded() {}, toggle() {} }),
+    useRoleCalls: <T,>(selector: (state: typeof emptyObservation) => T) => selector(emptyObservation),
     inspect: () => { inspect++; }, t: (key: keyof typeof roleToolEn) => roleToolEn[key] };
   const render = (stage: ToolCallViewProps["phase"], block: object) => module.exports.RoleToolView({ ...common, phase: stage, block } as Parameters<typeof module.exports.RoleToolView>[0]);
   const block = { phase: "preparing", name: "dsmm_role", callId: common.callId, args, subCalls: [] };
@@ -76,6 +78,8 @@ test("native lazy argument reads update requested labels and preserve dispatched
   const startTree = render("start", startWithDesc);
   assert.equal(startTree.props["data-state"], "running");
   assert.equal(heading(startTree), "Call Builder");
+  assert.match(text(startTree), /Actual: unknown/u);
+  assert.doesNotMatch(text(startTree), /Actual: fixture\//u);
   assert.match(desc(startTree), /task goal/u);
   assert.equal(heading(zhRender("start", startWithDesc)), "调用 Builder");
   assert.match(desc(zhRender("start", startWithDesc)), /task goal/u);
@@ -91,7 +95,7 @@ test("native lazy argument reads update requested labels and preserve dispatched
     assert.match(rendered, /args\.role/u);
     assert.match(rendered, /meta\.routeSource/u);
     assert.match(rendered, /primary/u);
-    const inspectBtn = tree.props.children[1].props.children.find((c: any) => c?.type === "button" || c?.props?.children === "Inspect tool call");
+    const inspectBtn = tree.props.children[1].props.children.find((c: any) => c?.props?.children === roleToolEn.inspect);
     assert.ok(inspectBtn); inspectBtn.props.onClick();
   }
   assert.equal(inspect, 2);
@@ -107,12 +111,69 @@ test("native lazy argument reads update requested labels and preserve dispatched
   assert.equal(text(interrupted.props.children[1].props.children.find((c: any) => c?.props?.role === "status")), "Interrupted");
   const zhInterrupted = zhRender("result", { ...result, isError: true, error: { code: "interrupted" } });
   assert.equal(text(zhInterrupted.props.children[1].props.children.find((c: any) => c?.props?.role === "status")), "已中断");
-  const bgResult = { ...result, meta: { ...result.meta, mode: "continuable" } };
+  const continuableResult = { ...result, meta: { ...result.meta, mode: "continuable" } };
+  assert.equal(render("result", continuableResult).props["data-state"], "result", "continuable alone is not background delivery");
+  const bgResult = { ...result, meta: { ...result.meta, mode: "continuable", delivery: "parent", phase: "active" } };
   const bgTree = render("result", bgResult);
   assert.equal(bgTree.props["data-state"], "background");
   assert.equal(text(bgTree.props.children[1].props.children.find((c: any) => c?.props?.role === "status")), "Background");
   const zhBg = zhRender("result", bgResult);
   assert.equal(text(zhBg.props.children[1].props.children.find((c: any) => c?.props?.role === "status")), "后台调用");
+  assert.equal(render("result", { ...bgResult, meta: { ...bgResult.meta, phase: "settled", stopReason: "completed" } }).props["data-state"], "result");
+  const activeMeta = { ...bgResult.meta, childId: "background-child", route: { provider: "fixture", model: "initial" }, routeComparison: {
+    childId: "background-child", initialRoute: { status: "known", source: "invocation-capture", route: { provider: "fixture", model: "initial" } },
+    liveRoute: { status: "known", source: "own-native-request-header", route: { provider: "fixture", model: "old-actual", reasoningEffort: "high" } },
+  } };
+  for (const status of ["connecting", "unavailable"] as const) {
+    const emptyState = { sessionId: "root", status, calls: new Map() };
+    const staleTree = module.exports.RoleToolView({ ...common,
+      useRoleCalls: <T,>(selector: (state: typeof emptyState) => T) => selector(emptyState), phase: "result",
+      block: { ...bgResult, meta: activeMeta } } as Parameters<typeof module.exports.RoleToolView>[0]);
+    const identity = text(staleTree.props.children[0].props.children.props.children[0]);
+    assert.match(identity, /Initial: fixture\/initial/u);
+    assert.match(identity, /Actual: unknown/u);
+    assert.doesNotMatch(identity, /old-actual/u);
+    assert.match(text(staleTree), /old-actual/u, "technical details retain the original persisted meta");
+  }
+
+  const observedCall = { parentSessionId: "root", parentAdmissionEpoch: "a".repeat(64), childAdmissionEpoch: "a".repeat(64),
+    callId: common.callId, rootCallId: "root-call", childId: "child", runId: "run", role: "dsmm-builder", level: "high", routeSource: "level",
+    initialRoute: { status: "known", source: "invocation-capture", route: { provider: "fixture", model: "initial", reasoningEffort: "max" } },
+    actualRoute: { status: "known", source: "own-native-request-header", route: { provider: "fixture", model: "fallback" } },
+    phase: "active", delivery: "caller" } as const;
+  const observedState = { sessionId: "root", status: "live" as const, admissionEpoch: "a".repeat(64), calls: new Map([[common.callId, observedCall]]) };
+  const observedTree = module.exports.RoleToolView({ ...common,
+    useRoleCalls: <T,>(selector: (state: typeof observedState) => T) => selector(observedState), phase: "start", block: startWithDesc } as Parameters<typeof module.exports.RoleToolView>[0]);
+  assert.equal(observedTree.props["data-identity"], "actual");
+  assert.equal(observedTree.props["data-delivery"], "caller");
+  assert.equal(observedTree.props["data-phase"], "active");
+  assert.match(text(observedTree), /Initial: fixture\/initial · max/u);
+  assert.match(text(observedTree), /Actual: fixture\/fallback · effort not reported/u);
+  assert.doesNotMatch(text(observedTree), /Actual: fixture\/fallback · off/u);
+  const invalidatedCall = { ...observedCall, actualRoute: { status: "unknown", reason: "not-observed" } } as const;
+  const invalidatedState = { ...observedState, status: "unavailable" as const, calls: new Map([[common.callId, invalidatedCall]]) };
+  const invalidatedTree = module.exports.RoleToolView({ ...common,
+    useRoleCalls: <T,>(selector: (state: typeof invalidatedState) => T) => selector(invalidatedState), phase: "start", block: startWithDesc } as Parameters<typeof module.exports.RoleToolView>[0]);
+  assert.match(text(invalidatedTree), /Actual: unknown/u);
+  assert.doesNotMatch(text(invalidatedTree), /Actual: fixture\/fallback/u);
+  const observedFailure = module.exports.RoleToolView({ ...common,
+    useRoleCalls: <T,>(selector: (state: typeof observedState) => T) => selector(observedState), phase: "result",
+    block: { ...result, isError: true, error: { code: "failed" } } } as Parameters<typeof module.exports.RoleToolView>[0]);
+  assert.equal(observedFailure.props["data-identity"], "actual");
+  assert.match(text(observedFailure), /Actual: fixture\/fallback/u);
+
+  const registrations: Array<{ options: { key: string; inject(sessionId: string): { hooks: { roleCalls: object } } }; component: unknown }> = [];
+  const sharedSource = { getSnapshot: () => observedState, subscribe: () => () => {} };
+  module.exports.registerRoleToolViews({ effect() {}, locale: { register() {} }, slots: {
+    inject(_name: string, install: () => void) { install(); },
+    register(options: { key: string; inject(sessionId: string): { hooks: { roleCalls: object } } }, component: unknown) {
+      registrations.push({ options, component }); return () => {};
+    },
+  } } as never, { source(sessionId: string) { assert.equal(sessionId, "root"); return sharedSource; } } as never);
+  assert.ok(registrations.some(row => row.options.key === "dsmm_role"));
+  const registered = registrations.find(row => row.options.key === "dsmm_role")!;
+  assert.equal(registered.component, module.exports.RoleToolView);
+  assert.equal(registered.options.inject("root").hooks.roleCalls, sharedSource);
 });
 
 const available = process.env.DSMM_TEST_DSH_ENTRY && process.env.DSMM_TEST_PLAYWRIGHT_ENTRY;

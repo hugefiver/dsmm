@@ -24,6 +24,11 @@ test("Core-only admission preserves a foreign native role-named tool and execute
   });
   try {
     const root = await f.create();
+    const admission = f.ctx.dsmmNativeAdmission as unknown as {
+      admissionRoutes: WeakMap<object, object>; admissionRouteFailures: WeakMap<object, object>; assert(agent: object): unknown;
+    };
+    admission.admissionRoutes.delete(root); admission.admissionRouteFailures.delete(root);
+    assert.doesNotThrow(() => admission.assert(root), "no cache and no failure remains an admitted baseline");
     assert.equal(root.ctx.tools.get(foreign.name, root), foreign);
     const result = await root.ctx.tools.execute({ agent: root, name: foreign.name, arguments: {},
       callId: ToolCallId("foreign-role-name"), signal: new AbortController().signal });

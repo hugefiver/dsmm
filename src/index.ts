@@ -6,7 +6,7 @@ import { registerDsmmTuiAdapter } from "./tui-adapter.js";
 import { hasShellGuardConstraint, registerSafetyGuards } from "./guards.js";
 import { registerDeepworkPrompt } from "./mode.js";
 import { registerAgentSkills } from "./preset-skills.js";
-import { registerModelRouting } from "./model-routing.js";
+import { prepareAdmissionModelRoute, registerModelRouting } from "./model-routing.js";
 import { registerHeadlessRoleTools, registerNativeSubagentControls } from "./role-subagents.js";
 import { registerRolePresets } from "./preset-registry.js";
 import { registerRoleProviders } from "./role-providers.js";
@@ -100,6 +100,7 @@ export async function apply(input: DshContext, config: Config = {}, startupOptio
     runtimeView: () => runtimeAdmissionView(ctx), getMountedPermission: mountedPermission });
   lifetime.signal.throwIfAborted();
   admission = new NativeAdmission(ctx, profiles, policy, agents => { for (const agent of agents) commandApprovals.clearAgent(agent); });
+  admission.bindAdmissionModelSelection((agent, info) => prepareAdmissionModelRoute(ctx as DshContext, controller, agent as DshAgent, info));
   ctx.provide("dsmmNativeAdmission", admission);
   ctx.provide("dsmmProfileRuntime", profiles);
   ctx.provide("dsmmDeploymentConfig", deployment);

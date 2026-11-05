@@ -5,7 +5,7 @@ import type { AgentRequestFrame, DshLlmCallConfig, AgentRequestErrorFrame, DshAg
 import { foldDurableRecoveryWork, isCurrentRecoveryStep } from "./recovery-policy.js";
 import { isDsmmRoleId } from "./roles.js";
 import type { DsmmRoleId } from "./roles.js";
-import { applyModelRoute, isUnavailableRouteFailure, latestNativeModelSelection, liveRolePolicyIdentity, recordAdmittedRecoveryRoute, roleRouteLock, sameExactModelRoute, selectInitialModelRouteChoice } from "./role-routing.js";
+import { applyModelRoute, hostModelSelection, isUnavailableRouteFailure, latestNativeModelSelection, liveRolePolicyIdentity, recordAdmittedRecoveryRoute, roleRouteLock, sameExactModelRoute, sameModelRoute, selectInitialModelRouteChoice } from "./role-routing.js";
 import { modelRouteFromCall, modelRouteFromHeader, projectModelRouteParameters } from "./role-llm.js";
 import type { DsmmLlmRouteResolver } from "./role-llm.js";
 import { childOwnedSessionEvents, resolveSelectedAgentPreset, sessionEvents } from "./session-scope.js";
@@ -57,6 +57,7 @@ interface ContinuationCounter {
 const installedContexts = new WeakSet<DshContext>();
 const RECOVERY_WARNING = "dsmm runtime recovery refused an unproven or exhausted retry";
 const CONTINUATION_WARNING = "dsmm runtime recovery continuation steering failed for turn";
+const SWITCH_BLOCKED_WARNING = "dsmm runtime recovery cross-route fallback is unavailable on this Host version; retrying the current route";
 
 function warnSafely(ctx: DshContext, message: string): void {
   try {
@@ -111,6 +112,7 @@ export function registerRuntimeRecovery(ctx: DshContext, controller: DeepworkMod
   let pendingByAgent = new WeakMap<DshAgent, PendingRecoveryRoute>();
   let attemptsByAgent = new WeakMap<DshAgent, AttemptEvidence>();
   let continuationsByAgent = new WeakMap<DshAgent, ContinuationCounter>();
+  const switchBlocked = new WeakSet<DshAgent>();
   const waits = new Set<AbortController>();
   let active = true;
   let disposeRequest: unknown;
@@ -261,8 +263,9 @@ export function registerRuntimeRecovery(ctx: DshContext, controller: DeepworkMod
         const decision = attempt?.decision;
         decision?.assertCurrent();
         const header = frame.agent.session.requestHeader?.();
-        if (!active || frame.signal.aborted || lock === undefined || header === undefined
-          || header.config.provider !== frame.provider || !sameExactModelRoute(modelRouteFromHeader(header), lock.route)
+        const headerRoute = header === undefined ? undefined : modelRouteFromHeader(header);
+        if (!active || frame.signal.aborted || lock === undefined || headerRoute === undefined
+          || headerRoute.provider !== frame.provider || !sameModelRoute(headerRoute, lock.route) || headerRoute.reasoningEffort !== lock.route.reasoningEffort
           || attempt === undefined || attempt.policy !== policy || attempt.generation !== lock.generation
           || !decision?.configuredRoot && latestNativeModelSelection(frame.agent)?.seq !== attempt.manualSelectionSeq
           || !isCurrentRecoveryStep(recoveryEvents(frame.agent), frame.turn, frame.step) || !positiveNoOutput(frame, attempt)) return undefined;
@@ -277,7 +280,7 @@ export function registerRuntimeRecovery(ctx: DshContext, controller: DeepworkMod
         attempt.consumed = true;
         const resolved = resolveRoleRuntimePolicy(settings, role);
         const bounds = resolved.rateLimit;
-        let route = lock.route;
+        let route = attempt.route;
         let candidateIndex = lock.candidateIndex;
         let switching = false;
         if (unavailable) {
@@ -289,6 +292,18 @@ export function registerRuntimeRecovery(ctx: DshContext, controller: DeepworkMod
           switching = (frame.agent.session.header?.origin === "subagent" || decision?.configuredRoot === true)
             && resolved.strategy === "rate-limit-fallback" && lock.rateLimits >= bounds.switchAfterRateLimits;
           if (!switching && lock.retries >= bounds.maxRetries) return undefined;
+        }
+        // A fixed step selection has no public same-step candidate-switch seam.
+        // Rate-limit switching degrades to a bounded current-route retry;
+        // unavailable routes stay final.
+        if (switching && hostModelSelection(frame.agent) !== undefined) {
+          if (unavailable) return undefined;
+          if (!switchBlocked.has(frame.agent)) {
+            switchBlocked.add(frame.agent);
+            warnSafely(ctx, SWITCH_BLOCKED_WARNING);
+          }
+          switching = false;
+          if (lock.retries >= bounds.maxRetries) return undefined;
         }
         if (switching) {
           if (!unavailable && lock.switches >= bounds.maxSwitches) return undefined;
@@ -303,8 +318,8 @@ export function registerRuntimeRecovery(ctx: DshContext, controller: DeepworkMod
             decision?.configuredRoot && parameterPolicy.mode === "native-defaults" ? route => modelRouteFromCall(projectModelRouteParameters(route, "dsmm-config", false)) : undefined, assertRouteCurrent);
           assertRouteCurrent();
           route = parameterPolicy.mode === "native-defaults"
-            ? modelRouteFromCall(projectModelRouteParameters(selected.route, decision?.configuredRoot || selected.requestedRoute.reasoningEffort === undefined ? "dsmm-config" : "native", false))
-            : selected.route;
+            ? modelRouteFromCall(projectModelRouteParameters(selected.proposal, decision?.configuredRoot || selected.requestedRoute.reasoningEffort === undefined ? "dsmm-config" : "native", false))
+            : selected.proposal;
           candidateIndex = index + 1 + candidates.findIndex(candidate => sameExactModelRoute(candidate, selected.requestedRoute));
         }
         const serverMinimum = frame.failure.providerRetryAfterMs;

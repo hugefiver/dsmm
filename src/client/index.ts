@@ -29,6 +29,7 @@ import { bindPermissionSession } from "./permission-session.js";
 import { PermissionController } from "./permission-controller.js";
 import { PERMISSIONS_NS, permissionEn, permissionZh } from "./permission-locales.js";
 import { registerRoleToolViews } from "./RoleToolView.js";
+import { RoleCallObservationController } from "./role-call-observations.js";
 import { profileBlankNative } from "./profile-blank.js";
 import type { ProfileBlankServices } from "./profile-blank.js";
 
@@ -49,7 +50,9 @@ export { ROLE_CONTROL_REMOTE } from "../role-control-remote.js";
 export const inject = ["slots", "locale", "remote"] as const;
 
 export async function apply(ctx: Context): Promise<void> {
-  registerRoleToolViews(ctx);
+  const roleCalls = new RoleCallObservationController();
+  registerRoleToolViews(ctx, roleCalls);
+  ctx.effect(() => () => roleCalls.dispose(), "dsmm: role call observations");
   await ctx.remote.$mount(TYPERT_REMOTE);
   await ctx.remote.$mount(ROLE_CONTROL_REMOTE);
   await ctx.remote.$mount(PERMISSION_REMOTE);
@@ -58,6 +61,8 @@ export async function apply(ctx: Context): Promise<void> {
   ctx.effect(() => ctx.locale.register(PERMISSIONS_NS, { en: permissionEn, zh: permissionZh }), "dsmm: permission locale");
   void ctx.inject(["connection"], connectionCtx => {
     const handle = connectionCtx.connection as unknown as ConnectionHandle, invoke = permissionClient(handle);
+    const unbindRoleCalls = roleCalls.bindConnection(connectionCtx.remote, (sessionId, signal) => connectionCtx.remote.dsmmChildren.observe(sessionId, signal));
+    connectionCtx.effect(() => unbindRoleCalls, "dsmm: role call connection withdrawal");
     const update = () => { const generation = handle.generation.getSnapshot(); permissions.bindConnection(generation === undefined ? null : invoke, generation); };
     update(); connectionCtx.effect(() => handle.generation.subscribe(update));
     connectionCtx.effect(() => () => permissions.bindConnection(null), "dsmm: permission connection withdrawal");

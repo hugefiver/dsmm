@@ -3,13 +3,20 @@ import z from "@deepseek-ai/schemastery";
 import { WebError } from "@deepseek-ai/dsh-web";
 import type { WebFetchProvider, WebFetchRequest, WebFetchResult } from "@deepseek-ai/dsh-web";
 import { HttpFetchProvider, DEFAULT_USER_AGENT } from "@deepseek-ai/dsh-web-fetch-http";
-import type { HttpFetchLimits, HttpFetchResolver } from "@deepseek-ai/dsh-web-fetch-http";
+import type { HttpFetchLimits } from "@deepseek-ai/dsh-web-fetch-http";
 import { proxyRouteFor } from "@deepseek-ai/dsh-http-proxy";
 import { isIP } from "node:net";
 import {
   FakeIpAddressPolicy, createFakeIpResolver, isFakeIpAddress, stripIpv6Brackets,
 } from "./web-fetch-address-policy.js";
-import type { AddressLookup } from "./web-fetch-address-policy.js";
+import type { AddressLookup, AddressResolver } from "./web-fetch-address-policy.js";
+
+/** 0.2.1 constructor shape (limits plus an injected address resolver); 0.2.2 accepts limits only. */
+type DualHttpFetchProvider = new (limits: HttpFetchLimits, resolveAddresses?: AddressResolver) => {
+  available(): boolean;
+  fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>;
+};
+const dualHttpFetchProvider = HttpFetchProvider as unknown as DualHttpFetchProvider;
 
 export const name = "dsmm-http-fakeip";
 export const FETCH_PROVIDER_ID = "dsmm-http-fakeip";
@@ -68,16 +75,25 @@ export class FakeIpHttpFetchProvider implements WebFetchProvider {
   readonly id = FETCH_PROVIDER_ID;
   private readonly limits: HttpFetchLimits;
   private readonly policy: FakeIpAddressPolicy;
-  private readonly resolver: HttpFetchResolver;
+  private readonly resolver: AddressResolver;
+  /**
+   * 0.2.1 accepted an injected address resolver; 0.2.2 removed that seam and
+   * routes every request through the process-wide dispatcher. The owner of the
+   * process transport policy stays the Host — this adapter never installs one.
+   */
+  private readonly resolverAccepted: boolean;
 
   constructor(config: Config = {}, lookup?: AddressLookup) {
     this.limits = resolveLimits(config);
     this.policy = new FakeIpAddressPolicy(config);
     this.resolver = createFakeIpResolver(this.policy, lookup);
+    this.resolverAccepted = Object.hasOwn(new HttpFetchProvider(this.limits), "resolveAddresses");
   }
 
   available(): boolean {
-    return new HttpFetchProvider(this.limits, this.resolver).available();
+    return this.resolverAccepted
+      ? new dualHttpFetchProvider(this.limits, this.resolver).available()
+      : new dualHttpFetchProvider(this.limits).available();
   }
 
   fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult> {
@@ -93,9 +109,26 @@ export class FakeIpHttpFetchProvider implements WebFetchProvider {
     } catch (error) {
       return Promise.reject(error);
     }
+    if (!this.resolverAccepted) {
+      // 0.2.2 neither resolves nor pins addresses: the native provider sends the
+      // request through the installed dispatcher. Answer-level enforcement this
+      // adapter owned on 0.2.1 has no public seam back, so a configured local
+      // deny fails closed for direct hostnames and native IPv6 literals whose
+      // translated destination cannot be checked. IPv4/mapped literals retain
+      // their entry checks above.
+      const host = stripIpv6Brackets(url.hostname);
+      const literal = isIP(host) !== 0;
+      const nativeIpv6Literal = isIP(host) === 6 && !host.toLowerCase().startsWith("::ffff:");
+      const route = proxyRouteFor(url);
+      if (this.policy.requiresLocalDeny && (!literal || nativeIpv6Literal) && !route.proxied) {
+        return Promise.reject(new WebError("direct destinations cannot enforce local address denies on this Host version", "WEB_FAKEIP_PROXY_UNSUPPORTED"));
+      }
+      const limits = nativeIpv6Literal ? { ...this.limits, maxRedirects: 0 } : this.limits;
+      return new HttpFetchProvider(limits).fetch(request, signal);
+    }
     // Same-origin redirects preserve the full routing key. Recheck inside the
     // resolver as well: rc.2 otherwise sends proxied Fake-IP literals direct.
-    const resolve: HttpFetchResolver = (hostname, innerSignal) => {
+    const resolve: AddressResolver = (hostname, innerSignal) => {
       assertRoute(url, this.policy);
       return this.resolver(hostname, innerSignal);
     };
@@ -107,7 +140,7 @@ export class FakeIpHttpFetchProvider implements WebFetchProvider {
     const limits = this.policy.requiresLocalDeny || nativeIpv6Literal
       ? { ...this.limits, maxRedirects: 0 }
       : this.limits;
-    return new HttpFetchProvider(limits, resolve).fetch(request, signal);
+    return new dualHttpFetchProvider(limits, resolve).fetch(request, signal);
   }
 }
 
