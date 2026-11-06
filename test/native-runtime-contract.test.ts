@@ -96,6 +96,46 @@ test("admission injects configured locale and one legal role identity without a 
   } finally { await f.dispose(); }
 });
 
+test("ordinary Deepwork adds language guidance and neutralizes native model identity without replacing the persona", async () => {
+  const f = await nativeRoutingFixture({ locale: "zh-Hans" }, { nativePresets: true, spawn: false });
+  try {
+    const prefix = "You are a coding agent powered by the {{model}} model.\n\nKeep the project's API conventions.";
+    await f.ctx.get("agentPresets")!.register({ id: "ordinary-persona", name: "Ordinary persona", description: "Native persona",
+      plugins: [{ name: "cordis:parity-persona", config: { prefix, suffix: "Retain the deployment suffix." } }] });
+    const agent = await f.create({ agentPreset: "ordinary-persona" });
+    const foreign = await f.create({ agentPreset: "ordinary-persona" });
+    const runtime = f.ctx.get("dsmmProfileRuntime") as import("../lib/profile-runtime.js").DsmmProfileRuntime;
+    const mode = async (active: boolean) => {
+      const before = await runtime.getSession(adapterAgent(agent));
+      await runtime.selectMode({ sessionId: agent.id, active, expectedModeRevision: before.deepwork!.revision,
+        expectedAdmissionEpoch: before.admissionEpoch }, adapterAgent(agent));
+    };
+    const request = async (target = agent) => {
+      await runFixtureTurn(target);
+      return JSON.stringify(f.adapter.calls.filter(call => call.sessionId === target.id).at(-1)!.messages.filter(message => message.role === "system").map(message => message.content));
+    };
+    const original = await request();
+    assert.ok(original.includes("powered by the native-default model"));
+    assert.equal(original.includes("<dsmm-locale-guidance>"), false);
+    for (const active of [true, false, true]) {
+      await mode(active);
+      const system = await request();
+      assert.equal(system.includes("powered by the native-default model"), !active);
+      assert.equal(system.split("<dsmm-locale-guidance>").length - 1, active ? 1 : 0);
+      assert.match(system, /capturedLocale\\":\\"zh-Hans/u);
+      assert.ok(system.includes("Keep the project's API conventions."));
+      assert.ok(system.includes("Retain the deployment suffix."));
+      assert.equal(system.includes("<agent-role name=\\\"orchestrator\\\">"), false);
+      const assembly = await f.ctx.systemPrompt.assemble({ scope: agent });
+      assert.equal(assembly.sections.find(section => section.name === "deployment:persona-prefix")?.text,
+        active ? prefix.replace(" powered by the {{model}} model", "") : prefix);
+    }
+    assert.equal(await request(foreign), original);
+    await f.disposeAgent(agent);
+    assert.equal(await request(foreign), original);
+  } finally { await f.dispose(); }
+});
+
 test("ordinary mode-off with unset locale falls back without an empty DSMM block", async () => {
   const f = await nativeRoutingFixture({}, { nativePresets: true, spawn: false });
   try {
