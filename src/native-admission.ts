@@ -552,15 +552,6 @@ export class NativeAdmission {
             if (provider?.capabilities.depthLimit !== true) throw new DsmmProfileError("activation", "An enabled role has no admitted native provider.");
             return [name, provider];
           }));
-          for (const role of targets) {
-            const routing = admission.settings.roleRouting[role];
-            if (routing?.primary !== undefined || routing?.fallbackRoutes !== undefined) {
-              await resolveRoleInvocation(agent, role, admission.settings, preparationSignal, {}, undefined, resolvedModelParameterPolicy(admission)); assertCurrent();
-            }
-            for (const level of ["low", "high", "max"] as const) if (routing?.levels?.[level] !== undefined) {
-              await resolveRoleInvocation(agent, role, admission.settings, preparationSignal, { level }, undefined, resolvedModelParameterPolicy(admission)); assertCurrent();
-            }
-          }
         });
         assertCurrent();
         const candidate = await this.admissionModelSelection?.(agent, { settings: admission.settings, epoch: admission.epoch,

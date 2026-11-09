@@ -171,9 +171,19 @@ test("successful idle publication clears command memory only for its exact subtr
       finally { remove(); }
     };
     await probe(root); await probe(other); assert.equal(asks, 2);
-    const invalid = await runtime.save({ id: "memory-invalid", content: profile("memory-invalid", "unavailable"), expectedRevision: null });
-    f.adapter.unavailableModels.add("unavailable-review");
-    await assert.rejects(runtime.selectSession(await request(runtime, root, invalid.id, invalid.revision), structural(root)), { code: "activation" });
+    const document = JSON.parse(profile("memory-invalid", "memory-model"));
+    document.settings.subagents = { toolTopology: "parameterized" };
+    const invalid = await runtime.save({ id: document.id, content: JSON.stringify(document), expectedRevision: null });
+    const register = ToolRuntime.prototype.register;
+    let failed = false;
+    const fault = mock.method(ToolRuntime.prototype, "register", function (this: ToolRuntime, definition: Parameters<ToolRuntime["register"]>[0]) {
+      if (definition.name === "dsmm_role") { failed = true; throw new Error("Fixture installation failure"); }
+      return register.call(this, definition);
+    });
+    try {
+      await assert.rejects(runtime.selectSession(await request(runtime, root, invalid.id, invalid.revision), structural(root)), { code: "activation" });
+      assert.equal(failed, true);
+    } finally { fault.mock.restore(); }
     await probe(root); assert.equal(asks, 2, "failed selection must retain valid memory");
     const saved = await runtime.save({ id: "memory-b", content: profile("memory-b", "memory-b"), expectedRevision: null });
     await runtime.selectSession(await request(runtime, root, saved.id, saved.revision), structural(root));
@@ -812,18 +822,52 @@ test("blank choices read current deployment values but cannot mount runtime or p
   } finally { await f.dispose(); }
 });
 
-test("blank route preflight refuses unavailable delegated models without changing admission or consuming the first prompt", async () => {
+test("blank choices defer unavailable delegated models until the role is invoked", async () => {
   const f = await nativeRoutingFixture();
   try {
-    const runtime = runtimeOf(f), agent = await f.create({ agentPreset: "standard" }), before = runtime.admission(structural(agent));
+    const runtime = runtimeOf(f), agent = await f.create({ agentPreset: "standard" });
     const saved = await runtime.save({ id: "missing-route", content: profile("missing-route", "missing-model"), expectedRevision: null });
     f.adapter.unavailableModels.add("missing-model-review");
-    await assert.rejects(runtime.selectSession(await request(runtime, agent, saved.id, saved.revision), structural(agent)), { code: "activation" });
-    assert.equal(runtime.admission(structural(agent)), before);
-    assert.equal((await centralStore(f).loadSessionSelection(agent.id)).admissionEpoch, null);
+    const selected = await runtime.selectSession(await request(runtime, agent, saved.id, saved.revision), structural(agent));
+    assert.equal(selected.admittedSelection?.selectedId, saved.id);
+    assert.equal((await centralStore(f).loadSessionSelection(agent.id)).admissionEpoch, selected.admissionEpoch);
     assert.equal(f.adapter.calls.length, 0);
     await runFixtureTurn(agent);
-    assert.doesNotMatch(JSON.stringify(f.adapter.calls[0]?.messages), /DEEPWORK MODE ENABLED!/u);
+    assert.match(JSON.stringify(f.adapter.calls[0]?.messages), /DEEPWORK MODE ENABLED!/u);
+    assert.equal(headerRoutes(agent)[0]?.model, "native-default");
+    const result = await agent.ctx.tools.execute({ agent, name: "dsmm_reviewer", callId: ToolCallId("missing-review-route"),
+      arguments: { description: "Unavailable reviewer", prompt: "Review" }, signal: new AbortController().signal });
+    assert.equal(result.isError, true);
+    if (result.isError) assert.equal(result.error.info?.code, "UNKNOWN_MODEL");
+    assert.equal(f.adapter.calls.length, 1);
+  } finally { await f.dispose(); }
+});
+
+test("blank choices preserve unused effort levels and validate only the invoked level", async () => {
+  const f = await nativeRoutingFixture();
+  try {
+    const runtime = runtimeOf(f), agent = await f.create({ agentPreset: "standard" });
+    const document = JSON.parse(profile("unused-level", "configured-model"));
+    document.settings.roleRouting["dsmm-plan-critic"] = {
+      primary: route("critic-model"), levels: { low: { reasoningEffort: "medium" } },
+    };
+    const saved = await runtime.save({ id: document.id, content: JSON.stringify(document), expectedRevision: null });
+    const resolution = mock.method(f.adapter, "resolveModel");
+    try {
+      await runtime.selectSession(await request(runtime, agent, saved.id, saved.revision), structural(agent));
+      assert.equal(resolution.mock.callCount(), 0);
+      assert.equal(runtime.admission(structural(agent)).settings.roleRouting["dsmm-plan-critic"]?.levels?.low?.reasoningEffort, "medium");
+    } finally { resolution.mock.restore(); }
+    const invoke = (level: "normal" | "low") => agent.ctx.tools.execute({ agent, name: "dsmm_plan_critic", callId: ToolCallId(`critic-${level}`),
+      arguments: { description: "Configured critic", prompt: "Review", level }, signal: new AbortController().signal });
+    const unsupported = await invoke("low");
+    assert.equal(unsupported.isError, true);
+    if (unsupported.isError) assert.equal(unsupported.error.info?.code, "UNSUPPORTED_REASONING_EFFORT");
+    assert.equal(f.adapter.calls.length, 0);
+    const supported = await invoke("normal");
+    assert.equal(supported.isError, false, JSON.stringify(supported));
+    assert.equal(f.adapter.calls.at(-1)?.model, "critic-model");
+    assert.equal(f.adapter.calls.at(-1)?.reasoningEffort, "high");
   } finally { await f.dispose(); }
 });
 
