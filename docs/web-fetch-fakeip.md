@@ -6,7 +6,7 @@
 
 DSMM 包必须具备以下依赖和发布入口，才能使用此插件：
 
-- 运行依赖 `@deepseek-ai/dsh-web-fetch-http: 0.2.1-rc.2` 和 `ipaddr.js: ^2.5.0`。
+- 运行依赖 `@deepseek-ai/dsh-web-fetch-http: >=0.2.1-rc.2 <0.2.2-0 || >=0.2.2-rc.1 <0.3.0`（与 `engines.dsh` 兼容窗口一致，非精确版本，避免在宿主 profile 中遮蔽更高版本的同类副本）和 `ipaddr.js: ^2.5.0`。
 - Host seam `@deepseek-ai/dsh-web: 0.2.1-rc.2`、`@deepseek-ai/dsh-http-proxy: 0.2.1-rc.2` 作为 peer 和开发依赖。保留现有 Cordis/timeout peers；不要另装一套 Host service。DSMM 与原生 HTTP provider 必须解析到 Host 实际使用的同一个 `dsh-http-proxy` 实例，否则预检读不到已安装的进程路由。
 - 包 export `./web-fetch-fakeip`，types 指向 `./lib/web-fetch-fakeip.d.ts`，default 指向 `./lib/web-fetch-fakeip.js`。构建也需包含其内部 `web-fetch-address-policy.js`。包的 `files` 应包含本说明和来源许可证。
 
