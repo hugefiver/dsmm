@@ -1,3 +1,4 @@
+import { nativeIsOwnedBy } from "./native-ownership.js";
 import type { DshContext } from "./dsh-types.js";
 import { Context as NativeContext, getTraceable } from "@deepseek-ai/cordis";
 import type { Context } from "@deepseek-ai/cordis";
@@ -36,7 +37,7 @@ interface NativeAgent {
 interface NativeAgentRegistry {
   list(): NativeAgent[];
   get(id: string): NativeAgent | undefined;
-  isOwnedBy(childId: string, parent: NativeAgent): boolean;
+  isOwnedBy?(childId: string, parent: NativeAgent): boolean;
 }
 
 /**
@@ -96,7 +97,7 @@ export function registerRolePresets(ctx: DshContext, getSettings: () => DsmmSett
         // reconcile. A parented agent with no bound identity stays pending
         // instead of concluding "not read-only" from a not-yet-bound role.
         const agentId = agent.id;
-        const parented = agentId !== undefined && agents.list().some(other => other !== agent && agents.isOwnedBy(agentId, other));
+        const parented = agentId !== undefined && agents.list().some(other => other !== agent && nativeIsOwnedBy(agents, agentId, other));
         const pendingIdentity = roleIdentity !== undefined && identityRole === undefined && parented;
         const selected = pendingIdentity ? undefined : identityRole ?? registry.composedPreset(agent.ctx);
         const previous = states.get(agent);

@@ -1,3 +1,4 @@
+import { nativeRoots, nativeIsOwnedBy } from "./native-ownership.js";
 import { randomUUID } from "node:crypto";
 import type { Context } from "@deepseek-ai/cordis";
 import type { Agent } from "@deepseek-ai/dsh-agent";
@@ -75,9 +76,9 @@ export function createCorePermissionAuthority(ctx: Context, options: CorePermiss
     while (true) {
       if (seen.has(current) || agents.get(current.id) !== current) throw new PermissionRefusal("not-owned");
       seen.add(current); chain.push(current);
-      const owners = residents.filter(candidate => candidate !== current && agents.isOwnedBy(current.id, candidate));
+      const owners = residents.filter(candidate => candidate !== current && nativeIsOwnedBy(agents, current.id, candidate));
       if (owners.length === 0) {
-        if (!agents.roots().includes(current) || current.session.header.origin === "subagent") throw new PermissionRefusal("not-owned");
+        if (!nativeRoots(agents).includes(current) || current.session.header.origin === "subagent") throw new PermissionRefusal("not-owned");
         return chain;
       }
       if (owners.length !== 1 || current.session.header.parentSession !== owners[0].id) throw new PermissionRefusal("not-owned");
@@ -192,7 +193,7 @@ export function createCorePermissionAuthority(ctx: Context, options: CorePermiss
     rootCurrent(root, exec) {
       const host = integration(), chain = ancestry(exec);
       const agents = ctx.get("agents");
-      if (chain.at(-1) !== root || agents?.get(root.id) !== root || !agents.roots().includes(root)) throw new PermissionRefusal("not-owned");
+      if (chain.at(-1) !== root || agents?.get(root.id) !== root || !nativeRoots(agents).includes(root)) throw new PermissionRefusal("not-owned");
       const generation = local(host, root, root);
       if (root.ctx.get("approval") === undefined) throw new PermissionRefusal("unavailable");
       return generation.authority;
@@ -213,8 +214,8 @@ export function createCorePermissionAuthority(ctx: Context, options: CorePermiss
       if (lifetimeSignal.aborted) throw new PermissionRefusal("cancelled");
       const agents = ctx.get("agents"), realmAgents = root.ctx.get("agents");
       if (agents === undefined || realmAgents === undefined || permissionOriginal(agents) !== permissionOriginal(realmAgents)
-        || agents.get(root.id) !== root || root.session.id !== root.id || !agents.roots().includes(root)
-        || root.session.header.origin === "subagent" || agents.list().some(agent => agent !== root && agents.isOwnedBy(root.id, agent))) throw new PermissionRefusal("not-owned");
+        || agents.get(root.id) !== root || root.session.id !== root.id || !nativeRoots(agents).includes(root)
+        || root.session.header.origin === "subagent" || agents.list().some(agent => agent !== root && nativeIsOwnedBy(agents, root.id, agent))) throw new PermissionRefusal("not-owned");
       const seen = new Set<Context>();
       for (let fiber = root.ctx.fiber; !seen.has(fiber.ctx); fiber = fiber.parent.fiber) {
         if (fiber.uid === null || fiber.state === 4 || fiber.state === 5) throw new PermissionRefusal("cancelled");

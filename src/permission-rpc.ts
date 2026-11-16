@@ -1,3 +1,4 @@
+import { nativeRoots, nativeIsOwnedBy } from "./native-ownership.js";
 import type { Context } from "@deepseek-ai/cordis";
 import type { Agent } from "@deepseek-ai/dsh-agent";
 import type { HostConnectionHandle } from "@deepseek-ai/dsh-client-connection";
@@ -27,8 +28,8 @@ export class DsmmPermissionsHost extends TypertRemoteService {
         const current = this.ctx.get("connection") as HostConnectionHandle | undefined, registry = this.ctx.get("agents");
         if (signal.aborted) throw new PermissionRefusal("cancelled");
         if (current === undefined || permissionOriginal(current) !== owner || current.browserPeer !== peer || registry?.get(id) !== root
-          || root.id !== sessionId || root.session.id !== sessionId || root.session.header.origin === "subagent" || !registry.roots().includes(root)
-          || registry.list().some(agent => agent !== root && registry.isOwnedBy(id, agent))) throw new PermissionRefusal("not-owned");
+          || root.id !== sessionId || root.session.id !== sessionId || root.session.header.origin === "subagent" || !nativeRoots(registry).includes(root)
+          || registry.list().some(agent => agent !== root && nativeIsOwnedBy(registry, id, agent))) throw new PermissionRefusal("not-owned");
       };
       check();
       return operation(root, peer, signal, check);

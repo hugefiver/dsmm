@@ -1,3 +1,5 @@
+import { nativeRoots, nativeIsOwnedBy } from "./native-ownership.js";
+import { listNativeChildren, promptNativeChild, interruptNativeChild } from "./native-subagents.js";
 import { symbols } from "@deepseek-ai/cordis";
 import type { Context } from "@deepseek-ai/cordis";
 import type { Agent } from "@deepseek-ai/dsh-agent";
@@ -43,7 +45,7 @@ export class DsmmChildrenHost extends TypertRemoteService {
     if (!agents) throw new ControlRefusal("unavailable");
     const parent = agents.get(SessionId(sessionId));
     if (!parent) throw new ControlRefusal("not-found", "sessionId");
-    if (!agents.roots().includes(parent) || parent.session.header.origin === "subagent" || parent.session.id !== parent.id) throw new ControlRefusal("not-owned", "sessionId");
+    if (!nativeRoots(agents).includes(parent) || parent.session.header.origin === "subagent" || parent.session.id !== parent.id) throw new ControlRefusal("not-owned", "sessionId");
     const captured = this.admission.assert(parent);
     const signal = AbortSignal.any([invocation.signal, invocation.peer.signal, this.lifetime.signal, this.admission.lifetime.signal,
       ...(extraSignal === undefined ? [] : [extraSignal])]);
@@ -56,12 +58,12 @@ export class DsmmChildrenHost extends TypertRemoteService {
     check(); return { parent, admission: captured, epoch: captured.epoch, signal, check };
   }
   private observationRoot(target: Agent, agents: Context["agents"]): Agent {
-    const roots = agents.roots(), residents = agents.list(), seen = new Set<Agent>();
+    const roots = nativeRoots(agents), residents = agents.list(), seen = new Set<Agent>();
     let current = target;
     while (!roots.includes(current)) {
       if (seen.has(current)) throw new ControlRefusal("not-owned", "sessionId");
       seen.add(current);
-      const parents = residents.filter(candidate => candidate !== current && agents.isOwnedBy(current.id, candidate));
+      const parents = residents.filter(candidate => candidate !== current && nativeIsOwnedBy(agents, current.id, candidate));
       if (parents.length !== 1) throw new ControlRefusal("not-owned", "sessionId");
       current = parents[0];
     }
@@ -123,7 +125,7 @@ export class DsmmChildrenHost extends TypertRemoteService {
     const live = child && this.admission.get(child), invocation = child && this.admission.invocation(child);
     const available = this.capabilities(scope);
     const reason = !direct ? "not-direct-child" : entry.mode !== "continuable" ? entry.mode === "one-shot" ? "one-shot" : "unknown-mode" : child && !live ? "evidence-unavailable" : undefined;
-    const control: RoleControlAvailability = reason !== undefined ? disabled(reason) : child && !this.ctx.get("agents")?.isOwnedBy(child.id, scope.parent) ? disabled("not-direct-child") : available.prompt;
+    const control: RoleControlAvailability = reason !== undefined ? disabled(reason) : child && !nativeIsOwnedBy(this.ctx.get("agents"), child.id, scope.parent) ? disabled("not-direct-child") : available.prompt;
     return { id: entry.id, parentSessionId: parentId, mode: entry.mode === "external" ? "unknown" : entry.mode, activity: child?.status === "running" ? "running" : "inactive",
       readonly: !control.enabled, controls: { prompt: control, interrupt: child ? control : disabled("evidence-unavailable") }, ...(entry.label === undefined ? {} : { label: boundedLabel(entry.label) }),
       ...(invocation === undefined ? {} : { invocation: invocationView(invocation, boundedLabel(entry.label ?? invocation.target), "continuable", { childId: entry.id }) }),
@@ -145,7 +147,7 @@ export class DsmmChildrenHost extends TypertRemoteService {
   }
   @Remote
   describe(sessionId: string): Promise<ChildSessionSnapshot> { return this.scoped(sessionId, async scope => {
-    const rows = await this.ctx.get("subagents")!.listChildren(scope.parent.id, scope.signal); scope.check();
+    const rows = await listNativeChildren(this.ctx.get("subagents")!, scope.parent.id, scope.signal); scope.check();
     return parseChildSessionSnapshot({ sessionId, admissionEpoch: scope.epoch, children: rows.map(row => this.child(scope, row)), capabilities: this.capabilities(scope) });
   }); }
   @Remote
@@ -158,7 +160,7 @@ export class DsmmChildrenHost extends TypertRemoteService {
   private direct(scope: Scope, childId: string): Agent {
     scope.check(); const child = this.ctx.get("agents")?.get(SessionId(childId));
     if (!child) throw new ControlRefusal("not-resumable", "childSessionId", "evidence-unavailable");
-    if (!this.ctx.get("agents")?.isOwnedBy(child.id, scope.parent)) throw new ControlRefusal("not-owned", "childSessionId");
+    if (!nativeIsOwnedBy(this.ctx.get("agents"), child.id, scope.parent)) throw new ControlRefusal("not-owned", "childSessionId");
     this.admission.assert(child); return child;
   }
   @Remote
@@ -168,13 +170,13 @@ export class DsmmChildrenHost extends TypertRemoteService {
     const capabilities = this.capabilities(scope);
     if (!capabilities.prompt.enabled) throw new ControlRefusal("disabled", undefined, capabilities.prompt.reason);
     if (request.content.some(part => part.type === "image") && !capabilities.images.enabled) throw new ControlRefusal("disabled", "content", capabilities.images.reason);
-    const rows = await this.ctx.get("subagents")!.listChildren(scope.parent.id, scope.signal); scope.check();
+    const rows = await listNativeChildren(this.ctx.get("subagents")!, scope.parent.id, scope.signal); scope.check();
     const row = rows.find(row => row.id === request.childSessionId);
     if (!row) throw new ControlRefusal("not-owned", "childSessionId");
     if (row.mode !== "continuable") throw new ControlRefusal("not-resumable", "childSessionId");
     if (this.ctx.get("agents")?.get(SessionId(request.childSessionId))) this.direct(scope, request.childSessionId);
     return this.admission.duringCall(scope.parent, scope.signal, async signal => {
-      scope.check(); const receipt = await this.ctx.get("subagents")!.prompt(request, signal); scope.check(); return receipt;
+      scope.check(); const receipt = await promptNativeChild(this.ctx.get("subagents")!, request, signal); scope.check(); return receipt;
     });
   }); }
   @Remote
@@ -184,7 +186,7 @@ export class DsmmChildrenHost extends TypertRemoteService {
     const capabilities = this.capabilities(scope);
     if (!capabilities.interrupt.enabled) throw new ControlRefusal("disabled", undefined, capabilities.interrupt.reason);
     this.direct(scope, request.childSessionId);
-    return this.ctx.get("subagents")!.interruptByParent(SessionId(request.childSessionId), scope.parent.id, "continuable");
+    return interruptNativeChild(this.ctx.get("subagents")!, SessionId(request.childSessionId), scope.parent.id);
   }); }
 }
 declare module "@deepseek-ai/cordis" { interface Context { dsmmChildren: DsmmChildrenHost } }

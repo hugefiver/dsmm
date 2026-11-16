@@ -1,3 +1,4 @@
+import { nativeRoots, nativeIsOwnedBy } from "./native-ownership.js";
 import type { Context } from "@deepseek-ai/cordis";
 import type { Agent } from "@deepseek-ai/dsh-agent";
 import type {} from "@deepseek-ai/dsh-settings";
@@ -111,7 +112,7 @@ export class DeploymentPermissionRules implements PermissionRulesBackend {
     this.lifetime.signal.throwIfAborted();
     const registry = this.ctx.agents;
     if (permissionOriginal(registry) !== this.registry || registry.get(root.id) !== root || root.session.id !== root.id || root.session.header.origin === "subagent"
-      || !registry.roots().includes(root) || registry.list().some(owner => owner !== root && registry.isOwnedBy(root.id, owner))) throw new PermissionRefusal("not-owned");
+      || !nativeRoots(registry).includes(root) || registry.list().some(owner => owner !== root && nativeIsOwnedBy(registry, root.id, owner))) throw new PermissionRefusal("not-owned");
     this.options.assertWritable(root);
   }
   private check(authority: PermissionRulesSaveAuthority): void {

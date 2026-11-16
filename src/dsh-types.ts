@@ -58,8 +58,8 @@ export interface DshAgentModel {
 export interface DshAgentsRegistry {
   get(id: string): DshAgent | undefined;
   list(): DshAgent[];
-  roots(): DshAgent[];
-  isOwnedBy(id: string, owner: DshAgent): boolean;
+  roots?(): DshAgent[];
+  isOwnedBy?(id: string, owner: DshAgent): boolean;
 }
 
 export interface DshAgentCreatedFrame {

@@ -25,6 +25,7 @@ import type { ResolvedRoleInvocation } from "./role-invocation.js";
 import { modelRouteFromCall } from "./role-llm.js";
 import type { NativeAdmission } from "./native-admission.js";
 import { buildDsmmDelegationGuidance } from "./prompts.js";
+import { startNativeActivation } from "./native-subagents.js";
 
 const hostControls = ["send_message", "interrupt_agent", "exit_plan_mode", "ask_user_question", "todo_write", "job_output", "job_list", "job_kill"];
 // Agent-owned policy realms survive a bundle reinstall; do not register another
@@ -221,12 +222,22 @@ function registerRoleTool(agent: DshAgent, agentCtx: Context, tools: ToolRuntime
        let cancellation: Promise<void> | undefined;
        const cancel = () => { if (activation) { cancellation ??= activation.dispose(); void cancellation.catch(() => {}); } };
        try {
-         activation = await subagents.startActivation({ childId: pending.childId, provider: provider.name, label, request, signal: pending.signal, delivery: requestedBackground ? "parent" : "caller" });
+         activation = await startNativeActivation(subagents, { childId: pending.childId, provider: provider.name, label, request, signal: pending.signal, delivery: requestedBackground ? "parent" : "caller" });
          admission.track(activation);
          pending.signal.addEventListener("abort", cancel, { once: true });
          if (pending.signal.aborted) { cancel(); await cancellation; pending.signal.throwIfAborted(); }
 
-         if (requestedBackground) return { kind: "continuable", subagentId: activation.childId, messageId: activation.messageId ?? null, invocation: { ...pending.view() } };
+         try {
+            const child = agentCtx.agents.get(activation.childId);
+            if (child === undefined) throw new SubagentError("Native role activation has no live child", "UNAUTHORIZED");
+            await admission.ensure(child);
+          } catch (error) {
+            cancel();
+            await cancellation;
+            throw error;
+          }
+          pending.signal.throwIfAborted();
+          if (requestedBackground) return { kind: "continuable", subagentId: activation.childId, messageId: activation.messageId ?? null, invocation: { ...pending.view() } };
          const result = await activation.result;
          if (result.stopReason !== "completed") incomplete.set(exec.token, result);
          if (cancellation) await cancellation;

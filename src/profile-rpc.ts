@@ -1,3 +1,4 @@
+import { nativeRoots, nativeIsOwnedBy } from "./native-ownership.js";
 import { symbols } from "@deepseek-ai/cordis";
 import type { Context } from "@deepseek-ai/cordis";
 import { Remote, RemoteError, TypertRemoteService } from "@deepseek-ai/dsh-typert-protocol";
@@ -98,7 +99,7 @@ export class DsmmProfilesHost extends TypertRemoteService {
           throw new DsmmProfileError("not-owned", "The native Host operator connection is no longer active.");
         }
         const agents = this.ctx.get("agents") as DshAgentsRegistry | undefined;
-        if (agents === undefined || typeof agents.get !== "function" || typeof agents.roots !== "function" || typeof agents.list !== "function" || typeof agents.isOwnedBy !== "function") {
+        if (agents === undefined || typeof agents.get !== "function" || typeof agents.list !== "function") {
           throw new DsmmProfileError("unavailable", "Native session authority is unavailable.");
         }
         return agents;
@@ -110,8 +111,8 @@ export class DsmmProfilesHost extends TypertRemoteService {
       const checkCaptured = (): void => {
         const current = checkAuthority();
         if (agent.id !== sessionId || agent.session.id !== sessionId || current.get(sessionId) !== agent
-          || agent.session.header?.origin === "subagent" || !current.roots().includes(agent)
-          || current.list().some((owner) => owner !== agent && current.isOwnedBy(sessionId, owner))) {
+          || agent.session.header?.origin === "subagent" || !nativeRoots(current).includes(agent)
+          || current.list().some((owner) => owner !== agent && nativeIsOwnedBy(current, sessionId, owner))) {
           throw new DsmmProfileError("not-owned", "Only an exact live ordinary root session can select a profile.", "sessionId");
         }
       };

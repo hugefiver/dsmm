@@ -1,3 +1,4 @@
+import { nativeIsOwnedBy } from "./native-ownership.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { SubagentError, delegationDepthOf } from "@deepseek-ai/dsh-subagent";
 import type { Agent } from "@deepseek-ai/dsh-agent";
@@ -76,7 +77,7 @@ export class DsmmRolePolicy {
   }
   bindChild(agent: DshAgent, parent: DshAgent, admission: DsmmProfileAdmission, invocation: ResolvedRoleInvocation, maximum: number | undefined, toolFilter: ToolRestriction, independentComposition = false): void {
     this.assertLive(agent); this.assertLive(parent); this.assertDelegation(parent, invocation.target);
-    if (!this.agents().isOwnedBy(agent.id!, parent) || agent.session.header?.parentSession !== parent.id || !independentComposition && this.selected(agent) !== this.selected(parent)) throw new SubagentError("Child lineage or composition mismatch", "UNAUTHORIZED");
+    if (!nativeIsOwnedBy(this.agents(), agent.id!, parent) || agent.session.header?.parentSession !== parent.id || !independentComposition && this.selected(agent) !== this.selected(parent)) throw new SubagentError("Child lineage or composition mismatch", "UNAUTHORIZED");
     if (maximum !== undefined && delegationDepthOf(agent as Agent) > maximum) throw new SubagentError("Delegation depth exceeded", "UNAUTHORIZED");
     const upstream = this.identity(parent);
     liveIdentities.set(agent, Object.freeze({ role: invocation.target, child: true, parent, preset: this.selected(agent), epoch: admission.epoch, independentComposition,
@@ -89,7 +90,7 @@ export class DsmmRolePolicy {
   bindInheritedChild(agent: DshAgent, parent: DshAgent, admission: DsmmProfileAdmission, continuation = false): void {
     this.assertLive(agent); this.assertModuleAdmission(parent);
     const upstream = this.identity(parent), preset = this.selected(agent);
-    if (!continuation && (upstream.role !== undefined || preset?.startsWith("dsmm-")) || !this.agents().isOwnedBy(agent.id!, parent)
+    if (!continuation && (upstream.role !== undefined || preset?.startsWith("dsmm-")) || !nativeIsOwnedBy(this.agents(), agent.id!, parent)
       || agent.session.header?.origin !== "subagent" || agent.session.header.parentSession !== parent.id) throw new SubagentError("Ordinary inheritance requires its exact non-controlled parent", "UNAUTHORIZED");
     liveIdentities.set(agent, Object.freeze({ child: true, parent, preset, epoch: admission.epoch,
       readOnly: this.readOnly(upstream), toolFilter: inheritToolFilter(upstream.toolFilter, this.visibleToolCeiling(parent)) }));
@@ -100,7 +101,7 @@ export class DsmmRolePolicy {
     const settings = this.getSettings(agent), identity = liveIdentities.get(agent), selected = this.selected(agent);
     if (identity?.child) {
       this.assertLive(identity.parent!);
-      if (!this.agents().isOwnedBy(agent.id!, identity.parent!) || selected !== identity.preset
+      if (!nativeIsOwnedBy(this.agents(), agent.id!, identity.parent!) || selected !== identity.preset
         || identity.role !== undefined && !identity.independentComposition && selected !== this.selected(identity.parent!)) throw new SubagentError("Child admission no longer matches composition", "UNAUTHORIZED");
     } else if (agent.session.header?.origin !== "subagent") this.validateRootRole(agent, this.getSettings.admission!(agent));
     const role = identity?.role ?? (isDsmmRoleId(selected) ? selected : undefined);
@@ -110,7 +111,7 @@ export class DsmmRolePolicy {
     this.assertLive(agent);
     const existing = liveIdentities.get(agent); if (existing) return existing;
     const settings = this.getSettings(agent), selected = this.selected(agent);
-    const parent = this.agents().list().find(row => row !== agent && this.agents().isOwnedBy(agent.id!, row));
+    const parent = this.agents().list().find(row => row !== agent && nativeIsOwnedBy(this.agents(), agent.id!, row));
     if (!parent) this.validateRootRole(agent, this.getSettings.admission!(agent));
     const role = parent ? undefined : isDsmmRoleId(selected) ? selected : settings.modules.deepwork.enabled && this.mode.active(agent, settings.defaultActive) ? "dsmm-orchestrator" : undefined;
     return Object.freeze({ role, child: parent !== undefined, parent, epoch: this.getSettings.admission!(agent).epoch });
@@ -145,7 +146,7 @@ export class DsmmRolePolicy {
     const agents = agent.ctx.get("agents")!, tools = agent.ctx.get("agentPresets")?.serviceFor(agent, "tools") ?? agent.ctx.get("tools"), definition = tools?.get(execution.name, agent);
     this.toolCalls.set(execution, { agent, context: agent.ctx, registry: Reflect.get(agents, symbols.original) ?? agents,
       realm: tools === undefined ? undefined : Reflect.get(tools, symbols.original) ?? tools, scopeParent: scopeParentOf(agent),
-      parents: agents.list().filter(parent => parent !== agent && agents.isOwnedBy(agent.id, parent)), parentSession: agent.session.header.parentSession,
+      parents: agents.list().filter(parent => parent !== agent && nativeIsOwnedBy(agents, agent.id, parent)), parentSession: agent.session.header.parentSession,
       name: execution.name, args: execution.arguments, callId: execution.callId, signal: execution.signal,
       toolFilter: this.visibleToolCeiling(agent as DshAgent),
       ...(definition === undefined || !controlledDefinitions.has(definition) ? {} : { definition, body: definition.execute, argumentsJson: JSON.stringify(execution.arguments) }) });
@@ -168,7 +169,7 @@ export class DsmmRolePolicy {
     const call = this.toolCalls.get(execution); if (!call) return;
     call.signal.throwIfAborted();
     const agents = agent.ctx.get("agents")!, tools = agent.ctx.get("agentPresets")?.serviceFor(agent, "tools") ?? agent.ctx.get("tools");
-    const parents = agents.list().filter(parent => parent !== agent && agents.isOwnedBy(agent.id, parent));
+    const parents = agents.list().filter(parent => parent !== agent && nativeIsOwnedBy(agents, agent.id, parent));
     if (agent !== call.agent || agent.ctx !== call.context || (Reflect.get(agents, symbols.original) ?? agents) !== call.registry
       || (tools === undefined ? undefined : Reflect.get(tools, symbols.original) ?? tools) !== call.realm || scopeParentOf(agent) !== call.scopeParent
       || agent.session.header.parentSession !== call.parentSession || parents.length !== call.parents.length || parents.some(parent => !call.parents.includes(parent))) throw new SubagentError("Tool caller ownership changed", "UNAUTHORIZED");

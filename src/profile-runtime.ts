@@ -1,3 +1,4 @@
+import { nativeRoots } from "./native-ownership.js";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { lstatSync, realpathSync } from "node:fs";
@@ -310,8 +311,8 @@ export class DsmmProfileRuntime {
   }
   private assertRoot(agent: DshAgent): void {
     this.assertCurrent(); validateSessionProfileId(agent.id);
-    const agents = this.ctx.get?.<{ get(id: string): DshAgent | undefined; roots(): DshAgent[] }>("agents");
-    if (agents?.get(agent.id) !== agent || !agents.roots().includes(agent) || agent.session.header?.origin === "subagent") throw new DsmmProfileError("not-owned", "The exact live root Agent is required.");
+    const agents = this.ctx.get?.<import("./native-ownership.js").NativeOwnershipRegistry<DshAgent>>("agents");
+    if (agents?.get(agent.id) !== agent || !nativeRoots(agents).includes(agent) || agent.session.header?.origin === "subagent") throw new DsmmProfileError("not-owned", "The exact live root Agent is required.");
   }
   async describe(): Promise<ProfileSnapshot> {
     this.assertCurrent(); const disk = await this.store.describe(); this.assertCurrent();

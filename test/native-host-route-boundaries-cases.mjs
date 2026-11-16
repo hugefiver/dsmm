@@ -60,13 +60,17 @@ await test("real isolated Host CLI route, owner, tools, child and recovery bound
         else assert.equal(result.requests[0].reasoning_effort, undefined);
       });
     }
-    await t.test("unobserved edit fails with FS_NOT_OBSERVED, then native read/edit/pwsh succeed", async () => {
+    await t.test("unobserved edit fails with FS_NOT_OBSERVED, then native read/edit/shell succeed", async () => {
       await configure(f);
       f.handler = (body, res) => {
         if (f.requests.length === 1) return toolCall(res, body, "edit", { file_path: "observed.txt", old_string: "original", new_string: "forbidden", replace_all: false });
         if (f.requests.length === 2) return toolCall(res, body, "read", { file_path: "observed.txt" });
         if (f.requests.length === 3) return toolCall(res, body, "edit", { file_path: "observed.txt", old_string: "original", new_string: "verified", replace_all: false });
-        if (f.requests.length === 4) return toolCall(res, body, "pwsh", { description: "Verify isolated shell execution", command: "Write-Output 'host-boundary-shell-ok'" });
+        if (f.requests.length === 4) {
+          const powershell = body.tools.some(row => row.function.name === "pwsh");
+          return toolCall(res, body, powershell ? "pwsh" : "bash", { description: "Verify isolated shell execution",
+            command: powershell ? "Write-Output 'host-boundary-shell-ok'" : "printf 'host-boundary-shell-ok\\n'" });
+        }
         return complete(body, res);
       };
       const result = await runCli(f, "native-tools"); successful(result);
@@ -176,9 +180,14 @@ await test("real isolated Host CLI route, owner, tools, child and recovery bound
       assert.ok(tool.result.includes("host-boundary-lifecycle-complete"), JSON.stringify({ tool,
         lifecycle: result.evidence.filter(row => row.type === "lifecycle") }));
       const requests = result.requests.filter(body => label(body));
-      assert.deepEqual(requests.map(label), ["initial", "picker-next-turn", "mode-off", "mode-on", "profile-applied"]);
-      assert.deepEqual(requests.map(body => body.model), ["configured-model", "configured-model", "native-model", "configured-model", "fallback-model"]);
-      assert.equal(requests.at(-1).temperature, 0.2);
+      if (result.evidence.some(row => row.type === "lifecycle-capability" && row.providerEnumeration === false)) {
+        assert.deepEqual(requests.map(label), ["initial", "picker-next-turn", "mode-off", "mode-on", "configuration-retained"]);
+        assert.deepEqual(requests.map(body => body.model), ["configured-model", "configured-model", "native-model", "configured-model", "configured-model"]);
+      } else {
+        assert.deepEqual(requests.map(label), ["initial", "picker-next-turn", "mode-off", "mode-on", "profile-applied"]);
+        assert.deepEqual(requests.map(body => body.model), ["configured-model", "configured-model", "native-model", "configured-model", "fallback-model"]);
+        assert.equal(requests.at(-1).temperature, 0.2);
+      }
       assert.deepEqual(result.evidence.filter(row => row.type === "lifecycle").map(row => row.label), requests.map(label));
     });
     await t.test("same-route downstream request controls preserve zero temperature and the output cap across a retry", async () => {

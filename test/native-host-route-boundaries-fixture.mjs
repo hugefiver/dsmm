@@ -50,7 +50,11 @@ export async function hostFixture(entry) {
     }
     for (const name of Object.keys({ ...manifest.dependencies, ...manifest.peerDependencies })) {
       let metadata;
-      if (name.startsWith("@deepseek-ai/") || name === "@earendil-works/pi-ai") {
+      if (name.startsWith("@deepseek-ai/dsh-client-")) {
+        // Headless Hosts may omit client-only peers; they are not loaded by the CLI.
+        try { metadata = findPackageJSON(name, pathToFileURL(nativeEntry)); }
+        catch { metadata = findPackageJSON(name, pathToFileURL(join(source, "package.json"))); }
+      } else if (name.startsWith("@deepseek-ai/") || name === "@earendil-works/pi-ai") {
         metadata = findPackageJSON(name, pathToFileURL(nativeEntry));
       } else {
         try { metadata = findPackageJSON(name, pathToFileURL(nativeEntry)); }
@@ -114,6 +118,12 @@ export async function configure(f, { settings = {}, reasoning = false, owner = "
       roleRouting: { "dsmm-orchestrator": { primary: { provider: "local", model: "configured-model" } },
         "dsmm-quick": { primary: { provider: "local", model: "child-model" } } }, ...settings } },
   ];
+  try {
+    createRequire(f.nativeEntry).resolve("@deepseek-ai/dsh-permission-presets");
+    patch.push({ id: "permission", config: { defaultPreset: "isolated-test", presets: {
+      "isolated-test": { sandbox: "workspace-write", approval: "never" }
+    } } });
+  } catch (error) { if (error.code !== "MODULE_NOT_FOUND") throw error; }
   if (owner === "dsmm") patch.push({ id: "llm", disabled: true }, { insert: [{ id: "dsmm-llm", name: "@dsmm/dsmm/llm-runtime" }] });
   patch.push({ insert: [{ id: "host-boundaries-probe", name: join(f.packageDir, "native-host-route-boundaries-plugin.mjs"),
     inject: ["llm", "agents", "tools", "dsmmProfileRuntime"], config: { owner, lifecycle, residentChild, microtaskFailure, requestControls } }] });

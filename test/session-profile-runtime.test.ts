@@ -645,6 +645,34 @@ test("a running grandchild blocks the root while completed resident descendants 
   } finally { blocked.release(); await f.dispose(); }
 });
 
+test("native services without provider enumeration allow execution but refuse session configuration changes", async t => {
+  for (const service of ["resolved", "isolated"] as const) await t.test(service, async () => {
+    const f = await nativeRoutingFixture({ defaultActive: true }, { async beforeDsmm(ctx) {
+      let native = ctx.subagents;
+      if (service === "isolated") {
+        const fiber = ctx.isolate("subagents").plugin(SubagentRuntime, {});
+        await fiber.await();
+        native = fiber.ctx.subagents;
+      }
+      Object.defineProperty(identity(native), "list", { value: undefined, configurable: true });
+    } });
+    try {
+      const runtime = runtimeOf(f), root = await f.create({ agentPreset: "standard" });
+      const before = runtime.admission(structural(root));
+      await runFixtureTurn(root);
+      assert.equal(f.adapter.calls.at(-1)?.sessionId, root.id);
+      assert.equal((await runtime.getSession(structural(root))).applyOverlayUnavailableReason, "runtime-unavailable");
+      await assert.rejects(runtime.selectSession(await request(runtime, root, null), structural(root)), { code: "unavailable" });
+      assert.equal(runtime.admission(structural(root)), before);
+      const child = await residentChild(f, root);
+      assert.equal(f.agents.isOwnedBy(child.id, root), true);
+      await f.releaseAuxiliary(child);
+      await runFixtureTurn(root);
+      assert.equal(f.adapter.calls.at(-1)?.sessionId, root.id);
+    } finally { await f.dispose(); }
+  });
+});
+
 test("opaque foreign startup stays unavailable after provider removal and cannot cross an idle profile transaction", async t => {
   for (const service of ["resolved", "isolated"] as const) for (const timing of ["before", "during"] as const) await t.test(`${service}-${timing}`, async () => {
     const f = await nativeRoutingFixture({ defaultActive: true, locale: "en" });

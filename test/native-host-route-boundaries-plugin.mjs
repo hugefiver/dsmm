@@ -5,8 +5,9 @@ import { installModelSelection } from "@deepseek-ai/dsh-agent";
 import { LlmRuntime, createUserMessage } from "@deepseek-ai/dsh-llm";
 import { DsmmNativeLlmRuntime } from "@dsmm/dsmm/llm-runtime";
 import { defineTool } from "@deepseek-ai/dsh-tools";
+import { nativeIsOwnedBy } from "./lib/native-ownership.js";
 
-export const inject = ["llm", "agents", "tools", "dsmmProfileRuntime"];
+export const inject = ["llm", "agents", "tools", "subagents", "dsmmProfileRuntime"];
 const record = value => appendFileSync(process.env.DSMM_HOST_EVIDENCE, `${JSON.stringify(value)}\n`);
 
 export async function apply(ctx, config) {
@@ -64,6 +65,22 @@ async function lifecycle(ctx) {
   try {
     await turn("initial");
     pick(); await turn("picker-next-turn");
+    if (typeof ctx.subagents.list !== "function") {
+      const before = await profiles.getSession(agent);
+      assert.equal(before.canApplyOverlay, false);
+      assert.equal(before.applyOverlayUnavailableReason, "runtime-unavailable");
+      await mode(false); pick(); await turn("mode-off");
+      await mode(true); await turn("mode-on");
+      const saved = await profiles.save({ id: "host-boundary-profile", expectedRevision: null, content: JSON.stringify({
+        version: 1, id: "host-boundary-profile", settings: { locale: "ja" }
+      }) });
+      await assert.rejects(profiles.selectSession({ sessionId: agent.id, id: saved.id, expectedRevision: saved.revision,
+        expectedSelectionRevision: before.selection.selectionRevision, expectedAdmissionEpoch: before.admissionEpoch }, agent), { code: "unavailable" });
+      assert.equal((await profiles.getSession(agent)).admissionEpoch, before.admissionEpoch);
+      record({ type: "lifecycle-capability", providerEnumeration: false });
+      await turn("configuration-retained");
+      return "host-boundary-lifecycle-complete";
+    }
     await mode(false); pick(); await turn("mode-off");
     await mode(true); await turn("mode-on");
     const saved = await profiles.save({ id: "host-boundary-profile", expectedRevision: null, content: JSON.stringify({
@@ -87,7 +104,7 @@ function ResidentChildProbe(ctx) {
     async execute(_args, exec) {
       const parent = exec.agent;
       assert.equal(ctx.agents.get(parent.id), parent);
-      const children = ctx.agents.list().filter(child => ctx.agents.isOwnedBy(child.id, parent));
+      const children = ctx.agents.list().filter(child => nativeIsOwnedBy(ctx.agents, child.id, parent));
       assert.equal(children.length, 1, "the exact parent must own one real resident child");
       const child = children[0];
       await child.whenIdle();
