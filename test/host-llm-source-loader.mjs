@@ -1,20 +1,19 @@
-import assert from "node:assert/strict";
 import { createRequire, registerHooks } from "node:module";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { JsxEmit, ModuleKind, ScriptTarget, transpileModule } from "typescript";
 
-assert.ok(process.env.DSMM_TEST_DSH_ENTRY, "An explicit native installation anchor is required");
-const native = createRequire(process.env.DSMM_TEST_DSH_ENTRY);
+const native = createRequire(process.env.DSMM_TEST_DSH_ENTRY ?? import.meta.url);
 const adapter = pathToFileURL(native.resolve("@deepseek-ai/dsh-llm-pi-ai")).href;
 const source = new URL("../src/", import.meta.url).href;
 const lib = new URL("../lib/", import.meta.url).href;
 registerHooks({
   resolve(specifier, context, next) {
-    if (specifier === "@dsmm/dsmm/llm-runtime") {
+    if (specifier === "@dsmm/dsmm" || specifier.startsWith("@dsmm/dsmm/")) {
       const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-      const target = manifest.exports["./llm-runtime"].default;
-      return { url: new URL(target.replace("./lib/", "../src/").replace(/\.js$/u, ".ts"), import.meta.url).href, shortCircuit: true };
+      const key = specifier === "@dsmm/dsmm" ? "." : `.${specifier.slice("@dsmm/dsmm".length)}`;
+      const target = manifest.exports[key]?.default;
+      if (typeof target === "string") return { url: new URL(target.replace("./lib/", "../src/").replace(/\.js$/u, ".ts"), import.meta.url).href, shortCircuit: true };
     }
     if ((specifier.startsWith(".") || specifier.startsWith("file:")) && context.parentURL !== undefined) {
       let candidate = new URL(specifier, context.parentURL).href;
@@ -24,7 +23,8 @@ registerHooks({
         if (existsSync(fileURLToPath(input))) return { url: input, shortCircuit: true };
       }
     }
-    if (specifier.startsWith("@deepseek-ai/") && (context.parentURL?.startsWith(source) || context.parentURL?.includes("/dsmm/test/"))) {
+    if (process.env.DSMM_TEST_DSH_ENTRY !== undefined && specifier.startsWith("@deepseek-ai/")
+      && (context.parentURL?.startsWith(source) || context.parentURL?.includes("/dsmm/test/"))) {
       return { url: pathToFileURL(native.resolve(specifier)).href, shortCircuit: true };
     }
     if (specifier.startsWith("@earendil-works/pi-ai")) return next(specifier, { ...context, parentURL: adapter });
