@@ -24,9 +24,10 @@ import type { DsmmInvocationView } from "./profile-types.js";
 import type { ResolvedRoleInvocation } from "./role-invocation.js";
 import { modelRouteFromCall } from "./role-llm.js";
 import type { NativeAdmission } from "./native-admission.js";
-import { buildDsmmDelegationGuidance } from "./prompts.js";
+import { buildDsmmDelegationGuidance, buildDsmmTeamGuidance } from "./prompts.js";
 import { startNativeActivation } from "./native-subagents.js";
 
+// Conditional Team tools stay in their native layer: copying a definition would discard its `when` registration.
 const hostControls = ["send_message", "interrupt_agent", "list_agents", "wait_agent", "exit_plan_mode", "ask_user_question", "todo_write", "job_output", "job_list", "job_kill"];
 // Agent-owned policy realms survive a bundle reinstall; do not register another
 // delegation/tools layer on the same retained live Agent.
@@ -279,14 +280,19 @@ export async function registerHeadlessRoleTools(ctx: DshContext, controller: Dee
       state.guidance = getTraceable(agentCtx, prompt).section({ name: "dsmm:delegation", order: 49, text(context) {
         if (context.scope !== agent && agentForScope(ctx, context.scope) !== agent) return "";
         const identity = policy.identity(agent), tools = states.get(agent)?.tools, settings = getSettings(agent);
-        if (identity.role === undefined) return "";
+        const teams = (agentCtx as DshContext).get?.<{ isEnabled(caller: Agent): boolean }>("agentTeams");
+        const toolSet = (context as typeof context & { toolSet?: { view(scope: object): ReadonlyMap<string, unknown> } }).toolSet;
+        const teamGuidance = teams?.isEnabled(agent as Agent) && toolSet !== undefined
+          ? buildDsmmTeamGuidance([...toolSet.view(agent).keys()]) : "";
+        if (identity.role === undefined) return teamGuidance;
         const captured = capturedRoleInvocation(agent);
-        return buildDsmmDelegationGuidance(settings, { scope: identity.child ? "child" : "root", tools: tools?.schemas(agent) ?? [],
+        const delegationGuidance = buildDsmmDelegationGuidance(settings, { scope: identity.child ? "child" : "root", tools: tools?.schemas(agent) ?? [],
           delegation: tools === undefined ? [] : admittedCallableRoleInventory(agent, settings, policy, tools),
           ...(captured === undefined ? {} : { invocation: roleInvocationObservation(captured, DSMM_ROLES.find(role => role.id === captured.target)!.name, "continuable", getSettings, agent, { childId: agent.id }) }),
           runtimeAdmission: getSettings.subagentRuntime?.(), capabilities: { continuable: true, nativeChildDelivery: true,
             nativeTree: typeof (agentCtx.get("subagents") as unknown as { rootOf?: unknown } | undefined)?.rootOf === "function",
             ...(agentCtx.get("dsmmChildren") === undefined ? {} : { nativeBrowserPrompt: { surface: "conversation.dsmm-children" } }) } });
+        return [delegationGuidance, teamGuidance].filter(Boolean).join("\n\n");
       } });
       state.promptRealm = promptRealm;
     }

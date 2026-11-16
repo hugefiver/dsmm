@@ -151,6 +151,11 @@ Native capacity/depth, provider support, captured permissions and cancellation r
   return sections.join("\n\n---\n\n");
 }
 
+export function buildDsmmTeamGuidance(admittedNames: readonly string[]): string {
+  const tools = admittedNames.filter(name => ["team_task_create", "team_task_list", "team_task_get", "team_task_update"].includes(name));
+  return tools.length === 0 ? "" : `<dsmm-native-teams>\nObserved native Team tools for this step: ${tools.join(", ")}.\n\n${asset("shared/native-teams.md")}\n</dsmm-native-teams>`;
+}
+
 export function buildDsmmAgentGuidance(settings: DsmmSettings, observed: DsmmPromptObservation): string {
   return [buildDsmmLocaleGuidance(settings), buildDsmmDelegationGuidance(settings, observed)].join("\n\n---\n\n");
 }

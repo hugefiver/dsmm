@@ -95,6 +95,15 @@ record. Native tools retain their current per-invocation depth checks. The publi
 native descriptor and lifecycle do not expose a tool-instance depth cap for DSMM
 to preserve across Host configuration changes.
 
+`prompts/source/shared/native-teams.md` supplies Team-specific task guidance only
+when the native service is enabled and the current ToolSet admits Team tools.
+Team definitions remain in their original conditional registration; inspection
+without a ToolSet captures inherited ceilings without turning disabled tools on.
+Readonly members retain list/get only, including when assigned as task owners.
+Root reassignment produces `in_progress` work, task mutations do not wake members,
+and persistence-uncertain mutations require rereading rather than automatic replay.
+Task ownership and advisory write scopes never enlarge permissions.
+
 Execution guidance requires direct user-facing conclusions, reasons and actions.
 Use contrast or negation for an expressed misconception or a distinction that
 changes the conclusion, action, safety or scope. State necessary conditions,

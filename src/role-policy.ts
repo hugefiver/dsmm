@@ -36,7 +36,7 @@ const liveIdentities = new WeakMap<DshAgent, DsmmRoleIdentity>();
 const toolIdentities = new WeakMap<DshAgent, { realm: object; definitions: Map<string, ToolDefinition> }>();
 const controlledDefinitions = new WeakSet<ToolDefinition>();
 export const READONLY_ROLE_DENIED_TOOLS = ["write", "edit", "bash", "pwsh"] as const;
-const readTools = new Set(["read", "glob", "grep", "read_image", "web_search", "web_fetch", "skill", "load_skill", "structured_output", "send_message", "interrupt_agent", "list_agents", "wait_agent", "exit_plan_mode", "ask_user_question", "todo_write", "job_output", "job_list", "job_kill"]);
+const readTools = new Set(["read", "glob", "grep", "read_image", "web_search", "web_fetch", "skill", "load_skill", "structured_output", "send_message", "interrupt_agent", "list_agents", "wait_agent", "team_task_list", "team_task_get", "exit_plan_mode", "ask_user_question", "todo_write", "job_output", "job_list", "job_kill"]);
 const readLsp = new Set(["status", "diagnostics", "goto_definition", "find_references", "find_symbol_related", "symbols", "prepare_rename"]);
 export function roleToolName(role: DsmmRoleId): string { return role.replace(/-/gu, "_"); }
 export function roleFromToolName(name: string): DsmmRoleId | undefined { return name === "explore" ? "dsmm-code-search" : DSMM_ROLES.find(row => roleToolName(row.id) === name)?.id; }

@@ -97,13 +97,18 @@ if (mode === "--list") {
 }
 
 if (process.exitCode === undefined && selected.length > 0) {
-  const result = spawnSync(process.execPath, [
-    "--test",
-    "--experimental-strip-types",
-    "--import", "./test/prompt-source-loader.mjs",
-    "--test-concurrency=1",
-    ...selected.map(file => `test/${file}`),
-  ], { cwd: root, stdio: "inherit" });
-  if (result.error !== undefined) throw result.error;
-  process.exitCode = result.status ?? 1;
+  const hostFiles = new Set(integrationSuites["native-teams"]);
+  const groups = [
+    { files: selected.filter(file => !hostFiles.has(file)), loader: "./test/prompt-source-loader.mjs" },
+    { files: selected.filter(file => hostFiles.has(file)), loader: "./test/host-llm-source-loader.mjs" },
+  ];
+  for (const { files, loader } of groups) {
+    if (files.length === 0) continue;
+    const result = spawnSync(process.execPath, [
+      "--test", "--experimental-strip-types", "--import", loader, "--test-concurrency=1",
+      ...files.map(file => `test/${file}`),
+    ], { cwd: root, stdio: "inherit" });
+    if (result.error !== undefined) throw result.error;
+    if (result.status !== 0) process.exitCode = result.status ?? 1;
+  }
 }

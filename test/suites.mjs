@@ -57,6 +57,11 @@ export const integrationSuites = Object.freeze({
     "native-runtime-bundle.test.ts",
     "native-session-resume-refresh.test.ts",
   ]),
+  "native-teams": Object.freeze([
+    "native-agent-teams.test.ts",
+    "native-tree-collaboration.test.ts",
+    "native-tree-generic.test.ts",
+  ]),
   frontend: Object.freeze([
     "client-deployment-core-browser.test.ts",
     "client-editable-choice-browser.test.ts",
