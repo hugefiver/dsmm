@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { symbols } from "@deepseek-ai/cordis";
-import { bindNativeParent, nativeIsOwnedBy, nativeRoots } from "../src/native-ownership.js";
+import { bindNativeParent, nativeIsOwnedBy, nativeRoots, nativeSameTree, nativeTreeRoot } from "../src/native-ownership.js";
 
 function fixture() {
   interface Member { id: string; ctx: { get(name: string): unknown } }
@@ -56,6 +56,11 @@ test("new ownership refuses pending children and exact parent or child replaceme
   bindNativeParent(f.registry, child, parent);
   f.residents.delete(parent.id);
   assert.equal(nativeIsOwnedBy(f.registry, child.id, parent), false);
+  assert.equal(nativeTreeRoot(f.registry, child), root);
+  assert.equal(nativeSameTree(f.registry, child, root), true);
+  assert.equal(nativeSameTree(f.registry, child, parent), false);
+  const foreign = f.member("other-root");
+  assert.equal(nativeSameTree(f.registry, child, foreign), false);
   const replacement = f.member(parent.id, root);
   assert.equal(nativeIsOwnedBy(f.registry, child.id, parent), false);
   assert.equal(nativeIsOwnedBy(f.registry, child.id, replacement), false);
@@ -66,5 +71,6 @@ test("new ownership refuses pending children and exact parent or child replaceme
   f.residents.set(child.id, child);
   f.residents.delete(root.id);
   assert.equal(nativeIsOwnedBy(f.registry, child.id, parent), false);
-  assert.deepEqual(nativeRoots(f.registry), []);
+  assert.deepEqual(nativeRoots(f.registry), [foreign]);
+  assert.equal(nativeTreeRoot(f.registry, child), undefined);
 });

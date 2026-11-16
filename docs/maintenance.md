@@ -82,6 +82,18 @@ are outside this registration boundary.
 
 The invocation projection in the system prompt omits provider/model identifiers.
 Actual request routes and native UI observations retain their original metadata.
+Runtime lifecycle guidance observes native tree support and actual `list_agents` /
+`wait_agent` definitions. Same-tree messaging preserves the sender; interruption
+uses ancestor authority. Cold continuation keeps its durable creator identity and
+persisted own-session restriction ceiling while the verified live root owns the
+admission lifetime. Current selected-profile content and role routing apply at
+cold activation; resident captures stay immutable and approvals are never restored
+from DSMM records. Ordinary native members use explicit null role/level selectors
+and keep native model ownership. Their depth records contain only evidenced
+inherited or explicit DSMM limits; an omitted limit remains unbounded in that
+record. Native tools retain their current per-invocation depth checks. The public
+native descriptor and lifecycle do not expose a tool-instance depth cap for DSMM
+to preserve across Host configuration changes.
 
 Execution guidance requires direct user-facing conclusions, reasons and actions.
 Use contrast or negation for an expressed misconception or a distinction that

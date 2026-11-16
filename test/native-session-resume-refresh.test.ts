@@ -342,7 +342,7 @@ test("cold child depth remains bounded by its resident parent's admitted ceiling
       await deployment.saveGlobal({ expectedRevision: current.revision, edits: [{ op: "set", path: ["subagents", "maxDepth"], value }] }, () => {});
     };
     await setDepth(1);
-    const parent = await f.create();
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" });
     const child = await f.createAuxiliary("dsmm-coding", undefined, "continuable", parent);
     await runFixtureTurn(child);
     await setDepth(3);

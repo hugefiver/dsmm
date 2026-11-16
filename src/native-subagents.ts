@@ -32,7 +32,7 @@ type TreePromptRequest = Omit<SubagentPromptRequest, "parentSessionId" | "mode">
 type TreeControls = {
   rootOf(agent: Agent): Agent;
   prompt(request: TreePromptRequest, signal: AbortSignal): Promise<SubagentPromptReceipt>;
-  interruptByUser(childId: SessionId): SubagentInterruptReceipt;
+  interrupt(childId: SessionId, authority: { kind: "ancestor"; agent: Agent }): void;
 };
 
 /** Transport an already-authorized direct-child prompt through the Host's control contract. */
@@ -43,7 +43,8 @@ export function promptNativeChild(runtime: SubagentRuntime, request: SubagentPro
 }
 
 /** Caller-side catalog and exact-parent checks remain authoritative for this interrupt. */
-export function interruptNativeChild(runtime: SubagentRuntime, childId: SessionId, parentId: SessionId): SubagentInterruptReceipt {
-  if (typeof (runtime as unknown as Partial<TreeControls>).rootOf !== "function") return runtime.interruptByParent(childId, parentId, "continuable");
-  return (runtime as unknown as TreeControls).interruptByUser(childId);
+export function interruptNativeChild(runtime: SubagentRuntime, childId: SessionId, caller: Agent): SubagentInterruptReceipt {
+  if (typeof (runtime as unknown as Partial<TreeControls>).rootOf !== "function") return runtime.interruptByParent(childId, caller.id, "continuable");
+  (runtime as unknown as TreeControls).interrupt(childId, { kind: "ancestor", agent: caller });
+  return { accepted: true };
 }

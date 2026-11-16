@@ -28,6 +28,22 @@ export function nativeRoots<A extends OwnershipAgent>(registry: NativeOwnershipR
   });
 }
 
+/** A tree root is authority only while both exact objects remain registered. */
+export function nativeTreeRoot<A extends OwnershipAgent>(registry: NativeOwnershipRegistry<A>, agent: A): A | undefined {
+  if (agent.id === undefined || registry.get(agent.id) !== agent) return undefined;
+  try {
+    const root = runtimeOf(agent)?.rootOf(agent);
+    if (root?.id === undefined) return undefined;
+    const live = registry.get(root.id);
+    return live === root && runtimeOf(live)?.rootOf(live) === live ? live : undefined;
+  } catch { return undefined; }
+}
+
+export function nativeSameTree<A extends OwnershipAgent>(registry: NativeOwnershipRegistry<A>, left: A, right: A): boolean {
+  const root = nativeTreeRoot(registry, left);
+  return root !== undefined && nativeTreeRoot(registry, right) === root;
+}
+
 /** New runtimes require an authenticated creation edge in addition to native tree residency. */
 export function nativeIsOwnedBy<A extends OwnershipAgent>(registry: NativeOwnershipRegistry<A> | undefined, childId: string, parent: A): boolean {
   if (registry === undefined) return false;

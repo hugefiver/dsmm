@@ -64,10 +64,11 @@ test("native-tree prompt transport preserves the human message identity and omit
 test("direct-child interrupts use the selected Host's acknowledged control protocol", () => {
   const parentId = SessionId("parent"), childId = SessionId("child"), receipt = { accepted: true as const };
   let seen: unknown[] | undefined;
+  const parent = { id: parentId } as Agent;
   const legacy = { interruptByParent(...args: unknown[]) { seen = args; return receipt; } };
-  assert.equal(interruptNativeChild(legacy as unknown as SubagentRuntime, childId, parentId), receipt);
+  assert.equal(interruptNativeChild(legacy as unknown as SubagentRuntime, childId, parent), receipt);
   assert.deepEqual(seen, [childId, parentId, "continuable"]);
-  const tree = { rootOf(agent: Agent) { return agent; }, interruptByUser(...args: unknown[]) { seen = args; return receipt; } };
-  assert.equal(interruptNativeChild(tree as unknown as SubagentRuntime, childId, parentId), receipt);
-  assert.deepEqual(seen, [childId]);
+  const tree = { rootOf(agent: Agent) { return agent; }, interrupt(...args: unknown[]) { seen = args; } };
+  assert.deepEqual(interruptNativeChild(tree as unknown as SubagentRuntime, childId, parent), receipt);
+  assert.deepEqual(seen, [childId, { kind: "ancestor", agent: parent }]);
 });

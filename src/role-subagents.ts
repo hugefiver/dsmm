@@ -27,7 +27,7 @@ import type { NativeAdmission } from "./native-admission.js";
 import { buildDsmmDelegationGuidance } from "./prompts.js";
 import { startNativeActivation } from "./native-subagents.js";
 
-const hostControls = ["send_message", "interrupt_agent", "exit_plan_mode", "ask_user_question", "todo_write", "job_output", "job_list", "job_kill"];
+const hostControls = ["send_message", "interrupt_agent", "list_agents", "wait_agent", "exit_plan_mode", "ask_user_question", "todo_write", "job_output", "job_list", "job_kill"];
 // Agent-owned policy realms survive a bundle reinstall; do not register another
 // delegation/tools layer on the same retained live Agent.
 const admittedRealms = new WeakMap<DshAgent, () => void>();
@@ -209,7 +209,7 @@ function registerRoleTool(agent: DshAgent, agentCtx: Context, tools: ToolRuntime
        const capturedProvider = provider;
        const parentComposition = (parent.ctx as DshContext).get?.<{ composedPreset(ctx: unknown): string | undefined }>("agentPresets")?.composedPreset(parent.ctx);
         const request: Omit<SubagentStartRequest, "signal"> = { parent, ...(parentComposition === undefined ? {} : { agentPreset: parentComposition }), prompt: [{ type: "text", text: args.prompt }],
-        agentOptions: invocationAgentOptions(invocation), maxDepth: subagents.resolveMaxDepth(current.subagents.maxDepth) };
+        agentOptions: invocationAgentOptions(invocation), maxDepth: policy.maximumDepth(parent as DshAgent, subagents.resolveMaxDepth(current.subagents.maxDepth)) };
       const assertCurrent = (): void => {
         if (policy.assertDelegation(parent as unknown as DshAgent, role.id).epoch !== admitted.epoch) throw new SubagentError("DSMM parent admission changed before delegation", "UNAUTHORIZED");
         if (subagents.getProvider(roleProviderName(role.id)) !== capturedProvider) throw new SubagentError("DSMM exact provider changed before delegation", "NO_PROVIDER");
@@ -285,6 +285,7 @@ export async function registerHeadlessRoleTools(ctx: DshContext, controller: Dee
           delegation: tools === undefined ? [] : admittedCallableRoleInventory(agent, settings, policy, tools),
           ...(captured === undefined ? {} : { invocation: roleInvocationObservation(captured, DSMM_ROLES.find(role => role.id === captured.target)!.name, "continuable", getSettings, agent, { childId: agent.id }) }),
           runtimeAdmission: getSettings.subagentRuntime?.(), capabilities: { continuable: true, nativeChildDelivery: true,
+            nativeTree: typeof (agentCtx.get("subagents") as unknown as { rootOf?: unknown } | undefined)?.rootOf === "function",
             ...(agentCtx.get("dsmmChildren") === undefined ? {} : { nativeBrowserPrompt: { surface: "conversation.dsmm-children" } }) } });
       } });
       state.promptRealm = promptRealm;

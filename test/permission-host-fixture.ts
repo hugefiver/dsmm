@@ -2,12 +2,15 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { setTimeout } from "node:timers/promises";
 import type { Context } from "@deepseek-ai/cordis";
 import type { DsmmNativeConfig } from "../src/settings.ts";
 import type { DsmmPermissionController } from "../src/permission-controller.ts";
 
-const require = createRequire(import.meta.url);
+const require = createRequire(process.env.DSMM_TEST_DSH_ENTRY ?? import.meta.url);
+const fixtureBaseUrl = process.env.DSMM_TEST_DSH_ENTRY === undefined ? new URL("../", import.meta.url).href
+  : new URL(".", pathToFileURL(process.env.DSMM_TEST_DSH_ENTRY)).href;
 const sdk = createRequire(require.resolve("@deepseek-ai/dsh-agent-preset-registry"));
 const settingsSdk = createRequire(sdk.resolve("@deepseek-ai/dsh-settings"));
 const { Loader } = sdk("@deepseek-ai/cordis-plugin-loader");
@@ -35,7 +38,7 @@ export async function mountPermissionHostCore(ctx: Context,
   if (ctx.get("loader") === undefined) await ctx.plugin(Loader).await();
   ctx.loader.builtins["permission-fixture-core"] = { default: { ...plugin,
     apply(scope: Context, config?: DsmmNativeConfig) {
-      return plugin.apply(scope.extend({ baseUrl: new URL("../", import.meta.url).href }) as never, config);
+      return plugin.apply(scope.extend({ baseUrl: fixtureBaseUrl }) as never, config);
     }
   } };
   const profile = ctx.get("profileContext")!;

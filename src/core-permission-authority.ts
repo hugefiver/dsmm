@@ -1,4 +1,4 @@
-import { nativeRoots, nativeIsOwnedBy } from "./native-ownership.js";
+import { nativeRoots, nativeIsOwnedBy, nativeTreeRoot } from "./native-ownership.js";
 import { randomUUID } from "node:crypto";
 import type { Context } from "@deepseek-ai/cordis";
 import type { Agent } from "@deepseek-ai/dsh-agent";
@@ -65,12 +65,21 @@ export function createCorePermissionAuthority(ctx: Context, options: CorePermiss
     return ctx.get("dsmmNativeAdmission");
   };
 
-  /** Registry ownership is direct, so each physical edge must be walked independently. */
+  /** Tree admission has a live root owner; older registries retain direct-edge ancestry. */
   const ancestry = (exec: Readonly<ToolExecution>): Agent[] => {
     const agents = ctx.get("agents"), agent = exec.agent;
     const realmAgents = agent?.ctx.get("agents");
     if (agents === undefined || agent === undefined || agents.get(agent.id) !== agent
       || realmAgents === undefined || permissionOriginal(realmAgents) !== permissionOriginal(agents)) throw new PermissionRefusal("not-owned");
+    const root = nativeTreeRoot(agents, agent);
+    if (root !== undefined) {
+      const host = integration();
+      if (host?.owns(agent)) {
+        host.assert(agent);
+        if (agent !== root && rolePolicy.identity(agent as DshAgent).owner !== root) throw new PermissionRefusal("not-owned");
+      }
+      return agent === root ? [root] : [agent, root];
+    }
     const chain: Agent[] = [], seen = new Set<Agent>(), residents = agents.list();
     let current = agent;
     while (true) {
@@ -118,7 +127,7 @@ export function createCorePermissionAuthority(ctx: Context, options: CorePermiss
       const identity = native ? undefined : rolePolicy.identity(structural);
       const tools = agent.ctx.get("tools"), approval = agent.ctx.get("approval");
       if (tools === undefined || !native && (identity?.epoch !== admission!.epoch
-        || (parent === undefined ? agent !== root || identity.child : identity.parent !== parent.authority.agent || !identity.child))) throw new PermissionRefusal("not-owned");
+        || (parent === undefined ? agent !== root || identity.child : (identity.owner ?? identity.parent) !== parent.authority.agent || !identity.child))) throw new PermissionRefusal("not-owned");
       const nativePolicy = approval === undefined ? undefined : approval.overrideOf(agent.session) ?? approval.config.policy;
       if (approval !== undefined && nativePolicy !== "ask" && nativePolicy !== "never") throw new PermissionRefusal("unavailable");
       const managed = parent !== undefined && identity?.role !== undefined;
@@ -128,7 +137,7 @@ export function createCorePermissionAuthority(ctx: Context, options: CorePermiss
       const facts = [root, agent.ctx, parent?.authority.signal, permissionOriginal(ctx.get("dsmmCoreLlmOwner")!),
         permissionOriginal(ctx.get("dsmmProfileRuntime")!), permissionOriginal(tools),
         approval === undefined ? undefined : permissionOriginal(approval),
-        admission?.settings, native, captured, identity?.role, identity?.child, identity?.parent, identity?.epoch, identity?.readOnly,
+        admission?.settings, native, captured, identity?.role, identity?.child, identity?.owner ?? identity?.parent, identity?.creatorId, identity?.epoch, identity?.readOnly,
         JSON.stringify(identity?.toolFilter)];
       if (previous !== undefined && !previous.authority.signal.aborted && previous.integration === entry
         && previous.authority.owner === owner && previous.admission === admission && sameFacts(previous.facts, facts)) {

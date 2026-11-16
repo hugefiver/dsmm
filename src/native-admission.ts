@@ -19,7 +19,8 @@ import type { DsmmRolePolicy } from "./role-policy.js";
 import { scopeLifetime } from "./lifetime.js";
 import { sessionEvents, childOwnedSessionEvents } from "./session-scope.js";
 import { scopeParentOf, scopeOf } from "./native-scope.js";
-import { bindNativeParent, nativeIsOwnedBy, nativeRoots } from "./native-ownership.js";
+import { bindNativeParent, nativeIsOwnedBy, nativeRoots, nativeTreeRoot } from "./native-ownership.js";
+import { appendDelegationCeiling, readDelegationCeiling } from "./session-metadata.js";
 import { listNativeChildren } from "./native-subagents.js";
 import { DsmmProfileError } from "./profiles.js";
 import type { SessionActionUnavailableReason } from "./profile-types.js";
@@ -126,7 +127,7 @@ interface Pending {
   readonly toolFilter: import("@deepseek-ai/dsh-tools").ToolRestriction;
   readonly observation: RoleCallRecord;
 }
-interface Live { readonly admission: DsmmProfileAdmission; readonly preset?: string; readonly scopeParent?: object; readonly parent?: Agent; readonly invocation?: ResolvedRoleInvocation; readonly dependencies?: readonly (object | undefined)[]; readonly provider?: SubagentProvider }
+interface Live { readonly admission: DsmmProfileAdmission; readonly preset?: string; readonly scopeParent?: object; readonly parent?: Agent; readonly owner?: Agent; readonly creatorId?: string; readonly invocation?: ResolvedRoleInvocation; readonly dependencies?: readonly (object | undefined)[]; readonly provider?: SubagentProvider }
 interface AwaitingPublication {
   readonly source: string;
   readonly signal?: AbortSignal;
@@ -348,10 +349,14 @@ export class NativeAdmission {
     const admission = async () => {
       this.lifetime.signal.throwIfAborted(); waiting.signal?.throwIfAborted();
       const parent = info.parentSessionId === undefined ? undefined : this.ctx.agents.get(info.parentSessionId);
-      if (parent === undefined) throw new SubagentError("Child requires its exact live creator", "UNAUTHORIZED");
       const pending = this.pending.get(child.id);
       if (pending && (pending.parent !== parent || pending.provider.name !== info.provider)) throw new SubagentError("Published child differs from its pending invocation", "UNAUTHORIZED");
-      bindNativeParent(this.ctx.agents, child, parent);
+      if (parent !== undefined) bindNativeParent(this.ctx.agents, child, parent);
+      else {
+        const ceiling = readDelegationCeiling(child.session);
+        if (waiting.source !== "resume" || ceiling === undefined || ceiling.creatorId !== info.parentSessionId
+          || ceiling.provider !== info.provider) throw new SubagentError("Child requires its verified creator evidence", "UNAUTHORIZED");
+      }
       await this.created(child, waiting.source, waiting.signal);
     };
     void admission().then(waiting.resolve, error => {
@@ -610,12 +615,21 @@ export class NativeAdmission {
       || live.dependencies && this.dependencies(agent).some((value, index) => value !== live.dependencies![index])
       || live.provider && this.ctx.get("subagents")?.getProvider(live.provider.name) !== live.provider) throw new SubagentError("Native admission dependencies changed", "UNAUTHORIZED");
     if (live.preset !== agent.ctx.get("agentPresets")?.composedPreset(agent.ctx) || live.scopeParent !== scopeParentOf(agent)) throw new SubagentError("Preset composition changed; create a new session", "UNAUTHORIZED");
-    if (live.parent && (this.ctx.agents.get(live.parent.id) !== live.parent || !nativeIsOwnedBy(this.ctx.agents, agent.id, live.parent))) throw new SubagentError("Parent residency changed", "UNAUTHORIZED");
-    if (live.parent) this.assertBinding(live.parent, maintenanceRoot);
+    const owner = live.owner ?? live.parent;
+    if (owner) {
+      const root = nativeTreeRoot(this.ctx.agents, agent);
+      if (this.ctx.agents.get(owner.id) !== owner || (root === undefined ? !nativeIsOwnedBy(this.ctx.agents, agent.id, owner) : root !== owner)
+        || agent.session.header.parentSession !== live.creatorId) throw new SubagentError("Admission owner changed", "UNAUTHORIZED");
+      this.assertBinding(owner, maintenanceRoot);
+    }
     this.policy.assertModuleAdmission(agent as DshAgent); return live.admission;
   }
   private residentTree(agent: Agent): Agent[] {
-    const tree = [agent], residents = this.ctx.agents.list();
+    const residents = this.ctx.agents.list();
+    if (nativeTreeRoot(this.ctx.agents, agent) === agent) {
+      return [agent, ...residents.filter(member => member !== agent && nativeTreeRoot(this.ctx.agents, member) === agent).sort((a, b) => a.id.localeCompare(b.id))];
+    }
+    const tree = [agent];
     for (let index = 0; index < tree.length; index++) {
       for (const child of residents.filter(child => nativeIsOwnedBy(this.ctx.agents, child.id, tree[index])).sort((a, b) => a.id.localeCompare(b.id))) {
         if (tree.includes(child)) throw new SubagentError("Invalid native ownership tree", "UNAUTHORIZED");
@@ -856,7 +870,10 @@ export class NativeAdmission {
     const existing = this.retirements.get(agent);
     if (existing) return existing;
     this.agentLifetimes.get(agent)?.abort();
-    const children = new Set([...this.agents].filter(child => this.live.get(child)?.parent === agent));
+    const children = new Set([...this.agents].filter(child => {
+      const live = this.live.get(child);
+      return (live?.owner ?? live?.parent) === agent;
+    }));
     for (const child of children) child.cancel({ kind: "disposed" });
     const receipts = [...this.activations].filter(activation => [...children].some(child => child.id === activation.childId));
     const retirement = Promise.allSettled(receipts.map(activation => activation.dispose())).then(results => {
@@ -909,9 +926,16 @@ export class NativeAdmission {
         || source === "resume" && await this.profiles.readChildIdentity(agent.id, parent.id)) throw new SubagentError("Role continuation requires an admitted parent", "UNAUTHORIZED");
       return;
     }
-    if (!parent && (!nativeRoots(this.ctx.agents).includes(agent) || agent.session.header.origin === "subagent" || descriptor !== undefined)) throw new SubagentError("Child requires its native parent", "UNAUTHORIZED");
+    const ceiling = source === "resume" ? readDelegationCeiling(agent.session) : undefined;
+    const root = nativeTreeRoot(this.ctx.agents, agent);
+    const owner = parent ? root ?? parent : ceiling !== undefined && root !== agent ? root : undefined;
+    if (ceiling !== undefined && (root?.id !== ceiling.rootId || agent.id !== ceiling.childId
+      || agent.session.header.parentSession !== ceiling.creatorId || descriptor?.provider !== ceiling.provider
+      || (roleFromProviderName(descriptor.provider) ?? null) !== ceiling.role)) throw new SubagentError("Delegation ceiling identity mismatch", "UNAUTHORIZED");
+    if (!parent && !owner && (!nativeRoots(this.ctx.agents).includes(agent) || agent.session.header.origin === "subagent" || descriptor !== undefined)) throw new SubagentError("Child requires its native creator or ceiling", "UNAUTHORIZED");
+    if (owner) this.assert(owner);
     this.agentLifetimes.set(agent, new AbortController());
-    signal = AbortSignal.any([signal, this.agentLifetimes.get(agent)!.signal, ...parent ? [this.agentLifetimes.get(parent)!.signal] : []]);
+    signal = AbortSignal.any([signal, this.agentLifetimes.get(agent)!.signal, ...owner ? [this.agentLifetimes.get(owner)!.signal] : []]);
     scopeLifetime(agent.ctx, "dsmm: retire exact Agent work", () => { void this.retireAgent(agent).catch(() => {}); });
     agent.ctx.effect(() => async () => {
       try { await this.retireAgent(agent); }
@@ -922,16 +946,46 @@ export class NativeAdmission {
     });
     const dependencies = this.dependencies(agent);
     const parentAdmission = parent ? this.assert(parent) : undefined;
+    const ownerAdmission = owner ? this.assert(owner) : undefined;
     const check = () => {
       signal.throwIfAborted(); this.agentLifetimes.get(agent)!.signal.throwIfAborted();
       if (!this.isReady || this.ctx.agents.get(agent.id) !== agent || this.ctx.get("sessions")?.get(agent.id) !== agent.session
         || scopeOf(agent.ctx) !== agent || original(agent.ctx.get("agents")!) !== original(this.ctx.agents)
         || this.dependencies(agent).some((value, index) => value !== dependencies[index]) || scopeParentOf(agent) !== presetScope || preset !== agent.ctx.get("agentPresets")?.composedPreset(agent.ctx)
-        || parent && (this.assert(parent) !== parentAdmission || !nativeIsOwnedBy(this.ctx.agents, agent.id, parent))) throw new SubagentError("Activation owner changed", "UNAUTHORIZED");
+        || owner && (this.assert(owner) !== ownerAdmission || (root === undefined ? !nativeIsOwnedBy(this.ctx.agents, agent.id, owner) : nativeTreeRoot(this.ctx.agents, agent) !== owner))
+        || pending && parent && (this.assert(parent) !== parentAdmission || !nativeIsOwnedBy(this.ctx.agents, agent.id, parent))) throw new SubagentError("Activation owner changed", "UNAUTHORIZED");
     };
     let continuation: ResolvedRoleInvocation | undefined, independent = false, continuationProvider: SubagentProvider | undefined;
     let admission: DsmmProfileAdmission;
-    if (parent) {
+    if (ceiling !== undefined) {
+      if (!owner || descriptor?.mode !== "continuable" || agent.session.header.origin !== "subagent") throw new SubagentError("Cold child is not continuable", "NOT_RESUMABLE");
+      const subagents = this.ctx.get("subagents")!;
+      const rows = await subagents.listDescendants(owner.id, signal);
+      check();
+      const row = rows.find(row => row.id === agent.id);
+      if (!row || row.kind === "diagnostic" || row.parentId !== ceiling.creatorId || row.mode !== "continuable") throw new SubagentError("Native child catalog mismatch", "UNAUTHORIZED");
+      const metadata = { childSessionId: ceiling.childId, parentSessionId: ceiling.creatorId, role: ceiling.role,
+        profileId: ceiling.profileId, level: ceiling.level };
+      const previous = await this.profiles.readChildIdentity(agent.id, ceiling.creatorId);
+      if (previous && (previous.role !== metadata.role || previous.profileId !== metadata.profileId || previous.level !== metadata.level)) throw new SubagentError("Child selection identity conflict", "UNAUTHORIZED");
+      const ownPreset = own.find(event => event.type === "agent-preset/selected" || event.type === "subagent/descriptor");
+      independent = ownPreset?.type === "agent-preset/selected";
+      if (!independent && (preset !== owner.ctx.get("agentPresets")?.composedPreset(owner.ctx) || presetScope !== scopeParentOf(owner))) throw new SubagentError("Inherited composition changed", "UNAUTHORIZED");
+      continuationProvider = ceiling.role === null ? subagents.getProvider(ceiling.provider) : this.providers.get(roleProviderName(ceiling.role));
+      const currentProvider = continuationProvider && subagents.getProvider(continuationProvider.name);
+      if (!continuationProvider || !currentProvider || original(currentProvider) !== original(continuationProvider)) throw new SubagentError("Native provider is unavailable", "UNAUTHORIZED");
+      admission = await this.profiles.prepareChild(agent as DshAgent, ownerAdmission!, signal, { profileId: ceiling.profileId });
+      check();
+      if (ceiling.role !== null) {
+        if (!admission.settings.modules.deepwork.enabled || !admission.settings.roles[ceiling.role]) throw new SubagentError("Role is disabled", "UNAUTHORIZED");
+        this.policy.assertDelegation(owner as DshAgent, ceiling.role);
+        const manual = latestNativeModelSelection(agent as DshAgent)?.route;
+        continuation = await resolveRoleInvocation(owner, ceiling.role, admission.settings, signal, { level: ceiling.level },
+          manual === undefined ? undefined : { provider: manual.provider, model: manual.model,
+            ...(manual.reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(manual.reasoningEffort) }) }, resolvedModelParameterPolicy(admission));
+        check();
+      } else if (isDsmmRoleId(preset)) throw new SubagentError("Native continuation cannot acquire a DSMM role", "UNAUTHORIZED");
+    } else if (parent) {
       const parentAdmission = this.assert(parent), controlled = this.policy.identity(parent as DshAgent).role !== undefined;
       if (agent.session.header.parentSession !== parent.id || agent.session.header.origin !== "subagent") throw new SubagentError("Invalid native child header", "UNAUTHORIZED");
       if (pending) {
@@ -991,9 +1045,19 @@ export class NativeAdmission {
     this.guardTools(agent);
     try {
       if (pending) this.policy.bindChild(agent as DshAgent, parent! as DshAgent, admission, pending.invocation, pending.maxDepth, pending.toolFilter);
+      else if (ceiling) this.policy.bindContinuedChild(agent as DshAgent, owner! as DshAgent, admission, continuation,
+        ceiling, ceiling.role === null ? admission.settings.subagents.maxDepth : this.ctx.get("subagents")!.resolveMaxDepth(admission.settings.subagents.maxDepth), independent);
       else if (continuation) this.policy.bindChild(agent as DshAgent, parent! as DshAgent, admission, continuation,
         this.ctx.get("subagents")!.resolveMaxDepth(admission.settings.subagents.maxDepth), this.policy.visibleToolCeiling(parent! as DshAgent), independent);
-      else if (parent) this.policy.bindInheritedChild(agent as DshAgent, parent as DshAgent, admission, source === "resume");
+      else if (parent) this.policy.bindInheritedChild(agent as DshAgent, parent as DshAgent, admission, source === "resume", admission.settings.subagents.maxDepth);
+      if (parent && root && source !== "resume" && descriptor) {
+        const provider = this.ctx.get("subagents")!.getProvider(descriptor.provider);
+        if (!provider) throw new SubagentError("Native provider is unavailable", "UNAUTHORIZED");
+        if (!pending) continuationProvider = provider;
+        appendDelegationCeiling(agent.session, { version: 1, childId: agent.id, creatorId: parent.id, rootId: root.id,
+          provider: descriptor.provider, ...(pending ? { role: pending.invocation.target, level: pending.invocation.effectiveLevel } : { role: null, level: null }),
+          profileId: admission.profile?.id ?? null, ...this.policy.delegationCeiling(agent as DshAgent) });
+      }
       await this.install(agent, this.getter(agent));
       check();
       await this.profiles.revalidateActivation(admission);
@@ -1013,7 +1077,8 @@ export class NativeAdmission {
       check();
       this.profiles.publish(agent as DshAgent, admission);
       const published = this.profiles.admission(agent as DshAgent);
-      this.live.set(agent, Object.freeze({ admission: published, preset, scopeParent: scopeParentOf(agent), parent, invocation: pending?.invocation ?? continuation, dependencies, provider: pending?.provider ?? continuationProvider }));
+      this.live.set(agent, Object.freeze({ admission: published, preset, scopeParent: scopeParentOf(agent), parent, owner, creatorId: agent.session.header.parentSession,
+        invocation: pending?.invocation ?? continuation, dependencies, provider: pending?.provider ?? continuationProvider }));
       if (pending) { this.bindObservedChild(pending.observation, agent, published); this.pending.delete(agent.id); }
     } catch (error) { this.admissionRoutes.delete(agent); this.admissionRouteFailures.delete(agent); this.policy.release(agent as DshAgent); throw error; }
     finally { this.candidates.delete(agent); }

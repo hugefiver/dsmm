@@ -167,7 +167,7 @@ export class DsmmProfileRuntime {
     return candidate;
   }
   readChildIdentity(childId: string, parentId: string): Promise<ChildAdmissionIdentity | null> { return this.store.readChildIdentity(childId, parentId); }
-  prepareChild(agent: DshAgent, parent: DsmmProfileAdmission, signal: AbortSignal, identity: ChildAdmissionIdentity | null = null): Promise<AdmittedProfile> {
+  prepareChild(agent: DshAgent, parent: DsmmProfileAdmission, signal: AbortSignal, identity: Pick<ChildAdmissionIdentity, "profileId"> | null = null): Promise<AdmittedProfile> {
     return this.prepareActivation(agent.id!, signal, identity === null ? parent : { scope: identity.profileId === null ? "deployment-baseline" : "session-override", profile: identity.profileId === null ? null : { id: identity.profileId, revision: "" } }, parent.settings.subagents.maxDepth);
   }
   private async currentSelection<T extends LoadedProfileSelection>(pointer: T): Promise<T> {

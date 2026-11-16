@@ -186,7 +186,7 @@ export class DsmmChildrenHost extends TypertRemoteService {
     const capabilities = this.capabilities(scope);
     if (!capabilities.interrupt.enabled) throw new ControlRefusal("disabled", undefined, capabilities.interrupt.reason);
     this.direct(scope, request.childSessionId);
-    return interruptNativeChild(this.ctx.get("subagents")!, SessionId(request.childSessionId), scope.parent.id);
+    return interruptNativeChild(this.ctx.get("subagents")!, SessionId(request.childSessionId), scope.parent);
   }); }
 }
 declare module "@deepseek-ai/cordis" { interface Context { dsmmChildren: DsmmChildrenHost } }
