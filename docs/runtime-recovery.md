@@ -43,7 +43,7 @@ Idle continuation is separately opt-in under `runtimeRecovery.idleContinuation`;
 
 Role delegation uses official activation. Waiting uses `delivery:'caller'`; only native `completed` is normal completion. Failure, partial output and cancellation remain visible. After publication, cancellation uses the receipt's `dispose()` and awaits cleanup. Background must be selected before start with `delivery:'parent'`; an accepted child/message receipt isn't completion. Running waiting calls can't be transferred to background.
 
-Supported exact live children may receive Queue/Steer or interrupt through native controls, subject to current direct-parent/operator authority and actual capabilities. Inbox acceptance and interrupt acknowledgment aren't completion. Unknown sends aren't automatically retried. Read-only descendant inspection grants no control.
+Native controls retain their operator and attachment checks. Tree-capable Hosts support same-tree messages from the actual sender and ancestor-only interruption; older Hosts retain adjacent-child authority. Supported cold members require verified native identity, current policy and an own restrictive ceiling when their creator is absent. Inbox acceptance and interrupt acknowledgment aren't completion. Unknown sends aren't automatically retried. Inspection alone grants no control.
 
 ## Cold resume and lifetime
 
@@ -61,7 +61,7 @@ Diagnostics omit request/provider bodies, credentials and goal/todo text.
 
 ## Known Host limitation: Windows sandbox and Git Schannel
 
-DSH `0.2.1-rc.2` with the `windows-acl` backend can fail HTTPS Git operations under `workspace-write` with `schannel: AcquireCredentialsHandle failed: SEC_E_NO_CREDENTIALS (0x8009030e)`. This was reproduced on 2026-10-21 using a public repository and isolated Git configuration, without account authentication.
+DSH `0.2.1-rc.2` and `0.2.2-rc.3` with the `windows-acl` backend can fail HTTPS Git operations under `workspace-write` with `schannel: AcquireCredentialsHandle failed: SEC_E_NO_CREDENTIALS (0x8009030e)`. The failure occurs with public repositories and isolated Git configuration, without account authentication.
 
 The same Git command succeeds outside the sandbox, fails through both the native DSH executor and the DSMM-managed native tool with unchanged effective sandbox policy, and succeeds inside the same sandbox when explicitly using OpenSSL. This isolates the failure to the Windows sandbox/Schannel interaction, not a DSMM-specific permission decision. The specific restricted-token flag, SID or integrity-level interaction remains undetermined; the error does not establish missing GitHub credentials.
 
@@ -73,7 +73,7 @@ git -c http.sslBackend=openssl ls-remote https://github.com/git/git.git HEAD
 
 This changes the TLS trust backend, not the sandbox policy, and keeps certificate verification enabled. DSMM must not inject it silently, change global Git configuration, disable TLS verification or switch to full access to hide the failure.
 
-Upstream fix status is unconfirmed. On a later DSH version, recheck the same read-only Git operation with Schannel through the native `workspace-write` executor and DSMM-managed path. A sandbox fix must also preserve denial of workspace-external writes; a successful full-access command is not a fix. No local Host or dependency patch is applied for this limitation.
+The failure remains reproducible on `0.2.2-rc.3` through both the native `workspace-write` executor and DSMM-managed path. Node/OpenSSL HTTPS with certificate validation succeeds in both paths, while unauthorized workspace-external writes remain denied. On a later DSH version, recheck Schannel and the write boundary together. A successful full-access command is not a sandbox fix. No local Host or dependency patch is applied for this limitation.
 
 ### PowerShell in a Fake-IP environment
 

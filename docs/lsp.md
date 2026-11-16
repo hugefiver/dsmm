@@ -1,6 +1,6 @@
 # DSMM LSP boundary
 
-DSMM-managed external LSP is opt-in. When Deepwork is enabled in startup configuration and `lsp.enabled: true`, DSMM mounts the Host's native MCP client through its trusted installation anchor. The default is disabled. Saving desired settings does not remount a running integration or change existing Agent admission; restart the Host to apply startup LSP configuration. Enabling Deepwork alone does not enable LSP. DSMM's settings UI hides LSP controls.
+DSMM-managed external LSP is opt-in. When the Deepwork module is enabled in startup configuration and `lsp.enabled: true`, DSMM mounts the Host's native MCP client through its trusted installation anchor. The default is disabled. Saving desired settings does not remount a running integration or change existing Agent admission; restart the Host to apply startup LSP configuration. Enabling Deepwork alone does not enable LSP. DSMM's settings UI hides LSP controls.
 
 The default `cordis.patch.yml` doesn't add a separate MCP client row. DSMM leaves DSH's own LSP services and independently configured MCP servers under their native owners. DSMM doesn't download servers or native binaries.
 

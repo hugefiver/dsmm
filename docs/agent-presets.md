@@ -1,6 +1,6 @@
 # Deepwork Agent presets and child control
 
-DSMM 0.3.16 targets exactly DSH `0.2.1-rc.2`. Native package composition and callable admission are separate requirements.
+The supported Host range is listed in [compatibility](compatibility.md). Native package composition and callable admission are separate requirements.
 
 ## Roles and composition
 
@@ -14,9 +14,9 @@ Optional preset materialization writes only the DSMM-owned dispatcher preset dir
 
 Managed Agent scopes supply the single role opening (`You are <display name>.`) through `harness:identity`, without a parenthesized role ID. Persona prefixes carry role guidance, not another identity opening; admitted children shadow both inherited sections. Internal role IDs remain the admission, routing and preset keys. The ordinary native identity remains unchanged outside those scopes; the override doesn't grant a role, tool or permission based on its displayed name.
 
-For a non-DW preset with Deepwork active, the Agent receives the shared locale-priority guidance and the standard preset's model identity sentence becomes model-neutral. The preset's remaining persona prefix and suffix stay intact; this does not load the full DW role persona. Turning Deepwork off restores the original persona and removes the added locale-priority guidance.
+A non-DW preset retains its native identity, persona, model selection, effort and delegation while Deepwork is active. It receives general working guidance, locale policy, lazy skills and applicable model-parameter tuning. Mode activation does not create an orchestrator identity, apply DSMM role routes or require specialist tools. When a skill describes an unavailable specialist, the Agent follows its native persona's authority and performs the permitted work directly.
 
-Root admission is not configurable per role: the dispatcher is the only standing root. A blank preset switch to any other DSMM role is refused because no such preset is registered, and the admitted composition stays in place. Forced creation and empty-root preset changes still require valid root admission before execution. Opting into Deepwork requires the enabled module, role and usable composition; it never grants writes. Harness's native `/plan` remains collaboration state, not a permission upgrade.
+Root admission is not configurable per role: the dispatcher is the only standing root. A blank preset switch to any other DSMM role is refused because no such preset is registered, and the admitted composition stays in place. Forced creation and empty-root preset changes still require valid root admission before execution. DSMM role admission requires an enabled module, enabled role and usable composition. Ordinary presets can use the general Deepwork mode without acquiring a role; mode activation grants no writes. Harness's native `/plan` remains collaboration state, not a permission upgrade.
 
 Standing Orchestrator/Builder compositions include native planning, compaction/pruning, question and todo rows. Planner includes planning, compaction/pruning and questions, but no todo writer. Coding/frontend/deep/complex/cross-cutting include compaction/pruning, questions and todo; other auxiliary roles add none of those rows. Native spawn can retain parent services, so this isn't a promise to strip every inherited row from short children. Effective filters and execution fences still decide access. Native `/plan` doesn't upgrade Planner permissions, and `/compact` remains a human native command.
 
@@ -31,11 +31,11 @@ Standing Orchestrator/Builder compositions include native planning, compaction/p
 | deep, complex, cross-cutting | Utility leaves and coding/frontend/hard-reasoning/creative/documenting specialists |
 | Native child Builder | Bounded utility leaves, not stage ownership |
 
-No child gains coordination authority from a preset label, persona or serialized role string. The shared policy checks exact live native ownership/admission and provider/definition identity. Each call has its own pending child correlation; awaited creation installs immutable policy before queued input executes. Generic spawn/fork can't bypass role admission in a DSMM-controlled workflow. Unrelated ordinary off-mode native children retain Host behavior without acquiring DSMM delegation.
+No child gains coordination authority from a preset label, persona or serialized role string. The shared policy checks exact live native ownership/admission and provider/definition identity. Each call has its own pending child correlation; awaited creation installs immutable policy before queued input executes. Generic spawn/fork can't bypass role admission in a DSMM-controlled workflow. Ordinary native children retain Host delegation and model ownership without acquiring a DSMM role, whether Deepwork is active or inactive.
 
 Read-only roles remain read-only independently of mode and optional guards. Planner returns complete Markdown for native review/handoff; an authorized coordinator persists it. There is no Planner writer. Native catalog visibility and role permission are separate: a schema or read-only catalog listing doesn't authorize invocation, and own-layer native schemas may remain visible even when mandatory execution fences deny them.
 
-Descendants intersect current parent capability ceilings with native/requested restrictions and union deny-lists. Existing native filters still execute. Cold resume rebuilds DSMM restrictions from current role/configuration and exact parent authority rather than restoring an old runtime snapshot. A named profile cannot lift startup/deployment or native ceilings; required roles are covered in [profiles](profiles.md#inheritance-and-ceilings).
+Descendants intersect captured tool and delegation-target ceilings with current admission and native restrictions, and union deny-lists. New tree members persist their DSMM ceilings in their own native Session records. Cold continuation validates native catalog, provider and lineage, loads the captured profile selector's current content, and retains the original readonly, tool, target and DSMM depth limits. A verified live root can own the admission lifetime while the durable creator is absent; it does not become the direct creator. Older records without a complete ceiling retain exact-live-creator recovery. A named profile cannot lift native ceilings; see [profiles](profiles.md#inheritance-and-ceilings).
 
 ## Invocation and lifecycle
 
@@ -49,7 +49,7 @@ A running waiting call can't be handed to background. There is no restart-as-han
 
 ## Child reports and control interfaces
 
-Child report interfaces expose actual runs, direct children and a read-only descendant tree. IDs, activity, mode, admitted role/level, route comparison, original evidence and disabled reasons remain separate facts. Corrupt, unsupported or unavailable branches report diagnostics, not fabricated success. Descendant inspection doesn't grant control over non-direct children. The current client doesn't register a separate Conversation child tab; retained interfaces or components aren't proof of a reachable panel.
+Child report interfaces expose actual runs, direct children and a read-only descendant tree. IDs, activity, mode, admitted role/level, route comparison, original evidence and disabled reasons remain separate facts. Corrupt, unsupported or unavailable branches report diagnostics, not fabricated success. These inspection interfaces do not grant additional control. On tree-capable Hosts, native `send_message` preserves the actual sender and permits same-tree communication; native `list_agents` and `wait_agent` provide discovery and waiting when exposed. Native interruption requires ancestor authority. Cross-tree messaging and sibling interruption remain refused. Older Hosts retain their adjacent-child control contract. The current client doesn't register a separate DSMM Conversation child tab; use the native Host surfaces that are actually available.
 
 Route comparison uses the live admitted `invocation-capture` and the child's latest `own-native-request-header`. Missing, invalid or unobserved evidence remains unknown; it is never inferred from a root route, current profile or role label. Display metadata isn't a cold-recovery credential.
 
@@ -69,7 +69,7 @@ Arguments, result content, errors and metadata remain inspectable as JSON. Nonte
 
 Official AgentRegistry, SubagentRuntime and JSONL namespace plugins own execution and storage. There is no custom Registry/Runtime selector, manual-runtime activation path or companion requirement. Native runtime availability and actual DSMM admission are still separate observations; seeing a catalog isn't proof of callable policy. See [settings](settings-status.md#child-runtime-composition).
 
-Cold recovery requires verified native root/child identity and creates a new exact-object admission. Logs, IDs and display data alone cannot restore authority. Missing old captures do not block a valid native DSMM child. Read-only history queries never resume Agents. `preset-skills` is installed and released by the admitted Agent scope, not a public plugin. See [compatibility](compatibility.md#native-history-composition).
+Cold recovery requires verified native root/child identity and creates a new exact-object admission. Persisted DSMM records carry restrictions and profile selection identity; current native membership, provider and policy supply authority. Creator-absent recovery requires a complete own ceiling record. Generic native members retain null role/level and native model ownership. DSMM does not preserve an unavailable native tool-instance depth setting across Host configuration changes; each current native invocation still enforces its own depth limit. Read-only history queries never resume Agents. `preset-skills` is installed and released by the admitted Agent scope, not a public plugin. See [compatibility](compatibility.md#native-history-composition).
 
 Native Host commands, sessions, inbox, permissions, process/cwd/model selection and transports retain ownership. DSMM supplies role admission and bounded controls, not a replacement lifecycle scheduler, generic permission bypass or automatic retry system.
 
