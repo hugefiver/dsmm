@@ -511,6 +511,75 @@ test("invalid raw syntax, duplicate keys, unsafe keys and malformed policies can
   }
 });
 
+test("explicit routes require nonblank provider and model before save", async () => {
+  const f = fixture();
+  const root = ["settings", "roleRouting", "dsmm-planner"];
+  const paths = [[...root, "primary"], [...root, "fallbackRoutes", 0], [...root, "levels", "high"]];
+  try {
+    await f.controller.refresh(); await f.controller.open("p");
+    for (const path of paths) {
+      f.controller.actions.editPath(path, { provider: "", model: "" });
+      assert.deepEqual(f.controller.store.getSnapshot().invalidFields, [`${path.join(".")}.provider`, `${path.join(".")}.model`]);
+      for (const blank of ["", " \t "]) {
+        f.controller.actions.editRoute(path, "manual", blank);
+        assert.deepEqual(f.controller.store.getSnapshot().invalidFields, [`${path.join(".")}.model`]);
+        await f.controller.save();
+        f.controller.actions.editRoute(path, blank, "unlisted");
+        assert.deepEqual(f.controller.store.getSnapshot().invalidFields, [`${path.join(".")}.provider`]);
+        await f.controller.save();
+      }
+      f.controller.actions.editRoute(path, "manual", "unlisted");
+      assert.deepEqual(f.controller.store.getSnapshot().invalidFields, []);
+    }
+    assert.equal(f.calls.includes("save"), false);
+    await f.controller.save();
+    assert.equal(f.calls.filter(call => call === "save").length, 1);
+  } finally { f.controller.dispose(); }
+});
+
+test("route invalid fields follow inheritance, removal, fallback order and JSONC without clearing numeric drafts", async () => {
+  const f = fixture();
+  const root = ["settings", "roleRouting", "dsmm-planner"];
+  const numericKey = [...root, "rateLimit", "maxRetries"].join(".");
+  const primary = [...root, "primary"], fallback = [...root, "fallbackRoutes"], level = [...root, "levels", "high"];
+  try {
+    await f.controller.refresh(); await f.controller.open("p");
+    f.controller.actions.setNumberDraft(numericKey, { draft: "999", invalid: true, sourceValue: 0 });
+    f.controller.actions.setFieldInvalid(numericKey, true);
+    f.controller.actions.editRoute(primary, "manual", "");
+    f.controller.actions.editPath(primary, undefined);
+    assert.deepEqual(f.controller.store.getSnapshot().invalidFields, [numericKey]);
+
+    f.controller.actions.editPath(level, { provider: "", model: "" });
+    f.controller.actions.editPath(level, { reasoningEffort: "high" });
+    assert.deepEqual(f.controller.store.getSnapshot().invalidFields, [numericKey]);
+    f.controller.actions.editPath(level, { provider: "", model: "" });
+    f.controller.actions.editPath(level, undefined);
+    assert.deepEqual(f.controller.store.getSnapshot().invalidFields, [numericKey]);
+
+    f.controller.actions.editRoute([...fallback, 0], "one", "");
+    f.controller.actions.moveFallback("dsmm-planner", 0, 1);
+    assert.deepEqual(f.controller.store.getSnapshot().invalidFields, [numericKey, `${fallback.join(".")}.1.model`]);
+    f.controller.actions.editPath([...fallback, 1], undefined);
+    assert.deepEqual(f.controller.store.getSnapshot().invalidFields, [numericKey]);
+
+    const rawInvalidRoute = editStructuredPath(content, primary, { provider: " ", model: "" })!;
+    f.controller.actions.editContent(rawInvalidRoute);
+    assert.deepEqual(f.controller.store.getSnapshot().invalidFields, [numericKey, `${primary.join(".")}.provider`, `${primary.join(".")}.model`]);
+    f.controller.actions.editContent(rawInvalidRoute + "{ invalid");
+    f.controller.actions.editContent(content);
+    assert.deepEqual(f.controller.store.getSnapshot().invalidFields, [numericKey]);
+    assert.deepEqual(f.controller.actions.getNumberDraft(numericKey), { draft: "999", invalid: true, sourceValue: 0 });
+    await f.controller.save();
+    assert.equal(f.calls.includes("save"), false);
+    f.controller.actions.editContent(editStructuredPath(content, [...root, "rateLimit", "maxRetries"], 1)!);
+    assert.deepEqual(f.controller.store.getSnapshot().invalidFields, []);
+    assert.equal(f.controller.actions.getNumberDraft(numericKey), undefined);
+    await f.controller.save();
+    assert.equal(f.calls.filter(call => call === "save").length, 1);
+  } finally { f.controller.dispose(); }
+});
+
 test("native catalog refresh retains exact manual route/effort and only explicit model edits clear effort", async () => {
   const f = fixture();
   await f.controller.refresh(); await f.controller.open("p");

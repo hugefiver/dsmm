@@ -182,7 +182,7 @@ test("Named profiles redesigned UI page-level browser QA and interactive flows",
     });
 
     browser = await chromium.launch({
-      executablePath: chromium.executablePath(),
+      executablePath: process.env.DSMM_TEST_BROWSER_EXECUTABLE ?? chromium.executablePath(),
       headless: true,
       args: ["--disable-extensions", "--disable-sync"],
     });
@@ -602,6 +602,11 @@ test("Named profiles redesigned UI page-level browser QA and interactive flows",
     // Verify focus is restored to initiator (discardBtn)
     const activeText = await page.evaluate(() => document.activeElement?.textContent?.trim());
     assert.ok(activeText?.includes("放弃"), "Focus must return to discard initiator button");
+    assert.equal(await editorState.getAttribute("data-dsmm-editor-state"), "dirty");
+    assert.equal(await profileLabelInput.inputValue(), "再次修改的方案");
+    await discardBtn.click();
+    await discardDialog.getByRole("button", { name: "放弃更改", exact: true }).click();
+    await profilesRoot.locator('[data-dsmm-editor-state="ready"]').waitFor();
 
     // 11. Multi-Agent Dialog (ProfileModelsDialog)
     const openModelsBtn = page.locator(".dsmm-open-models-dialog-btn");
@@ -673,9 +678,18 @@ test("Named profiles redesigned UI page-level browser QA and interactive flows",
     await orchDialogModel.fill("");
     await page.waitForTimeout(50);
     assert.equal(await dialogTopSaveBtn.isEnabled(), false, "Dialog save button must be disabled when invalid");
+    assert.equal(await saveBtn.isEnabled(), false, "Main save button must share invalid route eligibility");
+    await orchDialogModel.fill("   ");
+    assert.equal(await dialogTopSaveBtn.isEnabled(), false, "Whitespace-only model must block dialog save");
+    const orchDialogProvider = orchCard.locator(".dsmm-role-primary-route input[id$='-provider']");
     await orchDialogModel.fill("deepseek-reasoner");
+    await orchDialogProvider.fill("   ");
+    assert.equal(await dialogTopSaveBtn.isEnabled(), false, "Whitespace-only provider must block dialog save");
+    assert.equal(await saveBtn.isEnabled(), false, "Invalid provider must also block main save");
+    await orchDialogProvider.fill("deepseek");
     await page.waitForTimeout(50);
     assert.equal(await dialogTopSaveBtn.isEnabled(), true, "Dialog save button re-enables when valid");
+    assert.equal(await saveBtn.isEnabled(), true, "Main save button re-enables with the corrected route");
 
     // Save from dialog top bar
     await dialogTopSaveBtn.click();

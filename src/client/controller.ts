@@ -842,6 +842,23 @@ export class ProfilesController {
     const document = structuredDocument(content);
     let invalidFields = this.current.invalidFields;
     if (document !== null) {
+      invalidFields = invalidFields.filter(field => !/^settings\.roleRouting\..+\.(?:primary|fallbackRoutes\.\d+|levels\.(?:low|high|max))\.(?:provider|model)$/.test(field));
+      for (const [role, policy] of Object.entries(document.roleRouting)) {
+        const prefix = `settings.roleRouting.${role}`;
+        const routes: [string, { provider: string; model: string }][] = [];
+        if (policy.primary !== undefined) routes.push([`${prefix}.primary`, policy.primary]);
+        for (const [index, route] of (policy.fallbackRoutes ?? []).entries()) {
+          routes.push([`${prefix}.fallbackRoutes.${index}`, route]);
+        }
+        for (const [level, route] of Object.entries(policy.levels ?? {})) {
+          if (route.provider !== undefined) routes.push([`${prefix}.levels.${level}`, route]);
+        }
+        for (const [path, route] of routes) {
+          for (const field of ["provider", "model"] as const) {
+            if (route[field].trim() === "") invalidFields.push(`${path}.${field}`);
+          }
+        }
+      }
       for (const [key, draft] of this.numberDrafts) {
         let value: unknown = document;
         for (const segment of key.split(".")) {
