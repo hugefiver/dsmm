@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { getTraceable } from "@deepseek-ai/cordis";
+import type { Context } from "@deepseek-ai/cordis";
 import { mkdtempSync, mkdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -47,14 +49,22 @@ test("Host restart restores the original root and continuable child with latest 
   let shellBodies = 0;
   const shell = { name: "pwsh", description: "Count only; no process or Git execution", parameters: { command: { type: "string" as const, required: true }, description: { type: "string" as const, required: true } },
     output: { schema: { type: "string" as const }, render: () => [] }, async execute() { shellBodies++; return "counted"; } };
-  const options = { profileDir, home, persistenceRoot, dsmmLlm: true, nativePermissionSettings: true, controller: true, fixtureTools: [shell] };
+  const options = { profileDir, home, persistenceRoot, dsmmLlm: true, nativePermissionSettings: true, controller: true, fixtureTools: [shell],
+    async beforeDsmm(ctx: Context) {
+      ctx.on("agent/created", ({ agent }) => {
+        if (agent.session.header.origin === "subagent") return;
+        const tools = agent.ctx.get("agentPresets")!.serviceFor(agent, "tools") ?? agent.ctx.get("tools")!;
+        getTraceable(agent.ctx, tools).register(shell);
+      }, { global: true });
+    }
+  };
   const command = (agent: Agent, id: string) => agent.ctx.tools.execute({ agent, name: "pwsh", callId: ToolCallId(id), signal: new AbortController().signal,
     arguments: { command: "git commit -m counted-not-executed", description: "Counter-only approval probe" } });
   let a: Awaited<ReturnType<typeof nativeRoutingFixture>> | undefined;
   let b: Awaited<ReturnType<typeof nativeRoutingFixture>> | undefined;
   try {
     a = await nativeRoutingFixture(config, options);
-    const parent = await a.create({ agentPreset: "standard", cwd: profileDir });
+    const parent = await a.create({ agentPreset: "dsmm-orchestrator", cwd: profileDir });
     const runtime = a.ctx.get("dsmmProfileRuntime") as DsmmProfileRuntime;
     const document = (model: string) => JSON.stringify({ version: 1, id: "chosen", settings: {
       subagents: { toolTopology: model === "old-role" ? "per-role" : "parameterized" },
@@ -99,12 +109,15 @@ test("Host restart restores the original root and continuable child with latest 
     unlinkSync(join(store.profileDir, ".revisions", `${chosen.selection.appliedRevision}.jsonc`));
     const adapter = new RoutingFixtureAdapter(); adapter.unavailableModels.add("old-role");
     let reads = 0, writes = 0, childRequests = 0;
+    const readable = join(profileDir, "code-search-evidence.txt");
+    writeFileSync(readable, "current code search evidence");
+    const readArgs = JSON.stringify({ file_path: readable });
     adapter.streamChunks = async function* (options) {
       if (options.sessionId === childId && childRequests++ === 0) {
         const id = ToolCallId("restored-role-read");
         yield { type: "block-start", index: 0, blockType: "tool-call" };
-        yield { type: "tool-call-delta", index: 0, id, name: "read", argumentsDelta: "{}" };
-        yield { type: "block-end", index: 0, block: { type: "tool-call", id, name: "read", arguments: "{}" } };
+        yield { type: "tool-call-delta", index: 0, id, name: "read", argumentsDelta: readArgs };
+        yield { type: "block-end", index: 0, block: { type: "tool-call", id, name: "read", arguments: readArgs } };
         yield { type: "finish", reason: { kind: "tool-calls" } };
       } else {
         yield { type: "block-start", index: 0, blockType: "text" };
@@ -115,9 +128,9 @@ test("Host restart restores the original root and continuable child with latest 
     };
     b = await nativeRoutingFixture(config, { ...options, adapter, reopenProfile: true, fixtureTools: [
       shell,
-      { name: "read", description: "Read the task-owned fixture", parameters: {}, output: { schema: { type: "string" }, render: value => [{ type: "text", text: String(value) }] }, async execute() { reads++; return "current code search evidence"; } },
       { name: "write", description: "Count forbidden writes", parameters: {}, output: { schema: { type: "string" }, render: () => [] }, async execute() { writes++; return "write"; } }
     ] });
+    b.ctx.on("tools/result", (exec, result) => { if (exec.agent?.id === childId && exec.name === "read" && !result.isError) reads++; }, { global: true });
     const errors: unknown[] = [];
     b.ctx.on("agent/error", ({ error }) => { errors.push(error); }, { global: true });
     const observation = await b.ctx.get("sessionQuery")!.observeSession(parentId);
@@ -158,7 +171,7 @@ test("Host restart restores the original root and continuable child with latest 
     assert.equal(adapter.calls.find(call => call.sessionId === childId)?.reasoningEffort, "max");
     const system = JSON.stringify(adapter.calls.find(call => call.sessionId === childId)!.messages.filter(message => message.role === "system"));
     assert.ok(system.includes(JSON.stringify(DSMM_ROLES.find(role => role.id === "dsmm-code-search")!.persona).slice(1, -1)), "the restored request delivers the current installed role resource");
-    assert.equal(reads, 1);
+    assert.equal(reads, 1, JSON.stringify(resumedChild.session.snapshotEvents().filter(event => event.type === "tool/result")));
     assert.match(JSON.stringify(resumedChild.session.snapshotEvents().filter(event => event.type === "assistant/message")), /Restored code search task complete/);
     const schemas = resumedChild.ctx.tools.schemas(resumedChild).map(schema => schema.name);
     assert.ok(schemas.includes("read")); assert.ok(!schemas.includes("write"));
@@ -277,6 +290,16 @@ test("native independent child composition cold-resumes with current role policy
     const result = await (f.ctx.get("sessionController") as SessionController).resolveAgent(originalParent.id);
     if ("error" in result) throw result.error;
     const parent = result.agent;
+    assert.equal(parent.session.snapshotEvents().some(event => event.type === "turn/start"), false);
+    assert.equal(f.agents.get(originalChild.id), undefined);
+    assert.equal(f.ctx.dsmmNativeAdmission.policy.identity(parent).role, undefined);
+    const calls = f.adapter.calls.length;
+    await assert.rejects(f.subagents.sendMessage(parent, originalChild.id, [{ type: "text", text: "Ordinary parent lacks role authority" }], { signal: new AbortController().signal }), { code: "UNAUTHORIZED" });
+    assert.equal(f.adapter.calls.length, calls);
+    assert.equal(f.agents.get(originalChild.id), undefined);
+    await f.ctx.get("agentPresets")!.select(parent, "dsmm-orchestrator");
+    await f.ctx.dsmmNativeAdmission.ensure(parent);
+    assert.equal(f.ctx.dsmmNativeAdmission.policy.identity(parent).role, "dsmm-orchestrator");
     await f.subagents.sendMessage(parent, originalChild.id, [{ type: "text", text: "Continue independent task" }], { signal: new AbortController().signal });
     const child = f.agents.get(originalChild.id)!; await child.whenIdle();
     assert.equal(f.ctx.dsmmNativeAdmission.invocation(child)?.target, "dsmm-code-search");
@@ -306,7 +329,7 @@ test("a native fork root ignores inherited child descriptors but rejects its own
 test("cancelled cold admission rolls back and cannot authorize a retained object when its ID is restored", async t => {
   const f = await nativeRoutingFixture({ defaultActive: true, lsp: { enabled: false } }, { dsmmLlm: true, nativePermissionSettings: true });
   try {
-    const parent = await f.create();
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" });
     const child = await f.createAuxiliary("dsmm-code-search", undefined, "continuable", parent);
     await runFixtureTurn(child); await f.releaseAuxiliary(child); await f.ctx.sessionPersistence.flush();
     const runtime = f.ctx.dsmmNativeAdmission.profiles;
