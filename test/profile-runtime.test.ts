@@ -5,7 +5,8 @@ import { basename, join } from "node:path";
 import { test } from "node:test";
 import { getTraceable } from "@deepseek-ai/cordis";
 import { ReasoningEffortId, ToolCallId } from "@deepseek-ai/dsh-llm";
-import { foldSubagentDescriptor } from "@deepseek-ai/dsh-subagent";
+import { foldSubagentDescriptor, SubagentDepthError } from "@deepseek-ai/dsh-subagent";
+import { validateJsonSchemaValue } from "@deepseek-ai/dsh-tools";
 import { renderPrompt } from "@deepseek-ai/dsh-system-prompt";
 import { registerDsmmStatusCommand } from "../src/commands.js";
 import type { DshAgent, DshCommandsRegistry, DshContext } from "../src/dsh-types.js";
@@ -31,8 +32,10 @@ function liveRoots(services = new Map<string, unknown>()) {
   const owner = { lifetime, isReady: true, blankReason: () => "new-session-required" as const };
   const registry = { get: (id: string) => roots.get(id), roots: () => [...roots.values()] };
   const context: DshContext = { get(name) { return (name === "agents" ? registry : name === "dsmmNativeAdmission" ? owner : services.get(name)) as never; } };
-  return { context, roots, lifetime, owner, async admit(runtime: DsmmProfileRuntime, id: string) {
-    const agent = mockAgent(id); roots.set(id, agent);
+  return { context, roots, lifetime, owner, async admit(runtime: DsmmProfileRuntime, id: string, preset?: string) {
+    const agent = mockAgent(id);
+    if (preset !== undefined) agent.session.header = { agentPreset: preset };
+    roots.set(id, agent);
     const candidate = await runtime.prepareRoot(agent, new AbortController().signal);
     runtime.publish(agent, candidate);
     return agent;
@@ -211,7 +214,7 @@ test("independent profile model projection stays detached and pinned while futur
     await runtime.initialize();
     const draft = await runtime.save({ id: "a", expectedRevision: null, content: profile("a", { roleRouting: { "dsmm-orchestrator": { primary: { provider: "native", model: "a", customParameters: { nested: { value: 1 } } } } } }) });
     const selected = await runtime.select({ id: "a", expectedRevision: draft.revision, expectedSelectionRevision: "absent" });
-    const agent = await live.admit(runtime, "model-root"), admission = runtime.admission(agent);
+    const agent = await live.admit(runtime, "model-root", "dsmm-orchestrator"), admission = runtime.admission(agent);
     const snapshot = await runtime.getSession(agent);
     assert.equal(snapshot.switchAllowed, false);
     assert.equal(snapshot.profileModel?.model, "a");
@@ -224,7 +227,7 @@ test("independent profile model projection stays detached and pinned while futur
     assert.equal(current.profileModel?.model, "a");
     assert.deepEqual(current.profileModel?.customParameters, { nested: { value: 1 } });
     assert.equal(runtime.admission(agent), admission);
-    assert.equal((await runtime.getSession(await live.admit(runtime, "new-model-root"))).profileModel?.model, "b");
+    assert.equal((await runtime.getSession(await live.admit(runtime, "new-model-root", "dsmm-orchestrator"))).profileModel?.model, "b");
   } finally { rmSync(rootDir, { recursive: true, force: true }); }
 });
 
@@ -235,7 +238,7 @@ test("session action capabilities separate native model selection, mode maintena
   const runtime = new DsmmProfileRuntime(live.context, resolveConfig({ defaultActive: true, roleRouting: { "dsmm-orchestrator": { primary: { provider: "native", model: "selected" } } } }), new ProfileStore(join(rootDir, "dsmm-profiles")));
   try {
     await runtime.initialize();
-    const agent = await live.admit(runtime, "action-root");
+    const agent = await live.admit(runtime, "action-root", "dsmm-orchestrator");
     agent.runMaintenance = task => task(new AbortController().signal);
     let running = false;
     Object.defineProperty(agent, "status", { get: () => running ? "running" : "idle" });
@@ -473,7 +476,7 @@ test("native role tool preflights exact parent-profile route before child creati
     return Promise.resolve();
   } });
   try {
-    const parent = await fixture.create();
+    const parent = await fixture.create({ agentPreset: "dsmm-orchestrator" });
     fixture.adapter.unsupportedMaxModels.add("review-preflight");
     const count = fixture.agents.list().length;
     const refused = await parent.ctx.tools.execute({ agent: parent, name: "dsmm_reviewer", callId: ToolCallId("profile-preflight"), signal: new AbortController().signal,
@@ -508,9 +511,14 @@ test("native role tool preflights exact parent-profile route before child creati
 test("role tool enforces the captured zero-depth ceiling before native child allocation", async () => {
   const fixture = await nativeRoutingFixture({ defaultActive: true, subagents: { maxDepth: 0 } });
   try {
-    const parent = await fixture.create();
-    const result = await parent.ctx.tools.execute({ agent: parent, name: "dsmm_reviewer", arguments: { description: "Depth ceiling", prompt: "Must not dispatch" }, callId: ToolCallId("profile-depth-ceiling"), signal: new AbortController().signal });
-    assert.equal(result.isError, true);
+    const parent = await fixture.create({ agentPreset: "dsmm-orchestrator" });
+    const definition = parent.ctx.tools.get("dsmm_reviewer", parent); assert.ok(definition);
+    const args = { description: "Depth ceiling", prompt: "Must not dispatch" };
+    assert.deepEqual(validateJsonSchemaValue(definition.parameters, args), []);
+    const result = await parent.ctx.tools.execute({ agent: parent, name: "dsmm_reviewer", arguments: args, callId: ToolCallId("profile-depth-ceiling"), signal: new AbortController().signal });
+    assert.ok(result.isError, JSON.stringify(result));
+    // The native tool boundary serializes this Error without structured depth fields.
+    assert.equal(result.error.message, new SubagentDepthError(1, 0).message);
     assert.deepEqual(fixture.agents.list(), [parent]);
     assert.equal(fixture.adapter.calls.length, 0);
   } finally { await fixture.dispose(); }

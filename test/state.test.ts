@@ -97,8 +97,9 @@ test("live admitted child defaults on without inherited mode events; explicit of
   try {
     const context = f.ctx as unknown as DshContext;
     const controller = new DeepworkModeController(context);
-    const parent = await f.create({ agentPreset: "standard" });
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" });
     const parentScope = parent as unknown as DshAgent;
+    await controller.select(parentScope, false, false);
     assert.equal(controller.active(parentScope, false), false);
     const runtime = f.ctx.get("dsmmProfileRuntime") as DsmmProfileRuntime;
     const session = await runtime.getSession(parentScope);
@@ -114,14 +115,15 @@ test("live admitted child defaults on without inherited mode events; explicit of
 
     const unadmitted: DshAgent = { session: child.session, id: child.id, ctx: child.ctx as unknown as DshContext };
     bindRoleInvocation(unadmitted, capturedRoleInvocation(childScope)!);
-    assert.equal(controller.active(unadmitted, false), false, "the same history, descriptor and invocation capture without exact native admission cannot grant mode");
+    assert.notEqual(f.agents.get(child.id), unadmitted);
+    assert.throws(() => f.ctx.dsmmNativeAdmission.policy.assertModuleAdmission(unadmitted), { code: "UNAUTHORIZED" });
 
     await runFixtureTurn(child);
     assert.match(JSON.stringify(f.adapter.calls.at(-1)!.messages.filter(message => message.role === "system")), /<dsmm-deepwork-mode>/);
     await f.releaseAuxiliary(child);
     assert.equal(f.agents.get(child.id) === undefined, true);
     const afterRelease = controller.describe(childScope, false);
-    assert.equal(afterRelease.active, false, "captured invocation is not a live admission after native release");
+    assert.throws(() => f.ctx.dsmmNativeAdmission.policy.assertModuleAdmission(childScope), { code: "UNAUTHORIZED" });
     assert.notEqual(afterRelease.revision, enabled.revision);
 
     const removeOff = f.ctx.on("agent/created", ({ agent }) => {

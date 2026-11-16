@@ -25,6 +25,7 @@ import type { DeploymentEditorSnapshot, SessionProfileSelectRequest, SessionProf
 import { DsmmDeploymentConfig } from "../src/deployment-config.ts";
 import type { GlobalConfigSnapshot } from "../src/deployment-config.ts";
 import { nativeRoutingFixture } from "./native-routing-fixture.ts";
+import { startNativeActivation } from "../src/native-subagents.ts";
 
 const require = createRequire(import.meta.url);
 const nativeRequire = createRequire(require.resolve("@deepseek-ai/dsh-client-connection/package.json"));
@@ -178,10 +179,17 @@ test("native mode RPC changes only an owned root and rejects stale intent and ch
     assert.deepEqual(await invoke("describeSession", { sessionId: a.id }), selected);
     assert.deepEqual(await invoke("describeSession", { sessionId: b.id }), other);
     assert.deepEqual([a, b].map(agent => agent.session.snapshotEvents().filter(event => event.type === "deepwork/mode")), modeEvents);
-    const child = await native.createAuxiliary("dsmm-reviewer", undefined, "one-shot", a);
-    await assert.rejects(invoke("describeSession", { sessionId: child.id }), refused("not-owned"));
-    await assert.rejects(invoke("selectMode", { sessionId: child.id, request: { ...modeRequest(selected, false), sessionId: child.id } }), refused("not-owned"));
-    const off = await invoke<SessionProfileSnapshot>("selectMode", { sessionId: a.id, request: modeRequest(selected, false) }); assert.equal(off.deepwork!.active, false);
+    const entered = gate(), release = gate();
+    native.adapter.beforeStream = async options => { if (options.sessionId !== a.id && options.sessionId !== b.id) { entered.release(); await release.promise; } };
+    const activation = await startNativeActivation(native.subagents, { provider: "spawn", label: "Ordinary native child", request: { parent: a, prompt: [] }, signal: new AbortController().signal, delivery: "caller" });
+    try {
+      await entered.promise;
+      const child = native.agents.get(activation.childId); assert.ok(child);
+      assert.equal(native.ctx.dsmmNativeAdmission.policy.identity(child).role, undefined);
+      await assert.rejects(invoke("describeSession", { sessionId: child.id }), refused("not-owned"));
+      await assert.rejects(invoke("selectMode", { sessionId: child.id, request: { ...modeRequest(selected, false), sessionId: child.id } }), refused("not-owned"));
+      const off = await invoke<SessionProfileSnapshot>("selectMode", { sessionId: a.id, request: modeRequest(selected, false) }); assert.equal(off.deepwork!.active, false);
+    } finally { release.release(); await activation.dispose(); native.adapter.beforeStream = undefined; }
   } finally { await native.dispose(); }
 });
 

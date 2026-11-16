@@ -568,7 +568,7 @@ test("production role-call source recovers through real added events independent
           replayAdded = () => native.ctx.emit("api-session/added", summary);
         }
       });
-      creating = native.create({}, undefined, { sessionId: id });
+      creating = native.create({ agentPreset: "dsmm-orchestrator" }, undefined, { sessionId: id });
       if (timing === "after-error") {
         for (let i = 0; i < 1000 && source.getSnapshot().issue?.code !== "not-owned"; i++) await setImmediate();
         assert.equal(source.getSnapshot().issue?.code, "not-owned");

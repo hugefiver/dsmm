@@ -41,7 +41,7 @@ test("native alias preflight selects initial fallback while preserving native re
     primary: { provider: "missing-native-adapter", model: "unavailable" }, fallbackRoutes: [backup]
   } } });
   try {
-    const parent = await fixture.create();
+    const parent = await fixture.create({ agentPreset: "dsmm-orchestrator" });
     const child = await fixture.createAuxiliary("dsmm-reviewer", undefined, "continuable", parent, {
       prompt: [{ type: "text", text: "Native fallback admission" }] });
     try {

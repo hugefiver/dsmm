@@ -23,7 +23,7 @@ test("configured roots use admitted primary over native intent without a TUI own
     roleRouting: { "dsmm-orchestrator": { primary } } }, { dsmmLlm: true });
   try {
     const picked = selection();
-    const agent = await fixture.create({}, picked);
+    const agent = await fixture.create({ agentPreset: "dsmm-orchestrator" }, picked);
     const options = { ...agent.options };
     agent.session.append("model/selection", { ...native, reasoningEffort: ReasoningEffortId(native.reasoningEffort) });
     await runFixtureTurn(agent);
@@ -50,11 +50,11 @@ for (const baseline of ["missing-provider", "unknown-model", "missing-fields"] a
       setups++;
       scope.on("system-prompt/assemble", async (_prompt, _context, next) => { assemblies++; return next(); });
     } };
-    const first = await fixture.create({}, undefined, extra);
+    const first = await fixture.create({ agentPreset: "dsmm-orchestrator" }, undefined, extra);
     await runFixtureTurn(first);
     const history = JSON.parse(JSON.stringify(first.session.snapshotEvents()));
     await fixture.disposeAgent(first);
-    const resumed = await fixture.create({}, undefined, { ...extra, seed: history });
+    const resumed = await fixture.create({ agentPreset: "dsmm-orchestrator" }, undefined, { ...extra, seed: history });
     await runFixtureTurn(resumed);
     assert.equal(setups, 2); assert.ok(assemblies >= 2);
     assert.deepEqual(routes(adapter), [primary, primary]);
@@ -66,18 +66,18 @@ for (const baseline of ["missing-provider", "unknown-model", "missing-fields"] a
 test("configured root inherits the assembled baseline when primary is sparse", async () => {
   const fixture = await nativeRoutingFixture({ rootModelPolicy: "configured", defaultActive: true }, { dsmmLlm: true });
   try {
-    const agent = await fixture.create({}, selection());
+    const agent = await fixture.create({ agentPreset: "dsmm-orchestrator" }, selection());
     await runFixtureTurn(agent);
     assert.deepEqual(routes(fixture.adapter), [native]);
   } finally { await fixture.dispose(); }
 });
 
-test("ordinary mode-off stays native; standing preset keeps its admitted role", async () => {
-  for (const scenario of ["mode-off", "standing"] as const) {
-    const fixture = await nativeRoutingFixture({ rootModelPolicy: "configured", defaultActive: false,
+test("ordinary mode-off and mode-on stay native; standing preset keeps its admitted role", async () => {
+  for (const scenario of ["mode-off", "mode-on", "standing"] as const) {
+    const fixture = await nativeRoutingFixture({ rootModelPolicy: "configured", defaultActive: scenario === "mode-on",
       roleRouting: { "dsmm-orchestrator": { primary } } }, { dsmmLlm: true });
     try {
-      const agent = await fixture.create(scenario === "standing" ? { agentPreset: "dsmm-orchestrator" } : {}, selection());
+      const agent = await fixture.create({ agentPreset: scenario === "standing" ? "dsmm-orchestrator" : "standard" }, selection());
       await runFixtureTurn(agent);
       assert.deepEqual(routes(fixture.adapter), [scenario === "standing" ? primary : native], scenario);
     } finally { await fixture.dispose(); }
@@ -92,7 +92,7 @@ test("configured initial admission skips only missing provider/UNKNOWN_MODEL and
       runtimeRecovery: { fallbackRoutes: [backup] }, roleRouting: { "dsmm-orchestrator": { primary: configured,
         ...(unavailable === "empty" ? { fallbackRoutes: [] } : {}) } } }, { dsmmLlm: true, adapter });
     try {
-      const agent = await fixture.create({}, selection());
+      const agent = await fixture.create({ agentPreset: "dsmm-orchestrator" }, selection());
       await runFixtureTurn(agent);
       assert.deepEqual(routes(adapter), unavailable === "empty" ? [] : [backup]);
       if (unavailable === "empty") assert.ok(agent.session.snapshotEvents().some(event => event.type === "turn/end" && event.data.reason.kind === "error"));
@@ -104,7 +104,7 @@ test("configured root consumes no-output 429 pending fallback and retains its lo
   const fixture = await nativeRoutingFixture({ rootModelPolicy: "configured", defaultActive: true,
     roleRouting: { "dsmm-orchestrator": { primary, fallbackRoutes: [backup], strategy: "rate-limit-fallback", rateLimit: bounds } } }, { dsmmLlm: true });
   try {
-    const picked = selection(), agent = await fixture.create({}, picked);
+    const picked = selection(), agent = await fixture.create({ agentPreset: "dsmm-orchestrator" }, picked);
     fixture.adapter.rateLimitModels.add(primary.model);
     fixture.ctx.on("agent/assistant-stream", ({ agent: subject, frame }) => {
       if (subject === agent && frame.type === "end" && fixture.adapter.calls.length === 1) agent.session.append("model/selection", picked.current!);
@@ -128,7 +128,7 @@ test("request-time configured recovery switches complete parameters for a same p
   const fixture = await nativeRoutingFixture({ rootModelPolicy: "configured", defaultActive: true,
     roleRouting: { "dsmm-orchestrator": { primary: first, fallbackRoutes: [second], strategy: "rate-limit-fallback", rateLimit: bounds } } }, { dsmmLlm: true });
   try {
-    const agent = await fixture.create({}, selection(same), { setup(scope) {
+    const agent = await fixture.create({ agentPreset: "dsmm-orchestrator" }, selection(same), { setup(scope) {
       scope.on("agent/request", async (_frame, next) => {
         const config = await next();
         return fixture.adapter.calls.length >= 2 ? { ...config, maxTokens: 20, stop: ["PRIMARY"] } : config;
@@ -150,7 +150,7 @@ test("stock Host request waterfall also uses configured root recovery after rout
   const fixture = await nativeRoutingFixture({ rootModelPolicy: "configured", defaultActive: true,
     roleRouting: { "dsmm-orchestrator": { primary, fallbackRoutes: [backup], strategy: "rate-limit-fallback", rateLimit: bounds } } });
   try {
-    const agent = await fixture.create({}, selection());
+    const agent = await fixture.create({ agentPreset: "dsmm-orchestrator" }, selection());
     fixture.adapter.rateLimitModels.add(primary.model);
     await runFixtureTurn(agent);
     assert.deepEqual(routes(fixture.adapter), [primary, backup]);
@@ -163,7 +163,7 @@ test("stock configured same-route retry preserves the persisted actual request c
     roleRouting: { "dsmm-orchestrator": { primary, fallbackRoutes: [backup], strategy: "rate-limit-fallback",
       rateLimit: { ...bounds, maxRetries: 1, switchAfterRateLimits: 2 } } } });
   try {
-    const agent = await fixture.create({}, selection(), { setup(scope) {
+    const agent = await fixture.create({ agentPreset: "dsmm-orchestrator" }, selection(), { setup(scope) {
       scope.on("agent/request", async (_frame, next) => ({ ...await next(), temperature: 0, maxTokens: 90, stop: ["END"] }));
     } });
     fixture.adapter.rateLimitModels.add(primary.model);
@@ -183,7 +183,7 @@ test("configured startup route-unavailable falls back only on the first un-settl
   const fixture = await nativeRoutingFixture({ rootModelPolicy: "configured", defaultActive: true,
     roleRouting: { "dsmm-orchestrator": { primary, fallbackRoutes: [backup] } } }, { dsmmLlm: true });
   try {
-    const agent = await fixture.create({}, selection());
+    const agent = await fixture.create({ agentPreset: "dsmm-orchestrator" }, selection());
     fixture.adapter.beforeStream = async options => { if (options.model === primary.model) throw new LlmError("gone", "UNKNOWN_MODEL"); };
     await runFixtureTurn(agent);
     assert.deepEqual(routes(fixture.adapter), [primary, backup]);
@@ -197,7 +197,7 @@ test("configured 429 waits for its threshold and rejects a pending retry whose g
         rateLimit: { ...bounds, switchAfterRateLimits: stale ? 1 : 2 } } } }, { dsmmLlm: true });
     try {
       let requests = 0;
-      const agent = await fixture.create({}, selection(), { setup(scope) {
+      const agent = await fixture.create({ agentPreset: "dsmm-orchestrator" }, selection(), { setup(scope) {
         scope.on("agent/request", async (frame, next) => {
           const config = await next();
           if (++requests === 2 && stale) {
@@ -230,7 +230,7 @@ test("first configured request refuses retry when generation changes during fall
   const fixture = await nativeRoutingFixture({ rootModelPolicy: "configured", defaultActive: true,
     roleRouting: { "dsmm-orchestrator": { primary, fallbackRoutes: [backup], strategy: "rate-limit-fallback", rateLimit: bounds } } }, { dsmmLlm: true, adapter });
   try {
-    const agent = await fixture.create({}, selection());
+    const agent = await fixture.create({ agentPreset: "dsmm-orchestrator" }, selection());
     let requests = 0, fallthrough = 0;
     fixture.ctx.on("agent/request", async (_frame, next) => { requests++; return next(); });
     fixture.ctx.on("agent/request-error", async () => { fallthrough++; return { kind: "retry" }; });
@@ -256,12 +256,12 @@ test("cold configured admission does not reuse a prior fallback lock or its budg
   const fixture = await nativeRoutingFixture({ rootModelPolicy: "configured", defaultActive: true,
     roleRouting: { "dsmm-orchestrator": { primary, fallbackRoutes: [backup], strategy: "rate-limit-fallback", rateLimit: bounds } } }, { dsmmLlm: true });
   try {
-    const first = await fixture.create({}, selection());
+    const first = await fixture.create({ agentPreset: "dsmm-orchestrator" }, selection());
     fixture.adapter.rateLimitModels.add(primary.model);
     await runFixtureTurn(first);
     const seed = JSON.parse(JSON.stringify(first.session.snapshotEvents()));
     await fixture.disposeAgent(first);
-    const resumed = await fixture.create({}, selection(), { seed });
+    const resumed = await fixture.create({ agentPreset: "dsmm-orchestrator" }, selection(), { seed });
     await runFixtureTurn(resumed);
     assert.deepEqual(routes(fixture.adapter), [primary, backup, primary, backup]);
   } finally { await fixture.dispose(); }
@@ -278,7 +278,7 @@ test("configured primary rejects initial capability/auth errors rather than tryi
     const fixture = await nativeRoutingFixture({ rootModelPolicy: "configured", defaultActive: true,
       roleRouting: { "dsmm-orchestrator": { primary, fallbackRoutes: [backup] } } }, { dsmmLlm: true, adapter: new RejectedPrimary() });
     try {
-      const agent = await fixture.create({}, selection());
+      const agent = await fixture.create({ agentPreset: "dsmm-orchestrator" }, selection());
       await runFixtureTurn(agent);
       assert.deepEqual(routes(fixture.adapter), []);
       assert.ok(agent.session.snapshotEvents().some(event => event.type === "turn/end" && event.data.reason.kind === "error"));
@@ -290,7 +290,7 @@ test("prepared configured stream rejects late provider chunks after its routing 
   const fixture = await nativeRoutingFixture({ rootModelPolicy: "configured", defaultActive: true,
     roleRouting: { "dsmm-orchestrator": { primary, fallbackRoutes: [backup] } } }, { dsmmLlm: true });
   try {
-    const agent = await fixture.create({}, selection());
+    const agent = await fixture.create({ agentPreset: "dsmm-orchestrator" }, selection());
     let release!: () => void, entered!: () => void;
     const held = new Promise<void>(resolve => { release = resolve; }), started = new Promise<void>(resolve => { entered = resolve; });
     fixture.adapter.beforeStream = async () => { entered(); await held; };
@@ -313,7 +313,7 @@ test("configured native-default parameter policy ignores configured effort, incl
   const fixture = await nativeRoutingFixture({ rootModelPolicy: "configured", defaultActive: true, modelParameters: { passthrough: false },
     roleRouting: { "dsmm-orchestrator": { primary, fallbackRoutes: [backup], strategy: "rate-limit-fallback", rateLimit: bounds } } }, { dsmmLlm: true });
   try {
-    const agent = await fixture.create({}, selection());
+    const agent = await fixture.create({ agentPreset: "dsmm-orchestrator" }, selection());
     agent.session.append("model/selection", selection().current!);
     fixture.adapter.rateLimitModels.add(primary.model);
     await runFixtureTurn(agent);
@@ -326,7 +326,7 @@ for (const failure of ["AUTH", "PERMISSION_DENIED", "QUOTA", "partial", "cancel"
     roleRouting: { "dsmm-orchestrator": { primary, fallbackRoutes: [backup], strategy: "rate-limit-fallback",
       rateLimit: failure === "exhausted" ? { ...bounds, maxSwitches: 0, maxRetries: 0 } : bounds } } }, { dsmmLlm: true });
   try {
-    const agent = await fixture.create({}, selection());
+    const agent = await fixture.create({ agentPreset: "dsmm-orchestrator" }, selection());
     fixture.adapter.streamChunks = async function* () {
       if (failure === "partial") yield { type: "text-delta", index: 0, text: "accepted" };
       if (failure === "cancel") agent.cancel({ kind: "hook", reason: "fixture cancellation" });

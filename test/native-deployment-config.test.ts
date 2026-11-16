@@ -171,11 +171,11 @@ test("rc.2 native SettingsForms persists sparse DSMM deployment without remounti
     await runFixtureTurn(inheritedRoot);
     assert.equal(a.adapter.calls.length, beforeInherited + 1);
     assert.ok(inheritedRoot.session.snapshotEvents().some(event => event.type === "turn/end" && event.data.reason.kind === "completed"));
-    assert.match(JSON.stringify(a.adapter.calls.at(-1)?.messages), /DEEPWORK MODE ENABLED!/);
+    assert.ok((await a.ctx.systemPrompt.assemble({ scope: inheritedRoot })).sections.some(section => section.name === "dsmm:deepwork" && section.text.length > 0));
     await runFixtureTurn(newRoot);
     assert.equal(a.adapter.calls.length, beforeInherited + 2);
     assert.ok(newRoot.session.snapshotEvents().some(event => event.type === "turn/end" && event.data.reason.kind === "completed"));
-    assert.doesNotMatch(JSON.stringify(a.adapter.calls.at(-1)?.messages), /DEEPWORK MODE ENABLED!/);
+    assert.equal((await a.ctx.systemPrompt.assemble({ scope: newRoot })).sections.some(section => section.name === "dsmm:deepwork" && section.text.length > 0), false);
 
     for (const profile of [a, b]) {
       const descriptor = profile.descriptor();
@@ -224,7 +224,7 @@ test("official native runtime supports Core off and on requests without an alter
     const offAdmission = off.runtime.admission(asDshAgent(offRoot));
     await runFixtureTurn(offRoot);
     assert.equal(off.adapter.calls.length, 1);
-    assert.doesNotMatch(JSON.stringify(off.adapter.calls[0].messages), /DEEPWORK MODE ENABLED!/);
+    assert.equal((await off.ctx.systemPrompt.assemble({ scope: offRoot })).sections.some(section => section.name === "dsmm:deepwork" && section.text.length > 0), false);
     assert.ok(offRoot.session.snapshotEvents().some(event => event.type === "turn/end" && event.data.reason.kind === "completed"));
 
     const on = await run.createProfile("no-delivery-on", { roles, defaultActive: true });
@@ -233,7 +233,14 @@ test("official native runtime supports Core off and on requests without an alter
     const onRoot = await on.create();
     await runFixtureTurn(onRoot);
     assert.equal(on.adapter.calls.length, 1);
-    assert.match(JSON.stringify(on.adapter.calls[0].messages), /DEEPWORK MODE ENABLED!/);
+    assert.ok((await on.ctx.systemPrompt.assemble({ scope: onRoot })).sections.some(section => section.name === "dsmm:deepwork" && section.text.length > 0));
+    for (const [profile, root] of [[off, offRoot], [on, onRoot]] as const) {
+      assert.equal(profile.ctx.get("dsmmNativeAdmission")!.policy.identity(asDshAgent(root)).role, undefined);
+      assert.equal(root.ctx.tools.schemas(root).some(tool => tool.name.startsWith("dsmm_")), false);
+      const request = profile.adapter.calls[0];
+      assert.deepEqual({ provider: request.provider, model: request.model, reasoningEffort: request.reasoningEffort },
+        { provider: "fixture", model: "native-default", reasoningEffort: "low" });
+    }
     assert.equal(on.ctx.agents.get(onRoot.id), onRoot);
     assert.equal(off.runtime.admission(asDshAgent(offRoot)), offAdmission, "another profile must not alter the Core admission");
     assert.equal(off.ctx.agents.get(offRoot.id), offRoot);

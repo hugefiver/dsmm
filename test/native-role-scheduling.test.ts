@@ -54,7 +54,7 @@ test("native scheduler capacity refusal publishes no overflow child while the ad
     catch (error) { nativeFailure = error; rejected.release(); throw error; }
   });
   try {
-    const parent = await f.create();
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" });
     const results = new Map<string, ToolExecutionResult>();
     f.ctx.on("tools/result", (execution, result) => {
       if (execution.agent === parent) results.set(execution.callId, result);
@@ -86,7 +86,7 @@ test("native scheduler child cancellation leaves the independent foreground sibl
   } });
   const enteredA = gate(), enteredB = gate(), release = gate(), cancelled = gate();
   try {
-    const parent = await f.create();
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" });
     const results = new Map<string, ToolExecutionResult>();
     f.ctx.on("tools/result", (execution, result) => {
       if (execution.agent === parent) { results.set(execution.callId, result); if (execution.callId === "call-A") cancelled.release(); }
@@ -119,7 +119,7 @@ test("native scheduler child cancellation leaves the independent foreground sibl
 test("forced background refuses missing native persistence without caller fallback or child publication", async () => {
   const f = await nativeRoutingFixture({ defaultActive: true, subagents: { forceBackground: true } }, { persistence: false });
   try {
-    const parent = await f.create();
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" });
     const result = await parent.ctx.tools.execute({ agent: parent, name: "dsmm_code_search", callId: ToolCallId("no-persistence"),
       arguments: { description: "No persistence", prompt: "Must refuse", run_in_background: false }, signal: new AbortController().signal });
     assert.equal(result.isError, true);
@@ -146,7 +146,7 @@ for (const row of forcedCases) test(`forced background ${row.topology} ${row.nam
     const activation = await start(...args); activations.push(activation); return activation;
   });
   try {
-    const parent = await f.create();
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" });
     f.adapter.beforeStream = async options => { if (options.sessionId !== parent.id) { entered.release(); await hold(options.signal, release.promise); } };
     f.adapter.streamChunks = async function* (options) { yield* answer(options.sessionId === parent.id ? "PARENT_COMPLETED" : "FORCED_CHILD_PROOF"); };
     const schema = parent.ctx.tools.schemas(parent).find(tool => tool.name === row.name)!;
@@ -205,7 +205,7 @@ for (const [toolTopology, sameDefinition] of [["per-role", false], ["parameteriz
   } });
   const enteredA = gate(), enteredB = gate(), releaseA = gate(), releaseB = gate(), endedB = gate();
   try {
-    const parent = await f.create();
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" });
     const children = new Map<string, Agent>(), results = new Map<string, ToolExecutionResult>(), tokens = new Set<unknown>();
     f.ctx.on("agent/created", ({ agent }) => { if (agent.session.header.origin === "subagent") children.set(agent.options.model!, agent); }, { global: true });
     f.ctx.on("agent/disposed", ({ agent }) => { if (agent === children.get("held-B")) endedB.release(); }, { global: true });

@@ -16,7 +16,7 @@ test("background role receipts wait for the exact native child's admission", asy
   const entered = gate(), proceed = gate();
   let running: Promise<unknown> | undefined;
   try {
-    const parent = await f.create(), admission = f.ctx.dsmmNativeAdmission;
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" }), admission = f.ctx.dsmmNativeAdmission;
     const ensure = admission.ensure.bind(admission);
     let child: Agent | undefined, settled = false;
     t.mock.method(admission, "ensure", async (agent: Agent) => {
@@ -47,7 +47,7 @@ test("background role receipts wait for the exact native child's admission", asy
 test("failed child admission disposes a native background activation instead of returning an accepted receipt", async t => {
   const f = await nativeRoutingFixture({ defaultActive: true, subagents: { enableRunInBackground: true } }, { headless: true });
   try {
-    const parent = await f.create(), admission = f.ctx.dsmmNativeAdmission;
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" }), admission = f.ctx.dsmmNativeAdmission;
     const ensure = admission.ensure.bind(admission);
     let child: Agent | undefined;
     t.mock.method(admission, "ensure", async (agent: Agent) => {

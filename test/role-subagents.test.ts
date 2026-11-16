@@ -5,10 +5,10 @@ import { nativeRoutingFixture } from "./native-routing-fixture.ts";
 import type { DsmmProfileRuntime } from "../lib/profile-runtime.js";
 import type { DshAgent } from "../lib/dsh-types.js";
 
-test("headless role catalog is ready before assembly, defaults foreground, and follows explicit idle mode changes without desired remounts", async () => {
+test("headless dispatcher catalog is ready before assembly and retains role tools across idle Deepwork mode changes", async () => {
   const f = await nativeRoutingFixture({ defaultActive: true }, { headless: true });
   try {
-    const agent = await f.create();
+    const agent = await f.create({ agentPreset: "dsmm-orchestrator" });
     const admittedAgent = agent as unknown as DshAgent;
     const tools = agent.ctx.tools;
     assert.ok(tools.get("dsmm_reviewer", agent));
@@ -21,7 +21,7 @@ test("headless role catalog is ready before assembly, defaults foreground, and f
     const before = await runtime.getSession(admittedAgent);
     await runtime.selectMode({ sessionId: agent.id, active: false, expectedAdmissionEpoch: before.admissionEpoch, expectedModeRevision: before.deepwork!.revision }, admittedAgent);
     await f.ctx.systemPrompt.assemble({ scope: agent });
-    assert.equal(tools.get("dsmm_reviewer", agent), undefined);
+    assert.ok(tools.get("dsmm_reviewer", agent));
     const off = await runtime.getSession(admittedAgent);
     await runtime.selectMode({ sessionId: agent.id, active: true, expectedAdmissionEpoch: off.admissionEpoch, expectedModeRevision: off.deepwork!.revision }, admittedAgent);
     await f.ctx.systemPrompt.assemble({ scope: agent });
@@ -29,12 +29,12 @@ test("headless role catalog is ready before assembly, defaults foreground, and f
   } finally { await f.dispose(); }
 });
 
-test("native and headless ordinary roots consume the same enabled role policy", async () => {
+test("native and headless dispatcher roots consume the same enabled role policy", async () => {
   const catalogs: string[][] = [];
   for (const headless of [false, true]) {
     const f = await nativeRoutingFixture({ defaultActive: true, roles: { "dsmm-builder": false } }, { headless });
     try {
-      const agent = await f.create();
+      const agent = await f.create({ agentPreset: "dsmm-orchestrator" });
       const catalog = agent.ctx.tools.schemas(agent).map((tool) => tool.name).filter((name) => name.startsWith("dsmm_")).sort();
       assert.equal(catalog.includes("dsmm_builder"), false);
       const category = agent.ctx.tools.schemas(agent).find(row => row.name === "dsmm_category")!;

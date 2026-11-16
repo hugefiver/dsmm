@@ -16,6 +16,10 @@ import { LlmError } from "@deepseek-ai/dsh-llm";
 import type {} from "@deepseek-ai/dsh-api-session-controller";
 
 type Listener = (frame: AgentRequestFrame, next: () => Promise<DshLlmCallConfig>) => Promise<DshLlmCallConfig>;
+function roleSession(id: string): Session {
+  const initial = Session.create(SessionId(id));
+  return Session.create(initial.id, [], { ...initial.header, agentPreset: "dsmm-orchestrator" });
+}
 function harness(config: DsmmPluginConfig = {}, admitted = false) {
   let listener: Listener | undefined;
   let assemble: ((_assembly: unknown, context: { agent: AgentRequestFrame["agent"]; signal: AbortSignal }, next: () => Promise<void>) => Promise<void>) | undefined;
@@ -118,17 +122,17 @@ test("manual selection made after assembly does not override the captured native
   } finally { h.dispose(); }
 });
 
-test("a fresh root model intent never rewrites native downstream parameters or an assembled route", async () => {
-  const h = harness(), session = Session.create(SessionId("routing-native-root"));
+test("a fresh DSMM root model intent never rewrites native downstream parameters or an assembled route", async () => {
+  const h = harness(), session = roleSession("routing-native-root");
   h.frame.agent.session = session as unknown as AgentRequestFrame["agent"]["session"];
   session.append("step/start", { turn: 1, step: 1 });
-  session.append("model/selection", { provider: "native", model: "manual" });
+  const manual = session.append("model/selection", { provider: "native", model: "manual" });
   const downstream = { provider: "native", model: "assembled", temperature: 0, maxTokens: 80, stop: ["END"], reasoningEffort: "native-default" };
   try {
     await h.assemble();
     assert.equal(await h.listener!(h.frame, async () => downstream), downstream);
     const lock = roleRouteLock(h.frame.agent, liveRolePolicyIdentity(h.frame.agent, h.settings, "dsmm-orchestrator")!)!;
-    assert.equal(lock.manualSelectionSeq, 1);
+    assert.equal(lock.manualSelectionSeq, manual.seq);
     assert.equal(lock.route.model, "assembled");
     assert.equal(lock.route.temperature, 0);
     assert.equal(lock.route.maxTokens, 80);
@@ -192,7 +196,7 @@ test("configured deployment needs exact admission and enabled Deepwork before ro
   const primary = { provider: "profile", model: "primary" }, downstream = { provider: "native", model: "baseline" };
   for (const [admitted, enabled] of [[false, true], [true, false]] as const) {
     const h = harness({ rootModelPolicy: "configured", modules: { deepwork: { enabled } }, roleRouting: { "dsmm-orchestrator": { primary } } }, admitted);
-    h.frame.agent.session = Session.create(SessionId(`configured-eligibility-${admitted}-${enabled}`));
+    h.frame.agent.session = roleSession(`configured-eligibility-${admitted}-${enabled}`);
     try {
       assert.equal(await h.listener!(h.frame, async () => downstream), downstream);
       assert.equal(preparedRequestRouting(h.frame)!.decision.configuredRoot, false);
@@ -203,7 +207,7 @@ test("configured deployment needs exact admission and enabled Deepwork before ro
 test("rc.1 configured request mismatch throws LlmError without selecting a later step", async () => {
   const primary = { provider: "profile", model: "primary", reasoningEffort: "high" };
   const h = harness({ rootModelPolicy: "configured", roleRouting: { "dsmm-orchestrator": { primary } } }, true);
-  const session = Session.create(SessionId("configured-request-mismatch"));
+  const session = roleSession("configured-request-mismatch");
   h.frame.agent.session = session; session.append("step/start", { turn: 1, step: 1 });
   let selections = 0;
   Object.assign(h.frame.agent, { model: { current: () => ({ provider: "native", model: "fixed", reasoningEffort: "low" }), select() { selections++; } } });
@@ -218,7 +222,7 @@ test("rc.1 configured request mismatch throws LlmError without selecting a later
 test("rc.1 configured matching selection preserves downstream controls and opaque parameters", async () => {
   const primary = { provider: "profile", model: "primary" };
   const h = harness({ rootModelPolicy: "configured", roleRouting: { "dsmm-orchestrator": { primary } } }, true);
-  const session = Session.create(SessionId("configured-request-parameters"));
+  const session = roleSession("configured-request-parameters");
   h.frame.agent.session = session; session.append("step/start", { turn: 1, step: 1 });
   Object.assign(h.frame.agent, { model: { current: () => primary, select() {} } });
   h.frame.agent.ctx = { get(name) { return (name === "llm" ? { resolveCallConfig: async (call: DshLlmCallConfig) => call } : undefined) as never; } };
@@ -230,7 +234,7 @@ test("rc.1 configured matching selection preserves downstream controls and opaqu
 test("rc.1 matching keeps downstream-only controls while explicit candidate fields win", async () => {
   const primary = { provider: "profile", model: "primary-explicit", temperature: 0.8 };
   const h = harness({ rootModelPolicy: "configured", roleRouting: { "dsmm-orchestrator": { primary } } }, true);
-  const session = Session.create(SessionId("configured-request-priority"));
+  const session = roleSession("configured-request-priority");
   h.frame.agent.session = session; session.append("step/start", { turn: 1, step: 1 });
   Object.assign(h.frame.agent, { model: { current: () => primary, select() {} } });
   h.frame.agent.ctx = { get(name) { return (name === "llm" ? { resolveCallConfig: async (call: DshLlmCallConfig) => call } : undefined) as never; } };
@@ -244,7 +248,7 @@ test("profile route rollback restores only its own latest selection event", asyn
     const primary = { provider: "fixture", model: "profile-primary" }, native = { provider: "fixture", model: "native" };
     const settings = resolveConfig({ defaultActive: true, rootModelPolicy: "configured", roleRouting: { "dsmm-orchestrator": { primary } } });
     const admission: DsmmProfileAdmission = { settings, epoch: `rollback-${concurrent}`, scope: "deployment-baseline", profile: null };
-    const session = Session.create(SessionId(`profile-route-rollback-${concurrent}`));
+    const session = roleSession(`profile-route-rollback-${concurrent}`);
     let current: DshModelSelection = { ...native };
     const model = { current: () => ({ ...current }), select(selection: DshModelSelection) {
       if (current.provider === selection.provider && current.model === selection.model && current.reasoningEffort === selection.reasoningEffort) return;
@@ -295,7 +299,7 @@ test("profile rollback restores the prior policy identity and exact lock budget"
   const oldSettings = resolveConfig({ defaultActive: true, rootModelPolicy: "configured",
     roleRouting: { "dsmm-orchestrator": { primary: oldPrimary, fallbackRoutes: [oldFallback] } } });
   const oldAdmission: DsmmProfileAdmission = { settings: oldSettings, epoch: "old-policy", scope: "deployment-baseline", profile: null };
-  const session = Session.create(SessionId("profile-policy-rollback"));
+  const session = roleSession("profile-policy-rollback");
   let current: DshModelSelection = { provider: "fixture", model: "native" };
   const model = { current: () => ({ ...current }), select(selection: DshModelSelection) {
     if (current.provider === selection.provider && current.model === selection.model && current.reasoningEffort === selection.reasoningEffort) return;
@@ -326,29 +330,31 @@ test("profile rollback restores the prior policy identity and exact lock budget"
   assert.equal(oldLock.startupSettled, true); assert.equal(oldLock.retries, 2); assert.equal(oldLock.switches, 1); assert.equal(oldLock.rateLimits, 3);
 });
 
-test("mode-off configured preflight failure is cached until the role becomes active", async () => {
+test("ordinary mode activation never preflights a configured DSMM route or changes native selection", async () => {
   const primary = { provider: "fixture", model: "unavailable" };
   const settings = resolveConfig({ defaultActive: false, rootModelPolicy: "configured", roleRouting: { "dsmm-orchestrator": { primary } } });
-  const admission: DsmmProfileAdmission = { settings, epoch: "mode-off-cache", scope: "deployment-baseline", profile: null };
-  const session = Session.create(SessionId("mode-off-route-cache"));
+  const admission: DsmmProfileAdmission = { settings, epoch: "ordinary-mode", scope: "deployment-baseline", profile: null };
+  const session = Session.create(SessionId("ordinary-mode-route"));
   const native = { provider: "fixture", model: "native" };
-  const model = { current: () => native, select() { throw new Error("mode-off must not select"); } };
-  const llm = { resolveModelInfo: async () => { throw new Error("unused"); }, resolveCallConfig: async () => { throw new LlmError("unavailable", "UNKNOWN_MODEL"); } };
+  const model = { current: () => native, select() { throw new Error("ordinary mode must not select"); } };
+  let preflights = 0;
+  const llm = { resolveModelInfo: async () => { throw new Error("unused"); }, resolveCallConfig: async () => { preflights++; throw new LlmError("unavailable", "UNKNOWN_MODEL"); } };
   const context: DshContext = { get(name) { return (name === "llm" ? llm : undefined) as never; }, llm };
   const agent = { session, model, ctx: context } as unknown as AgentRequestFrame["agent"];
-  const candidate = await prepareAdmissionModelRoute(context, new DeepworkModeController(context), agent,
-    { settings, epoch: admission.epoch, admission, signal: new AbortController().signal, assertCurrent() {} });
-  assert.ok(candidate);
-  assert.equal(candidate.install(admission), undefined);
-  session.append("deepwork/mode", { active: true });
-  assert.throws(() => candidate.install(admission), error => error instanceof LlmError && error.code === "UNKNOWN_MODEL");
-  assert.deepEqual(model.current(), native);
+  for (const active of [false, true]) {
+    session.append("deepwork/mode", { active });
+    const candidate = await prepareAdmissionModelRoute(context, new DeepworkModeController(context), agent,
+      { settings, epoch: admission.epoch, admission, signal: new AbortController().signal, assertCurrent() {} });
+    assert.equal(candidate, undefined);
+    assert.deepEqual(model.current(), native);
+  }
+  assert.equal(preflights, 0);
 });
 
 for (const change of ["admission", "mode", "owner", "frame", "generation"] as const) test(`configured routing rejects ${change} changes across async preparation or prepared consumption`, async () => {
   const primary = { provider: "profile", model: "primary" };
   const config = { rootModelPolicy: "configured" as const, roleRouting: { "dsmm-orchestrator": { primary } } };
-  const h = harness(config, true), session = Session.create(SessionId(`configured-fence-${change}`));
+  const h = harness(config, true), session = roleSession(`configured-fence-${change}`);
   h.frame.agent.session = session;
   session.append("step/start", { turn: 1, step: 1 });
   let release!: () => void, entered!: () => void;
@@ -377,7 +383,7 @@ for (const change of ["admission", "mode", "owner", "frame", "generation"] as co
 test("configured policy never adopts an arbitrary non-chain durable Host header", async () => {
   const primary = { provider: "profile", model: "primary" }, native = { provider: "native", model: "outside-chain" };
   const h = harness({ rootModelPolicy: "configured", roleRouting: { "dsmm-orchestrator": { primary } } }, true);
-  const session = Session.create(SessionId("configured-persisted-policy"));
+  const session = roleSession("configured-persisted-policy");
   h.frame.agent.session = session;
   session.append("step/start", { turn: 1, step: 1 });
   h.frame.agent.ctx = { get(name) { return (name === "llm" ? { resolveCallConfig: async (call: DshLlmCallConfig) => call } : undefined) as never; } };

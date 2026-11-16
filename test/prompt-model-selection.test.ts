@@ -182,7 +182,7 @@ test("structured prompt routes isolate provider metadata and preserve complete n
 test("common activation composes once ahead of selected layers and respects explicit section overrides", () => {
   const activation = BASE_DEEPWORK_PROMPT.split("\n\n---\n\n")[0].replaceAll("{{modeName}}", DEFAULT_DSMM_SETTINGS.modeName);
   assert.ok(activation.length > 0);
-  for (const selectedPreset of [undefined, "dsmm-planner", "dsmm-builder", "dsmm-research"]) {
+  for (const selectedPreset of ["dsmm-orchestrator", "dsmm-planner", "dsmm-builder", "dsmm-research"]) {
     for (const model of ["kimi-k3.1", "gemini-4-argon", "gpt-6.1-sol"]) {
       const route = Object.freeze({ provider: "fixture", model, reasoningEffort: "low" });
       const prompt = buildDeepworkPrompt(DEFAULT_DSMM_SETTINGS, { selectedPreset, route });
@@ -192,7 +192,7 @@ test("common activation composes once ahead of selected layers and respects expl
       assert.deepEqual(route, { provider: "fixture", model, reasoningEffort: "low" });
     }
   }
-  const override = buildDeepworkPrompt(DEFAULT_DSMM_SETTINGS, { overrideSection: "[fixture:custom]", route: { provider: "fixture", model: "gemini-4-argon" } });
+  const override = buildDeepworkPrompt(DEFAULT_DSMM_SETTINGS, { selectedPreset: "dsmm-orchestrator", overrideSection: "[fixture:custom]", route: { provider: "fixture", model: "gemini-4-argon" } });
   assert.ok(override.startsWith("[fixture:custom]"));
   assert.equal(override.includes(activation), false);
   assert.ok(override.includes(marker("deepwork/gemini-4.md")));
@@ -252,7 +252,7 @@ test("non-target compact markers and malformed numeric tails cannot select dedic
 test("Gemini 4 wildcard and compact names compose each role layer once in order", () => {
   for (const model of ["gemini-4.x", "gemini-4.x-pro@default", "gemini4", "gemini4.1:latest"]) {
     for (const [roleId, layers] of [
-      [undefined, ["gemini", "gemini-4"]], ["dsmm-builder", ["gemini", "gemini-4"]],
+      ["dsmm-orchestrator", ["gemini", "gemini-4"]], ["dsmm-builder", ["gemini", "gemini-4"]],
       ["dsmm-planner", ["planner", "gemini-4"]], ["dsmm-research", ["category:gemini", "gemini-4"]]
     ] as const) {
       const prompt = buildDeepworkPrompt(DEFAULT_DSMM_SETTINGS, { roleId, route: { provider: "fixture", model } });
@@ -269,7 +269,7 @@ test("Gemini 4 wildcard and compact names compose each role layer once in order"
   }
   for (const provider of ["google", "google-vertex", "gemini-4-provider"]) {
     for (const model of ["unrelated", "4.x", "4.x-pro@default"]) {
-      const prompt = buildDeepworkPrompt(DEFAULT_DSMM_SETTINGS, { route: { provider, model } });
+      const prompt = buildDeepworkPrompt(DEFAULT_DSMM_SETTINGS, { roleId: "dsmm-orchestrator", route: { provider, model } });
       assert.equal(prompt.includes(marker("deepwork/gemini-4.md")), false, `${provider}/${model}`);
     }
   }
@@ -278,7 +278,7 @@ test("Gemini 4 wildcard and compact names compose each role layer once in order"
 test("Kimi generation layers are exclusive and follow planner and category layers", () => {
   for (const [model, additive] of [["kimi-k3", "kimi"], ["k3", "kimi"], ["k3.0", "kimi"], ["kimi-latest", "kimi"],
     ["kimi-k3.1", "kimi-k3-1"], ["k3p1", "kimi-k3-1"], ["kimi-k4", "kimi-k3-1"]] as const) {
-    for (const [roleId, prefix] of [[undefined, []], ["dsmm-builder", []],
+    for (const [roleId, prefix] of [["dsmm-orchestrator", []], ["dsmm-builder", []],
       ["dsmm-planner", [marker("deepwork/planner.md")]], ["dsmm-research", ["[fixture:category:unknown]"]]] as const) {
       const prompt = buildDeepworkPrompt(DEFAULT_DSMM_SETTINGS, { roleId, route: { provider: "fixture", model } });
       let previous = prompt.indexOf(marker("deepwork/default.md"));

@@ -23,7 +23,7 @@ test("source role tools preserve selected profile strategies and correlate live 
             rateLimit: { maxRetries: 2, initialDelayMs: 0, maxDelayMs: 0, maxTotalDelayMs: 0, switchAfterRateLimits: 2, maxSwitches: 1 }
           } } } }) });
         await runtime.select({ id: saved.id, expectedRevision: saved.revision, expectedSelectionRevision: (await runtime.describe()).selectionRevision });
-        const parent = await fixture.create();
+        const parent = await fixture.create({ agentPreset: "dsmm-orchestrator" });
         const child = await fixture.createAuxiliary("dsmm-reviewer", undefined, "continuable", parent);
         const admission = runtime.admission(child as unknown as DshAgent);
         assert.equal(admission.appliedRevision, runtime.admission(parent as unknown as DshAgent).appliedRevision);
@@ -90,7 +90,7 @@ test("native role tools preserve startup availability, later-turn locks and inde
         rateLimit: { maxRetries: 0, initialDelayMs: 0, maxDelayMs: 0, maxTotalDelayMs: 0, switchAfterRateLimits: 1, maxSwitches: 1 }
       } } } }) });
       await runtime.select({ id: saved.id, expectedRevision: saved.revision, expectedSelectionRevision: (await runtime.describe()).selectionRevision });
-      const parent = await fixture.create();
+      const parent = await fixture.create({ agentPreset: "dsmm-orchestrator" });
       const child = await fixture.createAuxiliary(role, undefined, "continuable", parent);
       const admission = runtime.admission(child as unknown as DshAgent);
       const calls = fixture.adapter.calls.length;

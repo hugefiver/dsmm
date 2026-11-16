@@ -174,7 +174,7 @@ test("a parent's explicit native model choice does not replace auxiliary role de
   const fixture = await nativeRoutingFixture({ defaultActive: true, subagents: { allowRouteOverride: true }, roleRouting: { "dsmm-orchestrator": { primary }, "dsmm-reviewer": { primary: reviewer } } });
   try {
     const selection: ModelSelectionRef = { current: { ...primary, reasoningEffort: ReasoningEffortId("max") }, assembled: undefined };
-    const parent = await fixture.create({}, selection); await nativeSelect(parent, selection, manual); await runFixtureTurn(parent);
+    const parent = await fixture.create({ agentPreset: "dsmm-orchestrator" }, selection); await nativeSelect(parent, selection, manual); await runFixtureTurn(parent);
     for (const overridden of [false, true]) {
       const childAgent = await fixture.createAuxiliary("dsmm-reviewer", undefined, "one-shot", parent,
         overridden ? { agentOptions: { ...manual, reasoningEffort: ReasoningEffortId("low") } } : {});

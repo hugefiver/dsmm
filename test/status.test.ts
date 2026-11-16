@@ -144,7 +144,7 @@ test("admitted configured roots expose role routes and actual recovery state wit
     primary: { provider: "configured", model: "primary" },
     fallbackRoutes: [{ provider: "configured", model: "backup" }], strategy: "rate-limit-fallback"
   } } });
-  const { agent, appended } = createAgent();
+  const { agent, appended } = createAgent({ headerPreset: "dsmm-orchestrator" });
   const admission = { settings, profile: null, epoch: "configured-status", scope: "deployment-baseline" as const };
   const runtimeState = { role: "dsmm-orchestrator" as const, strategy: "rate-limit-fallback" as const,
     rateLimit: settings.runtimePolicy.rateLimit, route: { provider: "configured", model: "backup" },
@@ -155,8 +155,12 @@ test("admitted configured roots expose role routes and actual recovery state wit
   assert.equal(snapshot.rolePolicy.strategy, "rate-limit-fallback");
   assert.deepEqual(snapshot.rolePolicy.runtimeState, runtimeState);
   assert.equal(snapshot.runtimeRecovery.fallbackRouteCount, 1);
+  assert.deepEqual(createDsmmStatusSnapshot({ agent, settings, admission, modeActive: false }).rolePolicy.primary,
+    settings.roleRouting["dsmm-orchestrator"]?.primary, "explicit mode-off retains the standing role route");
+  const ordinary = createAgent({ headerPreset: "standard" }).agent;
   for (const input of [
-    { agent, settings, admission, modeActive: false },
+    { agent: ordinary, settings, admission, modeActive: false },
+    { agent: ordinary, settings, admission, modeActive: true },
     { agent, settings, modeActive: true },
     { agent, settings, admission: { ...admission, settings: resolveConfig() }, modeActive: true },
     { agent, settings: { ...settings, modules: { deepwork: { enabled: false } } }, admission, modeActive: true }
@@ -173,7 +177,7 @@ test("configured-root actual route stays unknown before a request and then follo
   const settings = resolveConfig({ rootModelPolicy: "configured", roleRouting: { "dsmm-orchestrator": {
     primary: { provider: "configured", model: "primary" }
   } } });
-  const { agent } = createAgent({ provider: "native", model: "unused-baseline" });
+  const { agent } = createAgent({ headerPreset: "dsmm-orchestrator", provider: "native", model: "unused-baseline" });
   const admission = { settings, profile: null, epoch: "unrequested", scope: "deployment-baseline" as const };
   const snapshot = () => createDsmmStatusSnapshot({ agent, settings, admission, modeActive: true });
   assert.deepEqual(snapshot().route, { family: "unknown" });
