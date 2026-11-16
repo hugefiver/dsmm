@@ -7,10 +7,10 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 import { bootstrapFacade, carrierBootstrap, COMPOSITION_ID, createBootGraph } from "../scripts/profile-ui-harness-browser.mjs";
-import { extractNativeThemeStyles } from "../scripts/profile-ui-harness-server.mjs";
+import { THEME_CLIENT_IDS } from "../scripts/profile-ui-harness-server.mjs";
 
 const available = process.env.DSMM_TEST_DSH_ENTRY && process.env.DSMM_TEST_PLAYWRIGHT_ENTRY;
-const nativeIds = ["@deepseek-ai/dsh-client-modules", "@deepseek-ai/dsh-client-connection", "@deepseek-ai/dsh-client-locale", "@deepseek-ai/dsh-client-ui-renderer", "@deepseek-ai/dsh-typert-registry", "@deepseek-ai/dsh-api-gateway", "@deepseek-ai/dsh-client-ui-tool"];
+const nativeIds = ["@deepseek-ai/dsh-client-modules", "@deepseek-ai/dsh-client-connection", "@deepseek-ai/dsh-client-locale", "@deepseek-ai/dsh-client-ui-renderer", "@deepseek-ai/dsh-typert-registry", "@deepseek-ai/dsh-api-gateway", "@deepseek-ai/dsh-client-ui-tool", "@deepseek-ai/dsh-client-file-upload", "@deepseek-ai/dsh-api-session-controller", ...THEME_CLIENT_IDS];
 
 // The installed ToolCallTree and Slot renderer are unchanged. Only their session
 // source and transcript records are fixture data; no Host or provider is started.
@@ -18,13 +18,13 @@ const composition = `window.__ModuleLoader__.load({id:${JSON.stringify(COMPOSITI
   const React=require('react');
   const {installConnection}=require('@deepseek-ai/dsh-client-connection/client');
   const {LocaleRuntime}=require('@deepseek-ai/dsh-client-locale/client');
-  const {PartialArguments}=require('dsmm-test-arguments');
+  const {PartialArguments,en,zh}=require('dsmm-test-arguments');
   const source=value=>{const listeners=new Set();return {getSnapshot:()=>value,subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn)},set:next=>{value=next;listeners.forEach(fn=>fn())}}};
   return {inject:['slots'],apply(ctx){
-    installConnection(ctx,{transport:{rpc:window.__dsmmOwnedCarrier,ownsHost:true}});
+    installConnection(ctx,{interactions:'answer',transport:{rpc:window.__dsmmOwnedCarrier,ownsHost:true}});
     const locale=new LocaleRuntime(ctx,undefined,{languages:['en','zh'],preference:'en'});
     ctx.provide('locale',locale);ctx.slots.installLocale(locale);
-    locale.register('conversation',{en:{},zh:{}});
+    locale.register('conversation',{en,zh});
     const binding=source({key:'owned-role-tool-session',ctx,hooks:{},keyedHooks:{},props:{sessionId:'owned-role-tool-session'}});
     ctx.slots.installScope('session',{current:binding,bindingSource:()=>binding,renderArea:(_binding,props)=>props.children});
     let preparingArgs=new PartialArguments();
@@ -42,9 +42,12 @@ const composition = `window.__ModuleLoader__.load({id:${JSON.stringify(COMPOSITI
     }
     ctx.slots.register({name:'root',children:{'conversation.chat.node':{kind:'keyed',scope:'session'}}},Surface);
     window.__dsmmUiContext=ctx;
+    window.__roleSlotErrors=[];
+    ctx.slots.onEntryError((slot,entry,error)=>window.__roleSlotErrors.push({message:String(error),slot}));
     window.__roleTool={
       requested:rootArgs,
-      partial(value){const replaced=!value.startsWith(raw);if(!replaced)preparingArgs.append(value.slice(raw.length));else{preparingArgs=new PartialArguments();preparingArgs.append(value)}raw=value;
+      nativeLabels:{task:en['detail.field.task'],inspect:en['row.inspect']},
+      partial(value){const replaced=!value.startsWith(raw)||transcript.getSnapshot().phase!=='preparing';if(!replaced)preparingArgs.append(value.slice(raw.length));else{preparingArgs=new PartialArguments();preparingArgs.append(value)}raw=value;
         if((preparingArgs.refresh()||replaced)&&transcript.getSnapshot().phase==='preparing')transcript.set({...transcript.getSnapshot(),args:preparingArgs})},
       start(name='dsmm_role'){transcript.set({phase:'start',name,callId:'role-call',args:preparingArgs.settle(raw),argsRaw:raw,subCalls:[]})},
       result(meta,options={}){transcript.set({kind:'tool-result',seq:7,time:0,callId:'role-call',call:options.noCall?null:{name:options.name??'dsmm_role',argsRaw:raw},callTime:0,
@@ -54,6 +57,7 @@ const composition = `window.__ModuleLoader__.load({id:${JSON.stringify(COMPOSITI
       inspectIds:()=>inspectIds,
       locale(value){locale.setLocale(value)},
       slots:()=>ctx.slots.snapshot(),
+      session(sessionId){binding.set({key:sessionId,ctx,hooks:{},keyedHooks:{},props:{sessionId}})},
     };
     document.body.style.overflow='auto';document.getElementById('root').style.height='auto';
   }};
@@ -67,18 +71,21 @@ async function serve(sdk, bundle, argumentsBundle) {
   const bundles = new Map(), rows = [];
   bundles.set('/bundles/arguments.js', Buffer.from(argumentsBundle));
   rows.push({ id: 'dsmm-test-arguments', url: '/bundles/arguments.js', inject: [] });
-  for (const [i, id] of nativeIds.entries()) {
+  const presentationIds = [...nativeIds];
+  const contextMenuId = '@deepseek-ai/dsh-client-ui-context-menu';
+  try { sdk.resolve(`${contextMenuId}/package.json`); presentationIds.push(contextMenuId); }
+  catch (error) { if (error.code !== 'MODULE_NOT_FOUND') throw error; }
+  for (const [i, id] of presentationIds.entries()) {
     const url = `/bundles/native-${i}.js`;
     const manifestPath = sdk.resolve(`${id}/package.json`), manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
     const clientEntry = manifest.exports['./client'];
     bundles.set(url, await readFile(resolve(dirname(manifestPath), clientEntry.browser ?? clientEntry.default)));
-    rows.push({ id, url, inject: id.endsWith("dsh-api-gateway") ? ["@deepseek-ai/dsh-typert-registry", COMPOSITION_ID] : id.endsWith("dsh-client-ui-tool") ? ["@deepseek-ai/dsh-api-gateway", COMPOSITION_ID] : [] });
+    rows.push({ id, url, inject: id === contextMenuId ? [COMPOSITION_ID, '@deepseek-ai/dsh-client-shortcuts'] : THEME_CLIENT_IDS.includes(id) || id.endsWith('dsh-client-file-upload') || id.endsWith('dsh-api-session-controller') ? manifest.dsh.client.inject : id.endsWith("dsh-api-gateway") ? ["@deepseek-ai/dsh-typert-registry", COMPOSITION_ID] : id.endsWith("dsh-client-ui-tool") ? ["@deepseek-ai/dsh-api-gateway", COMPOSITION_ID, ...(presentationIds.includes(contextMenuId) ? [contextMenuId] : [])] : [] });
   }
   bundles.set("/bundles/composition.js", Buffer.from(composition));
   rows.push({ id: COMPOSITION_ID, url: "/bundles/composition.js", inject: ["@deepseek-ai/dsh-client-ui-renderer", "dsmm-test-arguments"], external: ["@deepseek-ai/dsh-client-connection/client", "@deepseek-ai/dsh-client-locale/client"] });
   bundles.set("/bundles/adapter.js", Buffer.from(bundle));
   rows.push({ id: "@dsmm/dsmm", url: "/bundles/adapter.js", inject: ["@deepseek-ai/dsh-client-ui-tool", COMPOSITION_ID] });
-  bundles.set("/bundles/theme.css", Buffer.from(extractNativeThemeStyles(await readFile(sdk.resolve("@deepseek-ai/dsh-client-ui-theme/client"), "utf8"))));
   const graph = createBootGraph(rows, "role-tool-owned-source");
   const bootstrap = `${bootstrapFacade()}
     const createModules=window.__ModuleLoader__.create;
@@ -87,7 +94,7 @@ async function serve(sdk, bundle, argumentsBundle) {
       system.manifest={...system.manifest,plugins:system.manifest.plugins.filter(row=>row.id!=='dsmm-test-arguments')};
       return system;
     };`;
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Native role ToolCall acceptance</title>${files.filter(file => /^(index|vendor)-.*\.css$/u.test(file)).map(file => `<link rel="stylesheet" href="/native/assets/${file}">`).join("")}<link rel="stylesheet" href="/bundles/theme.css"><script>${bootstrap}${carrierBootstrap()}window.__DSH_BOOT__=${JSON.stringify(graph)};</script>${rows.map(row => `<script src="${row.url}"></script>`).join("")}</head><body><div id="root"></div><script type="module" src="/native/assets/${index}"></script></body></html>`;
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Native role ToolCall acceptance</title>${files.filter(file => /^(index|vendor)-.*\.css$/u.test(file)).map(file => `<link rel="stylesheet" href="/native/assets/${file}">`).join("")}<script>${bootstrap}${carrierBootstrap()}window.__DSH_BOOT__=${JSON.stringify(graph)};</script>${rows.map(row => `<script src="${row.url}"></script>`).join("")}</head><body><div id="root"></div><script type="module" src="/native/assets/${index}"></script></body></html>`;
   const server = createServer((req, res) => { void (async () => {
     const url = new URL(req.url, "http://127.0.0.1");
     if (req.method !== "GET") { res.writeHead(405).end(); return; }
@@ -113,32 +120,43 @@ test("role adapter preserves the native ToolCall owner through pending, result a
   const { build } = browserTools(browserTools.resolve("esbuild", { paths: nodePaths }));
   const { chromium } = browserTools("playwright");
   const temporaryParent = await realpath(tmpdir()), owned = await realpath(await mkdtemp(join(temporaryParent, "dsmm-role-native-")));
-  let browser, server;
+  let browser, server, nativeBackend, releaseChild;
+  const nativeStreams = new Map(), nativeRequests = [];
   try {
     await cp(fileURLToPath(new URL("../src/", import.meta.url)), join(owned, "src"), { recursive: true });
     const output = await build({ stdin: { contents: `
       import {registerRoleToolViews} from './RoleToolView.tsx';
       import {RoleCallObservationController} from './role-call-observations.ts';
+      import {ROLE_CONTROL_REMOTE} from '../role-control-remote.ts';
       export const inject=['slots','locale','remote'];
       export function apply(ctx){
         const controller=new RoleCallObservationController();
         registerRoleToolViews(ctx,controller);
-        let healthy=true,calls=[],opens=0;
+        let healthy=true,calls=[],opens=0,nativeScope;
         const pending=new Set();
-        const unbind=controller.bindConnection(ctx.remote,async function*(sessionId,signal){
+        let unbind=controller.bindConnection(ctx.remote,async function*(sessionId,signal){
           opens++;
           if(!healthy)throw new Error('fixture transport unavailable');
           yield {type:'snapshot',sessionId,admissionEpoch:'a'.repeat(64),calls};
-          const failure=await new Promise(resolve=>{
-            const abort=()=>{pending.delete(fail);resolve(undefined)};
-            const fail=error=>{signal.removeEventListener('abort',abort);pending.delete(fail);resolve(error)};
-            pending.add(fail);signal.addEventListener('abort',abort,{once:true});
-            if(signal.aborted)abort();
-          });
-          if(failure!==undefined)throw failure;
+          while(!signal.aborted){
+            const event=await new Promise(resolve=>{
+              const abort=()=>{pending.delete(deliver);resolve(undefined)};
+              const deliver=event=>{signal.removeEventListener('abort',abort);pending.delete(deliver);resolve(event)};
+              pending.add(deliver);signal.addEventListener('abort',abort,{once:true});
+              if(signal.aborted)abort();
+            });
+            if(event===undefined)return;
+            if(event instanceof Error)throw event;
+            yield event;
+          }
         });
         window.__roleObservation={
           opens:()=>opens,
+          snapshot(sessionId){const value=controller.source(sessionId).getSnapshot();return {...value,calls:[...value.calls]}},
+          async native(){unbind();await ctx.remote.$mount(ROLE_CONTROL_REMOTE);await new Promise(resolve=>ctx.inject(['remote.dsmmChildren'],scope=>{nativeScope=scope;resolve()}));this.reconnect()},
+          disconnect(){unbind()},
+          reconnect(){unbind=controller.bindConnection(nativeScope.remote,(sessionId,signal)=>nativeScope.remote.dsmmChildren.observe(sessionId,signal))},
+          update(call){calls=calls.filter(row=>row.callId!==call.callId).concat(call);for(const deliver of [...pending])deliver({type:'update',sessionId:'owned-role-tool-session',admissionEpoch:'a'.repeat(64),call})},
           fail(){healthy=false;for(const fail of [...pending])fail(new Error('private fixture diagnostic'))},
           recover(next=[]){healthy=true;calls=next;controller.observeSessionAvailability('owned-role-tool-session',true)}
         };
@@ -151,7 +169,7 @@ test("role adapter preserves the native ToolCall owner through pending, result a
     const dataOutput = await build({ entryPoints: [join(owned, "src/client/RoleToolView-data.ts")], bundle: true, write: false, platform: "browser", format: "esm", nodePaths });
     await writeFile(join(owned, "data.mjs"), dataOutput.outputFiles[0].text, "utf8");
     const data = await import(pathToFileURL(join(owned, "data.mjs")).href);
-    const argumentsBundle = await build({ entryPoints: [sdk.resolve('@deepseek-ai/dsh-util-values')], bundle: true, write: false, platform: 'browser', format: 'cjs', target: 'es2022',
+    const argumentsBundle = await build({ stdin: { contents: `export {PartialArguments} from ${JSON.stringify(sdk.resolve('@deepseek-ai/dsh-util-values'))}; export {en,zh} from ${JSON.stringify(sdk.resolve('@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'))};`, loader:'ts', resolveDir:owned }, bundle: true, write: false, platform: 'browser', format: 'cjs', target: 'es2022',
       banner: { js: 'window.__ModuleLoader__.load({id:"dsmm-test-arguments",factory:(require)=>{const module={exports:{}};const exports=module.exports;' }, footer: { js: 'return module.exports;}});' } });
     const meta = { role: "dsmm-reviewer", label: "real invocation", level: "high", routeSource: "primary", mode: "one-shot", route: { provider: "fixture", model: "model-a", reasoningEffort: "exact" } };
     assert.equal(data.actualRoleTool("dsmm_role", meta, false)?.role, "dsmm-reviewer");
@@ -167,12 +185,36 @@ test("role adapter preserves the native ToolCall owner through pending, result a
     await context.route("**/*", route => new URL(route.request().url()).origin === server.origin ? route.continue() : route.abort());
     const page = await context.newPage(), errors = [];
     page.on("pageerror", error => errors.push(error.message));
-    await page.exposeBinding("__dsmmNativeBridge", () => ({ ok: false, error: { code: "gateway/unavailable", message: "Unavailable", details: {} } }));
+    await page.exposeBinding("__dsmmNativeBridge", async (_source, request) => {
+      if (nativeBackend !== undefined && request.operation === 'open') nativeRequests.push({endpoint:request.endpoint,payload:request.payload});
+      if (request.operation === 'cancel') {
+        const stream = nativeStreams.get(request.id);
+        if (stream !== undefined) { stream.abort.abort(); await stream.iterator.return?.(); nativeStreams.delete(request.id); }
+        return {ok:true};
+      }
+      if (request.operation === 'next') {
+        const stream = nativeStreams.get(request.id);
+        return {ok:true,value:stream === undefined ? {done:true} : await stream.iterator.next()};
+      }
+      if (nativeBackend !== undefined && request.operation === 'open' && request.channel === '/api') {
+        const abort = new AbortController();
+        try {
+          const iterable = await nativeBackend.ctx.typertGateway.wireStream.open(request.endpoint,request.payload,(async function*(){})(),
+            nativeBackend.ctx.connection.browserPeer,abort.signal);
+          nativeStreams.set(request.id,{abort,iterator:iterable[Symbol.asyncIterator]()});
+          return {ok:true};
+        } catch(error) { return {ok:false,error:nativeBackend.ctx.typertGateway.wireStream.failure(error)}; }
+      }
+      return { ok: false, error: { code: "gateway/unavailable", message: "Unavailable", details: {} } };
+    });
     await page.goto(server.origin);
+    await page.waitForFunction(()=>window.__roleObservation !== undefined && window.__roleTool !== undefined);
+    const evidence = process.env.DSMM_ROLE_TOOL_EVIDENCE_DIR;
+    if(evidence)await mkdir(evidence,{recursive:true});
     const card = page.locator('[data-dsmm-role-tool="dsmm_role"]');
     try { await card.waitFor({ timeout: 10_000 }); }
     catch (error) {
-      console.error(await page.evaluate(() => ({ text: document.body.innerText, slots: window.__dsmmUiContext?.slots.snapshot(), modules: window.__dsmmNativeModules?.entries.state.getSnapshot(), imports: [...(window.__dsmmNativeModules?.loadCache.keys() ?? [])] })), errors);
+      console.error(await page.evaluate(() => ({ text: document.body.innerText, slots: JSON.stringify(window.__dsmmUiContext?.slots.snapshot()), slotErrors: window.__roleSlotErrors, modules: window.__dsmmNativeModules?.entries.state.getSnapshot(), imports: [...(window.__dsmmNativeModules?.loadCache.keys() ?? [])] })), errors);
       throw error;
     }
     assert.equal(await page.locator('[data-chat-call-id="role-call"]').count(), 1);
@@ -207,7 +249,7 @@ test("role adapter preserves the native ToolCall owner through pending, result a
     assert.doesNotMatch(await card.innerText(), /transport\/internal/u);
     assert.equal(await page.evaluate(() => window.__roleObservation.opens()), 2);
     assert.equal(await card.getByRole("button", { name: /Call Builder[\s\S]*pretend to be Oracle max/u }).count(), 1);
-    await card.getByRole("button", { name: "Inspect tool call", exact: true }).click();
+    await card.getByRole("button", { name: "View call details", exact: true }).click();
     assert.deepEqual(await page.evaluate(() => window.__roleTool.inspectIds()), ["role-call"]);
     await page.evaluate(value => window.__roleTool.result(value), meta);
     await page.waitForFunction(() => document.querySelector('[data-dsmm-role-tool]')?.getAttribute('data-identity') === 'actual');
@@ -239,9 +281,7 @@ test("role adapter preserves the native ToolCall owner through pending, result a
     assert.equal(await tablePanel.getAttribute("hidden"), "", "table panel hidden after switching to json");
     assert.equal(await card.getByRole("table").count(), 0);
     assert.match(await card.innerText(), /"routeSource":\s*"primary"/u);
-    const evidence = process.env.DSMM_ROLE_TOOL_EVIDENCE_DIR;
     if (evidence) {
-      await mkdir(evidence, { recursive: true });
       await page.evaluate(async () => {
         document.body.setAttribute("data-ds-dark-theme", "");
         await Promise.all(document.getAnimations().map(a => a.finished));
@@ -364,7 +404,7 @@ test("role adapter preserves the native ToolCall owner through pending, result a
         }
       }
     }
-    await page.evaluate(value => window.__roleTool.result({ ...value, jobId: "owned-job" }), meta);
+    await page.evaluate(value => window.__roleTool.result({ ...value, mode: "continuable", delivery: "parent", phase: "active" }), meta);
     assert.equal(await card.getAttribute("data-state"), "background");
     assert.match(await card.innerText(), /Background/u);
     await page.evaluate(() => { window.__roleTool.partial('{"category":"dsmm-creative","description":"claims planner"}'); window.__roleTool.result({ role:'dsmm-creative',label:'creative',level:'normal',routeSource:'inherited',mode:'continuable',childId:'owned-child' },{name:'dsmm_category'}); });
@@ -387,17 +427,121 @@ test("role adapter preserves the native ToolCall owner through pending, result a
     assert.equal(await page.locator('[data-chat-call-id="owned-subcall"] [data-dsmm-role-tool="dsmm_planner"]').getAttribute("data-identity"), "requested");
     await page.locator('[data-chat-call-id="owned-subcall"]').getByRole("button", { name: "Call Planner", exact: true }).waitFor();
     if (evidence) await page.screenshot({ path: join(evidence, "native-role-tool-ptc-subcall.png"), fullPage: true });
+    const nativeToolNames = await page.evaluate(() => window.__dsmmUiContext.slots.entriesOfSlot('tool.call.toolview').map(entry=>entry.options.key).filter(key=>key==='subagent'||key==='subagent_fork'));
+    assert.ok(nativeToolNames.includes('subagent'));
+    const nativeLabels = await page.evaluate(() => window.__roleTool.nativeLabels);
+    for (const toolName of nativeToolNames) {
+      await page.evaluate(name => { window.__roleTool.partial(JSON.stringify({description:'ordinary native task',prompt:'native original prompt',role:'dsmm-oracle',level:'max'})); window.__roleTool.start(name); }, toolName);
+      assert.equal(await page.locator('[data-dsmm-native-tool]').count(), 0, 'before an exact receipt only the native presentation renders');
+      const nativeRow = page.locator('[data-chat-call-id="role-call"]');
+      assert.ok((await nativeRow.innerText()).length > 0);
+      await page.evaluate(name => window.__roleTool.result({kind:'activation',name:'native-worker'}, {name,content:[{type:'text',text:'started subagent native-worker\ncomplete native output retained'}]}), toolName);
+      const nativeCard = page.locator(`[data-dsmm-native-tool="${toolName}"]`);
+      await nativeCard.waitFor();
+      assert.equal(await nativeCard.getAttribute('data-state'), 'accepted');
+      const originalToggle = nativeRow.getByRole('button').first();
+      if (await originalToggle.getAttribute('aria-expanded') !== 'true') await originalToggle.click();
+      const nativeTask = nativeRow.getByText(nativeLabels.task, {exact:true});
+      if (await nativeTask.count()) await nativeTask.click();
+      assert.match(await nativeRow.innerText(), /native original prompt/u);
+      const inspectedBefore = await page.evaluate(() => window.__roleTool.inspectIds().length);
+      await nativeRow.getByRole('button', {name:nativeLabels.inspect,exact:true}).click();
+      assert.equal(await page.evaluate(() => window.__roleTool.inspectIds().length), inspectedBefore+1);
+      const toggle = nativeCard.getByRole('button', {name:'Native agent · native-worker', exact:true});
+      if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
+      assert.match(await nativeCard.innerText(), /Actual: unknown/u);
+      assert.doesNotMatch(await nativeCard.innerText(), /Oracle|max|normal/u, 'ordinary calls never acquire requested DSMM identity');
+      const observation = {kind:'native',toolName,nativeName:'native-worker',provider:'in-process',parentSessionId:'owned-role-tool-session',parentAdmissionEpoch:'a'.repeat(64),
+        callId:'role-call',rootCallId:'role-call',childId:'native-child',runId:'native-run',phase:'active',delivery:'parent',
+        initialRoute:{status:'unknown',reason:'missing-invocation-capture'},actualRoute:{status:'known',source:'own-native-request-header',route:{provider:'fixture',model:'native-model'}}};
+      await page.evaluate(call => window.__roleObservation.update(call), observation);
+      await page.waitForFunction(() => document.querySelector('[data-dsmm-native-tool]')?.getAttribute('data-state') === 'running');
+      assert.match(await nativeCard.innerText(), /fixture\/native-model · effort not reported/u);
+      assert.match(await nativeCard.innerText(), /native-child/u);
+      for (const width of [375,768,1280]) {
+        await page.setViewportSize({width,height:900});
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `native ${toolName} reflow ${width}`);
+        if(evidence)await page.screenshot({path:join(evidence,`native-${toolName}-${width}.png`),fullPage:true});
+      }
+      await toggle.focus(); await toggle.press('Tab'); await page.keyboard.press('Shift+Tab');
+      assert.equal(await toggle.evaluate(el=>el.matches(':focus-visible') && parseFloat(getComputedStyle(el).outlineWidth)>=2),true);
+      await page.evaluate(() => window.__roleObservation.fail());
+      await nativeCard.locator('[data-observation-status="unavailable"]').waitFor();
+      assert.equal(await nativeCard.getAttribute('data-state'),'accepted');
+      assert.doesNotMatch(await nativeCard.innerText(), /fixture\/native-model/u);
+      await page.evaluate(call => window.__roleObservation.recover([call]), observation);
+      await nativeCard.locator('[data-observation-status="live"]').waitFor();
+      for(const [stopReason,state] of [['completed','completed'],['error','error'],['aborted','stopped']]) {
+        await page.evaluate(call=>window.__roleObservation.update(call), {...observation,phase:'settled',stopReason});
+        await page.waitForFunction(state=>document.querySelector('[data-dsmm-native-tool]')?.getAttribute('data-state')===state,state);
+      }
+      await page.evaluate(name => window.__roleTool.result({kind:'activation',name:'different-worker'}, {name}), toolName);
+      assert.equal(await nativeCard.getAttribute('data-state'),'accepted','reused callId must not select another child');
+      assert.doesNotMatch(await nativeCard.innerText(), /native-model|native-child/u);
+      await page.evaluate(() => window.__roleTool.replay());
+      await page.locator('[data-chat-call-id="replayed-call"]').waitFor();
+      assert.equal(await nativeCard.getAttribute('data-state'),'accepted','replay without lifecycle evidence retains the receipt only');
+      for(const code of ['failed','interrupted']) {
+        await page.evaluate(({name,code})=>window.__roleTool.result(undefined,{name,isError:true,error:{name:'Error',code,reason:'native original failure'}}),{name:toolName,code});
+        assert.equal(await page.locator('[data-dsmm-native-tool]').count(),0,'failed native calls keep their original presenter');
+        assert.ok((await page.locator('[data-chat-call-id="role-call"]').innerText()).length>0);
+      }
+    }
     await page.evaluate(value => window.__roleTool.result(value, { isError: true, error: { name:'AutoReviewDeniedError',code:'AUTO_REVIEW_DENIED',reason:'owned native denial' } }), meta);
     await page.waitForFunction(() => !document.querySelector('[data-dsmm-role-tool]'));
     assert.equal(await page.locator('[data-chat-call-id="role-call"]').count(), 1, "native auto-review denial bypasses the adapter");
     await page.evaluate(value => window.__roleTool.result(value, { noCall: true }), meta);
     await page.waitForFunction(() => !document.querySelector('[data-dsmm-role-tool]'));
     assert.equal(await page.locator('[data-chat-call-id="role-call"]').count(), 1, "windowless call uses native fallback");
+    const {nativeControlFixture,gate} = await import('./role-control-fixture.ts');
+    const {executeFixtureTool,nativeFixturePlugin} = await import('./native-routing-fixture.ts');
+    const {ToolCallId} = await nativeFixturePlugin('@deepseek-ai/dsh-llm');
+    const nativeTool = await nativeFixturePlugin('@deepseek-ai/dsh-tool-subagent');
+    nativeBackend = await nativeControlFixture();
+    await nativeBackend.ctx.plugin(await nativeFixturePlugin('@deepseek-ai/dsh-api-remotes')).await();
+    const held = gate(), entered = gate();
+    releaseChild = held.release;
+    nativeBackend.adapter.beforeStream = () => { entered.release(); return held.promise; };
+    await nativeBackend.ctx.plugin(nativeTool,{provider:'spawn',toolName:'subagent'}).await();
+    const parent = await nativeBackend.create({agentPreset:'standard'});
+    const nativeArgs = {description:'Real native browser task',prompt:'Return a local answer'};
+    await page.evaluate(async ({sessionId,args}) => {
+      await window.__roleObservation.native();
+      window.__roleTool.session(sessionId);
+      window.__roleTool.partial(JSON.stringify(args));window.__roleTool.start('subagent');
+    },{sessionId:parent.id,args:nativeArgs});
+    const receipt = await executeFixtureTool(parent.ctx.tools,{agent:parent,name:'subagent',callId:ToolCallId('role-call'),arguments:nativeArgs,signal:new AbortController().signal});
+    assert.equal(receipt.isError,false);
+    await entered.promise;
+    assert.equal(receipt.meta?.kind,'activation','the native presenter requires a public activation receipt');
+    assert.equal(typeof receipt.meta?.name,'string','this integration exercises the named native Host');
+    await page.evaluate(value=>window.__roleTool.result(value.meta,{name:'subagent',content:value.content}),receipt);
+    const realCard = page.locator('[data-dsmm-native-tool="subagent"]');
+    try { await page.waitForFunction(()=>document.querySelector('[data-dsmm-native-tool]')?.getAttribute('data-state')==='running'); assert.equal(await realCard.getAttribute('data-state'),'running'); }
+    catch(error) { console.error({nativeRequests,receipt,dom:await page.locator('body').innerText(),slotErrors:await page.evaluate(()=>window.__roleSlotErrors),source:await page.evaluate(id=>window.__roleObservation.snapshot(id),parent.id),oldSource:await page.evaluate(()=>window.__roleObservation.snapshot('owned-role-tool-session'))});throw error; }
+    const realToggle = realCard.getByRole('button').first();
+    if(await realToggle.getAttribute('aria-expanded')!=='true')await realToggle.click();
+    await realCard.getByText(new RegExp(nativeBackend.adapter.calls[0].model,'u')).waitFor();
+    const childId = await nativeBackend.subagents.resolveName(parent,receipt.meta.name,new AbortController().signal);
+    assert.match(await realCard.innerText(),new RegExp(childId,'u'));
+    await page.evaluate(()=>window.__roleObservation.disconnect());
+    await realCard.locator('[data-observation-status="unavailable"]').waitFor();
+    assert.equal(nativeBackend.agents.get(childId)?.status,'running','disposing the browser observer does not cancel native work');
+    await page.evaluate(()=>window.__roleObservation.reconnect());
+    await realCard.locator('[data-observation-status="live"]').waitFor();
+    held.release();
+    await page.waitForFunction(()=>document.querySelector('[data-dsmm-native-tool]')?.getAttribute('data-state')==='completed');
+    if(evidence)await page.screenshot({path:join(evidence,'real-native-gateway-settled.png'),fullPage:true});
+    await page.evaluate(()=>window.__roleObservation.disconnect());
     assert.deepEqual(errors, []);
-    t.diagnostic("Real SDK ToolCallTree + native Slot renderer: pending/start/result/replay, table/JSON technical details (no full result content), inspect, keyboard disclosure, error/interruption, background, category, subcalls and windowless native fallback passed at 375/768/1280.");
+    assert.deepEqual(await page.evaluate(() => window.__roleSlotErrors), []);
+    t.diagnostic('Real native tool receipt → Gateway → browser Connection/generated Remote → production observation controller → DOM: held child route, observer disposal without cancellation, reconnect and settled completion passed.');
     await context.close();
   } finally {
-    await browser?.close(); await server?.close();
+    releaseChild?.();
+    for(const stream of nativeStreams.values()) { stream.abort.abort(); await stream.iterator.return?.(); }
+    nativeStreams.clear();
+    await browser?.close(); await server?.close(); await nativeBackend?.dispose();
     if (await realpath(owned) !== owned || dirname(owned) !== temporaryParent || !basename(owned).startsWith("dsmm-role-native-")) throw new Error("Unexpected role fixture cleanup path");
     await rm(owned, { recursive: true });
   }

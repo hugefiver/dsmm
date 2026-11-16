@@ -13,10 +13,10 @@ import { roleToolEn, roleToolZh } from "../src/client/RoleToolView-locales.ts";
 test("native lazy argument reads update requested labels and preserve dispatched, result and replay detail", async () => {
   const sdk = createRequire(process.env.DSMM_TEST_DSH_ENTRY ?? createRequire(import.meta.url).resolve("@deepseek-ai/dsh-client-ui-tool"));
   const { PartialArguments } = sdk("@deepseek-ai/dsh-util-values");
-  const output = await build({ entryPoints: [fileURLToPath(new URL("../src/client/RoleToolView.tsx", import.meta.url))],
+  const output = await build({ stdin: { contents: 'export { RoleToolView, registerRoleToolViews } from "./src/client/RoleToolView.tsx"; export { NativeToolView } from "./src/client/NativeToolView.tsx";', resolveDir: fileURLToPath(new URL("../", import.meta.url)) },
     bundle: true, write: false, platform: "browser", format: "cjs", jsx: "automatic",
     external: ["react", "react/jsx-runtime", "@deepseek-ai/dsh-client-ui-primitives"] });
-  const require = createRequire(import.meta.url), module = { exports: {} as typeof import("../src/client/RoleToolView.tsx") };
+  const require = createRequire(import.meta.url), module = { exports: {} as typeof import("../src/client/RoleToolView.tsx") & Pick<typeof import("../src/client/NativeToolView.tsx"), "NativeToolView"> };
   runInThisContext(`(function(require,module,exports){${output.outputFiles[0].text}\n})`)((id: string) => {
     if (id === "@deepseek-ai/dsh-client-ui-primitives") return {
       Button: (props: object) => createElement("button", props), CodeBlock: ({ code }: { code: string }) => createElement("pre", null, code),
@@ -97,6 +97,18 @@ test("native lazy argument reads update requested labels and preserve dispatched
     assert.ok(inspectBtn); inspectBtn.props.onClick();
   }
   assert.equal(inspect, 2);
+  const nativeView = () => createElement("native-original");
+  const nativeT = (key: string) => key;
+  for (const record of [result, { ...result, isError: true, error: { code: "interrupted" } },
+    { ...result, meta: { kind: "activation", name: "native-worker" } }]) {
+    const native = module.exports.NativeToolView({ ...common, toolName: "subagent", nativeView, nativeT, phase: "result", block: record } as Parameters<typeof module.exports.NativeToolView>[0]);
+    const original = native.props.children[0];
+    assert.equal(original.type, nativeView);
+    assert.equal(original.props.block, record, "the native presenter receives the entire original result including non-text output");
+    assert.equal(original.props.inspect, common.inspect);
+    assert.equal(original.props.useDisclosure, common.useDisclosure);
+    assert.equal(original.props.t, nativeT);
+  }
   const resultWithDesc = { ...result, call: { name: "dsmm_role", argsRaw: rawWithDesc } };
   assert.equal(heading(render("result", resultWithDesc)), "Call Reviewer");
   assert.match(desc(render("result", resultWithDesc)), /task goal/u);
@@ -186,6 +198,7 @@ test("native lazy argument reads update requested labels and preserve dispatched
   const sharedSource = { getSnapshot: () => observedState, subscribe: () => () => {} };
   module.exports.registerRoleToolViews({ effect() {}, locale: { register() {} }, slots: {
     inject(_name: string, install: () => void) { install(); },
+    entries() { return []; }, subscribe() { return () => {}; },
     register(options: { key: string; inject(sessionId: string): { hooks: { roleCalls: object } } }, component: unknown) {
       registrations.push({ options, component }); return () => {};
     },
@@ -203,7 +216,7 @@ test("native role tool cards expose invocation identity and preserve output and 
 }, t => {
   const env = { ...process.env };
   delete env.NODE_TEST_CONTEXT;
-  const child = spawnSync(process.execPath, ["--test", fileURLToPath(new URL("./client-role-tool-view-native.test.mjs", import.meta.url))], {
+  const child = spawnSync(process.execPath, ["--experimental-strip-types", "--import", fileURLToPath(new URL("./host-llm-source-loader.mjs", import.meta.url)), "--test", fileURLToPath(new URL("./client-role-tool-view-native.test.mjs", import.meta.url))], {
     env, encoding: "utf8", timeout: 170_000, maxBuffer: 8 * 1024 * 1024,
   });
   assert.ifError(child.error);

@@ -51,7 +51,7 @@ export function actualRoleTool(toolName: string, meta: unknown, failed: boolean)
 }
 
 export function observedRoleTool(toolName: string, observation: RoleCallObservation): DsmmInvocationView | undefined {
-  if (!(toolName === "dsmm_category" ? categories : roles).has(observation.role)) return undefined;
+  if (observation.kind === "native" || !(toolName === "dsmm_category" ? categories : roles).has(observation.role)) return undefined;
   return { role: observation.role, label: roleToolDisplay(observation.role), level: observation.level,
     routeSource: observation.routeSource, mode: "continuable", childId: observation.childId,
     ...(observation.runId === undefined ? {} : { runId: observation.runId }),

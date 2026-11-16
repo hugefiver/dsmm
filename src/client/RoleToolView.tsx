@@ -7,6 +7,7 @@ import { useState } from "react";
 import { Button, CodeBlock, DisclosureRow, IconAgentPresetOutlineRegular, SegmentedControl, StateDot, TextShimmer } from "@deepseek-ai/dsh-client-ui-primitives";
 import { actualRoleTool, observedRoleTool, preparingRoleTool, requestedRoleTool, roleToolDisplay, roleToolKeys, technicalJsonData, technicalTableRows } from "./RoleToolView-data.js";
 import { ROLE_TOOL_NS, roleToolEn, roleToolZh } from "./RoleToolView-locales.js";
+import { registerNativeToolViews } from "./NativeToolView.js";
 import type { RoleCallObservationController, RoleCallObservationState } from "./role-call-observations.js";
 
 type ObservationInject = { hooks: { roleCalls: HostObservable<RoleCallObservationState> } };
@@ -193,6 +194,7 @@ export function registerRoleToolViews(ctx: Context, observations: RoleCallObserv
   ctx.slots.inject("tool.call.toolview", () => {
     const disposers = [...Object.keys(roleToolKeys), "dsmm_role", "dsmm_category"].map(key => ctx.slots.register({ name: "tool.call.toolview", key, locale: ROLE_TOOL_NS,
       inject: sessionId => ({ hooks: { roleCalls: observations.source(sessionId) } }) }, RoleToolView));
+    disposers.push(registerNativeToolViews(ctx, observations));
     return () => { for (const dispose of disposers.reverse()) dispose(); };
   });
 }

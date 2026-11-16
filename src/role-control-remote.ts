@@ -119,20 +119,30 @@ function observedActualRoute(value: unknown): RoleCallActualRoute {
   return { status: "unknown", reason: row.reason as Extract<RoleCallActualRoute, { status: "unknown" }>["reason"] };
 }
 function roleCall(value: unknown): RoleCallObservation {
-  const row = object(value, ["parentSessionId", "parentAdmissionEpoch", "callId", "rootCallId", "childId", "role", "level", "routeSource", "initialRoute", "actualRoute", "phase", "delivery"], ["childAdmissionEpoch", "runId", "stopReason"]);
-  const role = parseDsmmRoleId(row.role);
-  if (role === "dsmm-orchestrator") fail();
+  const native = typeof value === "object" && value !== null && "kind" in value && value.kind === "native";
+  const commonKeys = ["parentSessionId", "parentAdmissionEpoch", "callId", "rootCallId", "childId", "initialRoute", "actualRoute", "phase", "delivery"];
+  const row = object(value, [...commonKeys, ...native ? ["kind", "toolName"] : ["role", "level", "routeSource"]],
+    ["childAdmissionEpoch", "runId", "stopReason", ...native ? ["provider", "nativeName"] : ["kind"]]);
   const childId = identity(row.childId), initialRoute = observedInitialRoute(row.initialRoute), actualRoute = observedActualRoute(row.actualRoute);
   const phase = choice(row.phase, ROLE_CALL_PHASES), delivery = choice(row.delivery, ROLE_CALL_DELIVERIES);
   const stopReason = Object.hasOwn(row, "stopReason") ? choice(row.stopReason, ROLE_CALL_STOP_REASONS) : undefined;
   if (stopReason !== undefined && phase !== "settled") fail();
-  return { parentSessionId: identity(row.parentSessionId), parentAdmissionEpoch: epoch(row.parentAdmissionEpoch),
+  const common = { parentSessionId: identity(row.parentSessionId), parentAdmissionEpoch: epoch(row.parentAdmissionEpoch),
     ...(Object.hasOwn(row, "childAdmissionEpoch") ? { childAdmissionEpoch: epoch(row.childAdmissionEpoch) } : {}),
     callId: callIdentity(row.callId), rootCallId: callIdentity(row.rootCallId), childId,
-    ...(Object.hasOwn(row, "runId") ? { runId: identity(row.runId) } : {}), role,
-    level: choice(row.level, ["normal", "low", "high", "max"] as const), routeSource: choice(row.routeSource, DSMM_ROUTE_SOURCES),
-    initialRoute, actualRoute, phase, delivery,
+    ...(Object.hasOwn(row, "runId") ? { runId: identity(row.runId) } : {}), actualRoute, phase, delivery,
     ...(stopReason === undefined ? {} : { stopReason }) };
+  if (native) {
+    if (initialRoute.status !== "unknown") fail();
+    return { ...common, kind: "native", toolName: callIdentity(row.toolName), initialRoute,
+      ...(Object.hasOwn(row, "provider") ? { provider: callIdentity(row.provider) } : {}),
+      ...(Object.hasOwn(row, "nativeName") ? { nativeName: callIdentity(row.nativeName) } : {}) };
+  }
+  if (Object.hasOwn(row, "kind") && row.kind !== "role") fail();
+  const role = parseDsmmRoleId(row.role);
+  if (role === "dsmm-orchestrator") fail();
+  return { ...common, ...(row.kind === "role" ? { kind: "role" as const } : {}), role,
+    level: choice(row.level, ["normal", "low", "high", "max"] as const), routeSource: choice(row.routeSource, DSMM_ROUTE_SOURCES), initialRoute };
 }
 function observationFrame(value: unknown): RoleCallObservationFrame {
   const row = object(value, ["type", "sessionId", "admissionEpoch"], ["calls", "call", "callId"]), sessionId = identity(row.sessionId), admissionEpoch = epoch(row.admissionEpoch);

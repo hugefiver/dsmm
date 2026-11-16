@@ -22,7 +22,7 @@ export type RoleCallInitialRoute =
 export type RoleCallActualRoute =
   | { readonly status: "known"; readonly source: "own-native-request-header"; readonly route: RoleCallModelRoute }
   | { readonly status: "unknown"; readonly reason: "no-own-request-header" | "invalid-own-request-header" | "not-observed" };
-export interface RoleCallObservation {
+interface CallObservationBase {
   readonly parentSessionId: string;
   readonly parentAdmissionEpoch: string;
   readonly childAdmissionEpoch?: string;
@@ -30,15 +30,26 @@ export interface RoleCallObservation {
   readonly rootCallId: string;
   readonly childId: string;
   readonly runId?: string;
-  readonly role: Exclude<import("./roles.js").DsmmRoleId, "dsmm-orchestrator">;
-  readonly level: DsmmInvocationLevel;
-  readonly routeSource: DsmmRouteSource;
-  readonly initialRoute: RoleCallInitialRoute;
   readonly actualRoute: RoleCallActualRoute;
   readonly phase: RoleCallPhase;
   readonly delivery: RoleCallDelivery;
   readonly stopReason?: RoleCallStopReason;
 }
+export interface RoleInvocationObservation extends CallObservationBase {
+  readonly kind?: "role";
+  readonly role: Exclude<import("./roles.js").DsmmRoleId, "dsmm-orchestrator">;
+  readonly level: DsmmInvocationLevel;
+  readonly routeSource: DsmmRouteSource;
+  readonly initialRoute: RoleCallInitialRoute;
+}
+export interface NativeCallObservation extends CallObservationBase {
+  readonly kind: "native";
+  readonly toolName: string;
+  readonly provider?: string;
+  readonly nativeName?: string;
+  readonly initialRoute: Extract<RoleCallInitialRoute, { status: "unknown" }>;
+}
+export type RoleCallObservation = RoleInvocationObservation | NativeCallObservation;
 export type RoleCallObservationFrame =
   | { readonly type: "snapshot"; readonly sessionId: string; readonly admissionEpoch: string; readonly calls: readonly RoleCallObservation[] }
   | { readonly type: "update"; readonly sessionId: string; readonly admissionEpoch: string; readonly call: RoleCallObservation }

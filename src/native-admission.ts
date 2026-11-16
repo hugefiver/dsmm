@@ -7,7 +7,7 @@ import { SessionId } from "@deepseek-ai/dsh-session";
 import { ReasoningEffortId } from "@deepseek-ai/dsh-llm";
 import { SubagentError, delegationDepthOf, foldSubagentDescriptor } from "@deepseek-ai/dsh-subagent";
 import type { SubagentProvider, SubagentActivation, ContinuableCreateRequest, SubagentRunInfo, SubagentRunEndInfo } from "@deepseek-ai/dsh-subagent";
-import type { ToolExecution, ToolExecutionResult } from "@deepseek-ai/dsh-tools";
+import type { ToolDefinition, ToolExecution, ToolExecutionResult } from "@deepseek-ai/dsh-tools";
 import type { DshAgent } from "./dsh-types.js";
 import type { DsmmAdmissionRouteInfo, DsmmAdmissionRouteInstallation, DsmmPreparedAdmissionRoute } from "./model-routing.js";
 import type { DsmmProfileRuntime } from "./profile-runtime.js";
@@ -36,16 +36,13 @@ import type { DsmmInvocationView } from "./profile-types.js";
 import { ROLE_CALL_STOP_REASONS } from "./role-control-types.js";
 import type { RoleCallActualRoute, RoleCallDelivery, RoleCallModelRoute, RoleCallObservation, RoleCallObservationFrame, RoleCallStopReason } from "./role-control-types.js";
 
-interface RoleCallRecord {
+interface CallRecordBase {
   readonly parent: Agent;
   readonly parentAdmission: DsmmProfileAdmission;
   readonly token: ToolExecution["token"];
   readonly callId: string;
   readonly rootCallId: string;
   readonly childId: SessionId;
-  readonly invocation: ResolvedRoleInvocation;
-  readonly role: Exclude<DsmmRoleId, "dsmm-orchestrator">;
-  readonly label: string;
   readonly provider: string;
   readonly delivery: RoleCallDelivery;
   child?: Agent;
@@ -54,6 +51,33 @@ interface RoleCallRecord {
   phase: "reserved" | "active" | "settled";
   actualRoute: RoleCallActualRoute;
   stopReason?: RoleCallStopReason;
+}
+
+interface RoleCallRecord extends CallRecordBase {
+  readonly kind: "role";
+  readonly invocation: ResolvedRoleInvocation;
+  readonly role: Exclude<DsmmRoleId, "dsmm-orchestrator">;
+  readonly label: string;
+}
+interface NativeCallRecord extends CallRecordBase {
+  readonly kind: "native";
+  readonly toolName: string;
+  readonly nativeName?: string;
+}
+type CallRecord = RoleCallRecord | NativeCallRecord;
+interface NativeActivationEvidence {
+  readonly info: SubagentRunInfo;
+  readonly child: Agent;
+  readonly childAdmission?: DsmmProfileAdmission;
+  header?: { readonly config: unknown };
+  end?: SubagentRunEndInfo;
+}
+interface NativeToolObservation {
+  readonly parent: Agent;
+  readonly admission: DsmmProfileAdmission;
+  readonly definition: ToolDefinition;
+  readonly execute: ToolDefinition["execute"];
+  readonly activations: Map<SessionId, NativeActivationEvidence>;
 }
 
 type RoleCallSubscriberChange = { readonly type: "update"; readonly call: RoleCallObservation } | { readonly type: "remove"; readonly callId: string };
@@ -138,12 +162,14 @@ export class NativeAdmission {
   private readonly blankUpdates = new WeakMap<Agent, Promise<void>>();
   private readonly getters = new WeakMap<Agent, DsmmSettingsGetter>();
   private readonly executions = new WeakMap<Agent, Set<ToolExecution["token"]>>();
-  private readonly observedCalls = new WeakMap<Agent, Map<string, RoleCallRecord>>();
-  private readonly observedCallRecords = new WeakMap<Agent, Set<RoleCallRecord>>();
+  private readonly observedCalls = new WeakMap<Agent, Map<string, CallRecord>>();
+  private readonly observedCallRecords = new WeakMap<Agent, Set<CallRecord>>();
   private readonly ambiguousCallIds = new WeakMap<Agent, Set<string>>();
   private readonly observedCallTokens = new Map<ToolExecution["token"], RoleCallRecord>();
-  private readonly observedCallChildren = new Map<SessionId, RoleCallRecord>();
-  private readonly observedCallRuns = new Map<string, RoleCallRecord>();
+  private readonly observedCallChildren = new Map<SessionId, CallRecord>();
+  private readonly nativeToolObservations = new Map<ToolExecution["token"], NativeToolObservation>();
+  private readonly nativeToolExecution = new AsyncLocalStorage<ToolExecution["token"]>();
+  private readonly observedCallRuns = new Map<string, CallRecord>();
   private readonly callSubscribers = new Set<RoleCallSubscriber>();
   private readonly providerScopes = new Map<object, boolean>();
   private readonly opaqueAgents = new WeakSet<Agent>();
@@ -158,7 +184,7 @@ export class NativeAdmission {
     scopeLifetime(ctx, "dsmm: close admission before owner teardown", () => {
       this.lifetime.abort(); this.pending.clear();
       for (const subscriber of this.callSubscribers) subscriber.notify();
-      this.observedCallTokens.clear(); this.observedCallChildren.clear(); this.observedCallRuns.clear();
+      this.observedCallTokens.clear(); this.observedCallChildren.clear(); this.observedCallRuns.clear(); this.nativeToolObservations.clear();
       for (const agent of this.agents) agent.cancel({ kind: "disposed" });
     });
     ctx.effect(() => async () => {
@@ -218,13 +244,14 @@ export class NativeAdmission {
     ctx.on("agent/pre-step", async (frame, next) => { await this.guardExecution(frame.agent); return next(); }, { global: true, prepend: true });
     ctx.on("agent/request", async (frame, next) => { await this.guardExecution(frame.agent); return next(); }, { global: true, prepend: true });
     ctx.on("tools/execute", async (exec, next) => {
-      if (exec.agent && await this.guardExecution(exec.agent) === "native") return next();
-      return policy.duringToolExecution(exec, next);
+      const native = exec.agent && await this.guardExecution(exec.agent) === "native";
+      return this.nativeToolExecution.run(exec.token, () => native ? next() : policy.duringToolExecution(exec, next));
     }, { global: true, prepend: true });
     ctx.on("tools/pre-execute", async (exec, next) => {
       if (exec.agent) {
         this.trackExecution(exec);
-        if (await this.guardExecution(exec.agent) === "native") return next();
+        await this.guardExecution(exec.agent);
+        this.beginNativeToolObservation(exec);
       }
       return next();
     }, { global: true, prepend: true });
@@ -247,12 +274,12 @@ export class NativeAdmission {
   bindAdmissionModelSelection(hook: (agent: Agent, info: DsmmAdmissionRouteInfo) => Promise<DsmmPreparedAdmissionRoute | undefined>): void {
     this.admissionModelSelection = hook;
   }
-  private callsFor(parent: Agent): Map<string, RoleCallRecord> {
+  private callsFor(parent: Agent): Map<string, CallRecord> {
     let calls = this.observedCalls.get(parent);
     if (calls === undefined) { calls = new Map(); this.observedCalls.set(parent, calls); }
     return calls;
   }
-  private recordsFor(parent: Agent): Set<RoleCallRecord> {
+  private recordsFor(parent: Agent): Set<CallRecord> {
     let records = this.observedCallRecords.get(parent);
     if (records === undefined) { records = new Set(); this.observedCallRecords.set(parent, records); }
     return records;
@@ -261,17 +288,21 @@ export class NativeAdmission {
     return Object.freeze({ provider: route.provider, model: route.model,
       ...(route.reasoningEffort === undefined ? {} : { reasoningEffort: route.reasoningEffort }) });
   }
-  private observedCall(record: RoleCallRecord): RoleCallObservation {
-    return Object.freeze({ parentSessionId: record.parent.id, parentAdmissionEpoch: record.parentAdmission.epoch,
+  private observedCall(record: CallRecord): RoleCallObservation {
+    const common = { parentSessionId: record.parent.id, parentAdmissionEpoch: record.parentAdmission.epoch,
       ...(record.childAdmission === undefined ? {} : { childAdmissionEpoch: record.childAdmission.epoch }),
       callId: record.callId, rootCallId: record.rootCallId, childId: record.childId,
-      ...(record.runId === undefined ? {} : { runId: record.runId }), role: record.role,
-      level: record.invocation.effectiveLevel, routeSource: record.invocation.routeSource,
-      initialRoute: Object.freeze({ status: "known", source: "invocation-capture", route: this.observationRoute(record.invocation.initialRoute) }),
+      ...(record.runId === undefined ? {} : { runId: record.runId }),
       actualRoute: record.actualRoute, phase: record.phase, delivery: record.delivery,
-      ...(record.stopReason === undefined ? {} : { stopReason: record.stopReason }) });
+      ...(record.stopReason === undefined ? {} : { stopReason: record.stopReason }) };
+    return record.kind === "native"
+      ? Object.freeze({ ...common, kind: "native", toolName: record.toolName, provider: record.provider,
+        ...(record.nativeName === undefined ? {} : { nativeName: record.nativeName }),
+        initialRoute: Object.freeze({ status: "unknown", reason: "missing-invocation-capture" }) })
+      : Object.freeze({ ...common, role: record.role, level: record.invocation.effectiveLevel, routeSource: record.invocation.routeSource,
+        initialRoute: Object.freeze({ status: "known", source: "invocation-capture", route: this.observationRoute(record.invocation.initialRoute) }) });
   }
-  private publishObservedCall(record: RoleCallRecord): void {
+  private publishObservedCall(record: CallRecord): void {
     if (this.observedCalls.get(record.parent)?.get(record.callId) !== record || this.ambiguousCallIds.get(record.parent)?.has(record.callId)) return;
     const call = this.observedCall(record);
     for (const subscriber of this.callSubscribers) {
@@ -330,6 +361,15 @@ export class NativeAdmission {
     });
   }
   private startObservedActivation(info: SubagentRunInfo): void {
+    const child = this.ctx.agents.get(info.id), token = this.nativeToolExecution.getStore();
+    const pending = token === undefined ? undefined : this.nativeToolObservations.get(token);
+    const parentId = (info as SubagentRunInfo & { readonly parentSessionId?: SessionId }).parentSessionId;
+    if (info.local && child !== undefined && pending !== undefined && pending.admission === this.get(pending.parent)
+      && (parentId === undefined || parentId === pending.parent.id)
+      && child.session.header.origin === "subagent" && child.session.header.parentSession === pending.parent.id
+      && nativeIsOwnedBy(this.ctx.agents, child.id, pending.parent) && !pending.activations.has(info.id)) {
+      pending.activations.set(info.id, { info, child, childAdmission: this.get(child) });
+    }
     const record = this.observedCallChildren.get(info.id);
     if (record === undefined || info.provider !== record.provider || !info.local || record.phase === "settled") return;
     if (record.runId !== undefined && record.runId !== info.runId) return;
@@ -338,11 +378,18 @@ export class NativeAdmission {
     this.publishObservedCall(record);
   }
   private endObservedActivation(info: SubagentRunEndInfo): void {
+    const parentId = (info as SubagentRunEndInfo & { readonly parentSessionId?: SessionId }).parentSessionId;
+    for (const pending of this.nativeToolObservations.values()) {
+      const evidence = pending.activations.get(info.id);
+      if (evidence?.info.runId === info.runId && evidence.info.provider === info.provider && info.local
+        && (parentId === undefined || parentId === pending.parent.id)) evidence.end = info;
+    }
     const record = this.observedCallRuns.get(info.runId);
-    if (record === undefined || record.childId !== info.id || record.provider !== info.provider || !info.local) return;
+    if (record === undefined || record.childId !== info.id || record.provider !== info.provider || !info.local
+      || parentId !== undefined && parentId !== record.parent.id) return;
     this.settleObservedActivation(record, info.stopReason);
   }
-  private settleObservedActivation(record: RoleCallRecord, stopReason?: string): void {
+  private settleObservedActivation(record: CallRecord, stopReason?: string): void {
     if (record.phase === "settled") return;
     record.phase = "settled";
     if ((ROLE_CALL_STOP_REASONS as readonly string[]).includes(stopReason ?? "")) record.stopReason = stopReason as RoleCallStopReason;
@@ -359,8 +406,17 @@ export class NativeAdmission {
   }
   private observeCallRequestHeader(session: Agent["session"], value: unknown): void {
     const record = this.observedCallChildren.get(session.id), child = this.ctx.agents.get(session.id);
+    for (const pending of this.nativeToolObservations.values()) {
+      const evidence = pending.activations.get(session.id);
+      if (evidence !== undefined && evidence.end === undefined && evidence.child === child && child.session === session
+        && pending.admission === this.get(pending.parent)) evidence.header = { config: value };
+    }
     if (record === undefined || child === undefined || child !== record.child || child.session !== session
       || record.parentAdmission !== this.get(record.parent) || record.childAdmission !== this.get(child) || record.phase === "settled") return;
+    this.setObservedRoute(record, value);
+    this.publishObservedCall(record);
+  }
+  private setObservedRoute(record: CallRecord, value: unknown): void {
     const config = typeof value === "object" && value !== null ? value as { provider?: unknown; model?: unknown; reasoningEffort?: unknown } : undefined;
     if (typeof config?.provider !== "string" || typeof config.model !== "string"
       || config.reasoningEffort !== undefined && typeof config.reasoningEffort !== "string") {
@@ -372,9 +428,63 @@ export class NativeAdmission {
         record.actualRoute = Object.freeze({ status: "known", source: "own-native-request-header", route: Object.freeze(route) });
       } catch { record.actualRoute = Object.freeze({ status: "unknown", reason: "invalid-own-request-header" }); }
     }
-    this.publishObservedCall(record);
+  }
+  private beginNativeToolObservation(exec: Readonly<ToolExecution>): void {
+    const parent = exec.agent, admission = parent && this.get(parent);
+    if (parent === undefined || admission === undefined) return;
+    const tools = this.ctx.get("agentPresets")?.serviceFor(parent, "tools") ?? parent.ctx.tools;
+    const definition = tools.get(exec.name, parent), schema = definition?.output.schema;
+    const identity = schema?.properties?.name !== undefined ? "name" : "subagentId";
+    if (definition === undefined || schema?.type !== "object" || schema.additionalProperties !== false
+      || schema.properties?.kind?.const !== "activation" || schema.properties[identity]?.type !== "string"
+      || !schema.required?.includes("kind") || !schema.required.includes(identity)
+      || Object.keys(schema.properties).length !== 2) return;
+    this.nativeToolObservations.set(exec.token, { parent, admission, definition, execute: definition.execute, activations: new Map() });
+  }
+  private async finishNativeToolObservation(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>, pending: NativeToolObservation): Promise<void> {
+    try {
+      if (pending.activations.size === 0 || result.isError || typeof result.value !== "object" || result.value === null || Array.isArray(result.value)
+        || result.value.kind !== "activation") return;
+      const nativeName = typeof result.value.name === "string" && result.value.name.length > 0 ? result.value.name : undefined;
+      const runtime = this.ctx.get("subagents") as (Context["subagents"] & {
+        resolveName?(parent: Agent, name: string, signal: AbortSignal): Promise<SessionId>;
+      }) | undefined;
+      const childId = nativeName === undefined
+        ? typeof result.value.subagentId === "string" && result.value.subagentId.length > 0 ? SessionId(result.value.subagentId) : undefined
+        : await runtime?.resolveName?.(pending.parent, nativeName, this.lifetime.signal);
+      const tools = this.ctx.get("agentPresets")?.serviceFor(pending.parent, "tools") ?? pending.parent.ctx.tools;
+      const evidence = childId === undefined ? undefined : pending.activations.get(childId);
+      if (this.nativeToolObservations.get(exec.token) !== pending || this.lifetime.signal.aborted
+        || this.get(pending.parent) !== pending.admission || this.ctx.agents.get(pending.parent.id) !== pending.parent
+        || exec.agent !== pending.parent || tools.get(exec.name, pending.parent) !== pending.definition
+        || pending.definition.execute !== pending.execute || evidence === undefined || childId === undefined) return;
+      if (evidence.end === undefined && (this.ctx.agents.get(childId) !== evidence.child
+        || !nativeIsOwnedBy(this.ctx.agents, childId, pending.parent))) return;
+      const record: NativeCallRecord = { kind: "native", parent: pending.parent, parentAdmission: pending.admission,
+        token: exec.token, callId: String(exec.callId), rootCallId: String(exec.rootCallId), childId,
+        toolName: exec.name, provider: evidence.info.provider, ...(nativeName === undefined ? {} : { nativeName }),
+        child: evidence.child, childAdmission: this.get(evidence.child) ?? evidence.childAdmission,
+        runId: evidence.info.runId, phase: "active", delivery: "parent", actualRoute: { status: "unknown", reason: "no-own-request-header" } };
+      if (evidence.header !== undefined) this.setObservedRoute(record, evidence.header.config);
+      const calls = this.callsFor(pending.parent);
+      let ambiguous = this.ambiguousCallIds.get(pending.parent);
+      if (ambiguous === undefined) { ambiguous = new Set(); this.ambiguousCallIds.set(pending.parent, ambiguous); }
+      const duplicate = calls.has(record.callId) || ambiguous.has(record.callId);
+      this.recordsFor(pending.parent).add(record);
+      if (duplicate) { ambiguous.add(record.callId); calls.delete(record.callId); this.publishObservedRemoval(pending.parent, pending.admission, record.callId); }
+      else calls.set(record.callId, record);
+      if (evidence.end !== undefined) this.settleObservedActivation(record, evidence.end.stopReason);
+      else {
+        this.observedCallChildren.set(childId, record); this.observedCallRuns.set(evidence.info.runId, record);
+        this.publishObservedCall(record);
+      }
+    } catch (error) {
+      if (!this.lifetime.signal.aborted) this.ctx.logger.debug("Native call observation unavailable: %s", error instanceof Error ? error.message : String(error));
+    } finally { if (this.nativeToolObservations.get(exec.token) === pending) this.nativeToolObservations.delete(exec.token); }
   }
   private finishObservedTool(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): void {
+    const native = this.nativeToolObservations.get(exec.token);
+    if (native !== undefined) void this.finishNativeToolObservation(exec, result, native);
     const record = this.observedCallTokens.get(exec.token);
     if (record === undefined) return;
     this.observedCallTokens.delete(exec.token);
@@ -384,6 +494,7 @@ export class NativeAdmission {
     }
   }
   private retireObservedParent(parent: Agent): void {
+    for (const [token, pending] of this.nativeToolObservations) if (pending.parent === parent) this.nativeToolObservations.delete(token);
     for (const record of this.observedCallRecords.get(parent) ?? []) {
       this.observedCallTokens.delete(record.token);
       if (this.observedCallChildren.get(record.childId) === record) this.observedCallChildren.delete(record.childId);
@@ -686,7 +797,7 @@ export class NativeAdmission {
       if (ambiguous === undefined) { ambiguous = new Set(); this.ambiguousCallIds.set(parent, ambiguous); }
       const duplicate = calls.has(callId) || ambiguous.has(callId);
       if (duplicate) { ambiguous.add(callId); calls.delete(callId); }
-      const observation: RoleCallRecord = { parent, parentAdmission, token: exec.token, callId, rootCallId, childId, invocation, role,
+      const observation: RoleCallRecord = { kind: "role", parent, parentAdmission, token: exec.token, callId, rootCallId, childId, invocation, role,
         label, provider: provider.name, delivery, phase: "reserved", actualRoute: Object.freeze({ status: "unknown", reason: "not-observed" }) };
       const pending: Pending = Object.freeze({ childId, parent, parentAdmission, callId: exec.callId, invocation, admission, provider, expectedPreset, presetScope, signal, maxDepth, toolFilter, observation });
       this.recordsFor(parent).add(observation);
