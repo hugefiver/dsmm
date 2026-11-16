@@ -5,7 +5,8 @@ import { dirname, extname, isAbsolute, join, relative, resolve } from "node:path
 import { COMPOSITION_ID, bootstrapFacade, carrierBootstrap, compositionBundle, createBootGraph } from "./profile-ui-harness-browser.mjs";
 
 const SESSION_PROVIDER_IDS = ["@deepseek-ai/dsh-api-remote-access", "@deepseek-ai/dsh-api-remotes", "@deepseek-ai/dsh-client-file-upload", "@deepseek-ai/dsh-api-session-controller", "@deepseek-ai/dsh-client-ui-session"];
-export const NATIVE_IDS = ["@deepseek-ai/dsh-client-modules", "@deepseek-ai/dsh-client-connection", "@deepseek-ai/dsh-client-locale", "@deepseek-ai/dsh-client-ui-renderer", "@deepseek-ai/dsh-typert-registry", "@deepseek-ai/dsh-api-gateway", "@deepseek-ai/dsh-client-ui-tool", ...SESSION_PROVIDER_IDS];
+export const THEME_CLIENT_IDS = ["@deepseek-ai/dsh-api-remote-access", "@deepseek-ai/dsh-api-remotes", "@deepseek-ai/dsh-client-ui-settings", "@deepseek-ai/dsh-client-shortcuts", "@deepseek-ai/dsh-client-ui-theme"];
+export const NATIVE_IDS = [...new Set(["@deepseek-ai/dsh-client-modules", "@deepseek-ai/dsh-client-connection", "@deepseek-ai/dsh-client-locale", "@deepseek-ai/dsh-client-ui-renderer", "@deepseek-ai/dsh-typert-registry", "@deepseek-ai/dsh-api-gateway", "@deepseek-ai/dsh-client-ui-tool", ...SESSION_PROVIDER_IDS, ...THEME_CLIENT_IDS])];
 const mime = { ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".woff2": "font/woff2", ".woff": "font/woff", ".ttf": "font/ttf" };
 
 export async function resolveNativeClientBundle(nativeRequire, id) {
@@ -30,9 +31,6 @@ export async function startProfileUiServer({ nativeRequire, packageRoot, sha256,
   assert.equal(indexFiles.length, 1, "native frontend must have exactly one compiled application entry");
   const styles = assets.filter((name) => /^(?:index|vendor)-.*\.css$/u.test(name));
   const bundles = new Map();
-  const themeSource = await readFile(nativeRequire.resolve("@deepseek-ai/dsh-client-ui-theme/client"), "utf8");
-  const themeStyles = extractNativeThemeStyles(themeSource);
-  bundles.set("/bundles/native-theme.css", Buffer.from(themeStyles));
   const rows = [];
   const nativeIds = [...new Set([...NATIVE_IDS, ...libraries])];
   for (const [index, id] of nativeIds.entries()) {
@@ -41,7 +39,7 @@ export async function startProfileUiServer({ nativeRequire, packageRoot, sha256,
     bundles.set(url, await readFile(filename));
     // Scope owners activate unchanged; their installed native metadata owns
     // the full package dependency graph, not harness-invented service aliases.
-    const declaration = SESSION_PROVIDER_IDS.includes(id) ? manifest.dsh.client : undefined;
+    const declaration = SESSION_PROVIDER_IDS.includes(id) || THEME_CLIENT_IDS.includes(id) ? manifest.dsh.client : undefined;
     const inject = declaration?.inject ?? (id === "@deepseek-ai/dsh-api-gateway" ? ["@deepseek-ai/dsh-typert-registry", COMPOSITION_ID]
       : id === "@deepseek-ai/dsh-client-ui-tool" ? ["@deepseek-ai/dsh-api-gateway", COMPOSITION_ID] : []);
     for (const dependency of inject) assert.ok(NATIVE_IDS.includes(dependency) || dependency === COMPOSITION_ID, `${id} requires unprovided native client package ${dependency}`);
@@ -53,7 +51,7 @@ export async function startProfileUiServer({ nativeRequire, packageRoot, sha256,
   rows.push({ id: "@dsmm/dsmm", url: "/bundles/dsmm.js", inject: [COMPOSITION_ID, "@deepseek-ai/dsh-api-gateway", "@deepseek-ai/dsh-client-ui-renderer"] });
   const graph = createBootGraph(rows, sha256);
   const escapeJson = (value) => JSON.stringify(value).replaceAll("<", "\\u003c");
-  const html = renderIndex(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>DSMM native profile component acceptance</title><link rel="icon" href="/native/favicon.svg">${styles.map((name) => `<link rel="stylesheet" href="/native/assets/${name}">`).join("")}<link rel="stylesheet" href="/bundles/native-theme.css"><script>${bootstrapFacade(libraries)}${carrierBootstrap()}window.__DSH_BOOT__=${escapeJson(graph)};</script>${rows.map(({ url }) => `<script src="${url}"></script>`).join("")}</head><body><div id="root"></div><script type="module" src="/native/assets/${indexFiles[0]}"></script></body></html>`);
+  const html = renderIndex(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>DSMM native profile component acceptance</title><link rel="icon" href="/native/favicon.svg">${styles.map((name) => `<link rel="stylesheet" href="/native/assets/${name}">`).join("")}<script>${bootstrapFacade(libraries)}${carrierBootstrap()}window.__DSH_BOOT__=${escapeJson(graph)};</script>${rows.map(({ url }) => `<script src="${url}"></script>`).join("")}</head><body><div id="root"></div><script type="module" src="/native/assets/${indexFiles[0]}"></script></body></html>`);
   const errors = [];
   const server = createServer((request, response) => {
     void (async () => {
@@ -80,12 +78,3 @@ export async function startProfileUiServer({ nativeRequire, packageRoot, sha256,
     async close() { server.closeAllConnections(); await new Promise((resolveClose, reject) => server.close((error) => error ? reject(error) : resolveClose())); } };
 }
 
-/** Parse published JSON string literals, never evaluate or rewrite vendor JS. */
-export function extractNativeThemeStyles(source) {
-  const list = /const STYLES = \[([\s\S]*?)\];/u.exec(source)?.[1];
-  assert.ok(list, "native theme style inventory is unavailable");
-  const values = new Map([...source.matchAll(/var (\w+_css_default) = ("(?:\\.|[^"\\])*");/gu)].map((match) => [match[1], JSON.parse(match[2])]));
-  const names = [...list.matchAll(/\["([^"]+)", (\w+)\]/gu)];
-  assert.ok(names.length >= 4, "native theme inventory is unexpectedly incomplete");
-  return names.map((match) => { assert.ok(values.has(match[2]), `native style ${match[1]} is unavailable`); return values.get(match[2]); }).join("\n");
-}

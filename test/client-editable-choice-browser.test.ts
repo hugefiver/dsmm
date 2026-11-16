@@ -47,7 +47,7 @@ test("editable choices keep highlighted IDs across catalog reorder and cancel re
       footer: { js: "return module.exports;}});" } });
     await writeFile(join(packageRoot, "lib", "client.js"), result.outputFiles![0]!.text);
     server = await startProfileUiServer({ nativeRequire: sdk, packageRoot, sha256: "owned-choice-state", composition: stableCompositionBundle(COMPOSITION_ID) });
-    browser = await chromium.launch({ executablePath: chromium.executablePath(), headless: false, args: ["--disable-extensions", "--disable-sync"] });
+    browser = await chromium.launch({ executablePath: process.env.DSMM_TEST_BROWSER_EXECUTABLE ?? chromium.executablePath(), headless: true, args: ["--disable-extensions", "--disable-sync"] });
     const context = await browser.newContext({ viewport: { width: 768, height: 900 }, serviceWorkers: "block" });
     assert.deepEqual(await context.cookies(), []);
     await context.route("**/*", (route: { request(): { url(): string }; abort(): Promise<void>; continue(): Promise<void> }) =>

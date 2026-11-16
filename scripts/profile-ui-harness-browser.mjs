@@ -8,7 +8,7 @@ export function compositionBundle(options = {}) {
     const {installConnection}=require('@deepseek-ai/dsh-client-connection/client');
     const {LocaleRuntime}=require('@deepseek-ai/dsh-client-locale/client');
     return {inject:['slots'],apply(ctx){
-      installConnection(ctx,{transport:{rpc:window.__dsmmOwnedCarrier,ownsHost:true}});
+      installConnection(ctx,{interactions:'answer',transport:{rpc:window.__dsmmOwnedCarrier,ownsHost:true}});
       const locale=new LocaleRuntime(ctx,undefined,{languages:['en'],preference:'en'});
       ctx.provide('locale',locale);
       ctx.slots.installLocale(locale);
