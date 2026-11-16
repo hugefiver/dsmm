@@ -74,7 +74,15 @@ async function compiledNativePage(remote: DsmmConfigRemote) {
   const context = {
     remote: { $mount() {}, dsmmConfig: remote }, effect() {}, locale: { bind: () => t },
     inject(names: string[], callback: (ctx: unknown) => unknown) { if (names.includes("remote.dsmmConfig")) return callback(this); },
-    slots: { inject(_name: string, callback: () => unknown) { callback(); }, register(options: { name: string; inject(): typeof injected }, view: typeof component) { if (options.name === "plugins.bundle.config") { component = view; injected = options.inject(); core = injected.core; } } },
+    slots: {
+      inject(_name: string, callback: () => unknown) { callback(); },
+      entries() { return []; },
+      subscribe() { return () => {}; },
+      register(options: { name: string; inject(): typeof injected }, view: typeof component) {
+        if (options.name === "plugins.bundle.config") { component = view; injected = options.inject(); core = injected.core; }
+        return () => {};
+      },
+    },
   };
   await module.exports.apply(context as unknown as Context);
   for (let round = 0; round < 100 && core.getSnapshot().busy; round++) await setImmediate();

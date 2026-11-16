@@ -179,7 +179,7 @@ test("role adapter preserves the native ToolCall owner through pending, result a
     assert.equal(data.requestedRoleTool("dsmm_category", '{"category":"dsmm-creative"}').target, "dsmm-creative");
     for (const [key, role] of Object.entries(data.roleToolKeys)) assert.equal(data.requestedRoleTool(key, "bad").target, role);
     server = await serve(sdk, output.outputFiles[0].text, argumentsBundle.outputFiles[0].text);
-    browser = await chromium.launch({ executablePath: process.env.DSMM_BROWSER_EXECUTABLE ?? chromium.executablePath(), headless: true, args: ["--disable-extensions", "--disable-sync"] });
+    browser = await chromium.launch({ executablePath: process.env.DSMM_TEST_BROWSER_EXECUTABLE ?? process.env.DSMM_BROWSER_EXECUTABLE ?? chromium.executablePath(), headless: true, args: ["--disable-extensions", "--disable-sync"] });
     const context = await browser.newContext({ viewport: { width: 375, height: 900 }, serviceWorkers: "block" });
     assert.deepEqual(await context.cookies(), []);
     await context.route("**/*", route => new URL(route.request().url()).origin === server.origin ? route.continue() : route.abort());
