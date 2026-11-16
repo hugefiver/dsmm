@@ -494,35 +494,70 @@ test("role adapter preserves the native ToolCall owner through pending, result a
     await page.waitForFunction(() => !document.querySelector('[data-dsmm-role-tool]'));
     assert.equal(await page.locator('[data-chat-call-id="role-call"]').count(), 1, "windowless call uses native fallback");
     const {nativeControlFixture,gate} = await import('./role-control-fixture.ts');
-    const {executeFixtureTool,nativeFixturePlugin} = await import('./native-routing-fixture.ts');
+    const {executeFixtureTool,nativeFixturePlugin,runFixtureTurn} = await import('./native-routing-fixture.ts');
     const {ToolCallId} = await nativeFixturePlugin('@deepseek-ai/dsh-llm');
     const nativeTool = await nativeFixturePlugin('@deepseek-ai/dsh-tool-subagent');
     nativeBackend = await nativeControlFixture();
     await nativeBackend.ctx.plugin(await nativeFixturePlugin('@deepseek-ai/dsh-api-remotes')).await();
+    await nativeBackend.ctx.plugin(await nativeFixturePlugin('@deepseek-ai/dsh-subagent-fork-in-process'),{providerName:'fork'}).await();
+    await nativeBackend.ctx.plugin(nativeTool,{provider:'spawn',toolName:'subagent'}).await();
+    await nativeBackend.ctx.plugin(nativeTool,{provider:'fork',toolName:'subagent_fork'}).await();
+    assert.equal(nativeBackend.subagents.getProvider('fork').inheritsParentContext,true);
+    await page.evaluate(()=>window.__roleObservation.native());
+    for (const [toolName,provider] of [['subagent','spawn'],['subagent_fork','fork']]) {
+    nativeBackend.adapter.beforeStream = undefined;
+    const parent = await nativeBackend.create({agentPreset:'standard'});
+    if(provider==='fork')await runFixtureTurn(parent);
+    const parentEvents = parent.session.snapshotEvents();
+    const parentHeader = parentEvents.findLast(event=>event.type==='request/header');
+    const parentMessage = parentEvents.find(event=>event.type==='user/message');
     const held = gate(), entered = gate();
     releaseChild = held.release;
     nativeBackend.adapter.beforeStream = () => { entered.release(); return held.promise; };
-    await nativeBackend.ctx.plugin(nativeTool,{provider:'spawn',toolName:'subagent'}).await();
-    const parent = await nativeBackend.create({agentPreset:'standard'});
-    const nativeArgs = {description:'Real native browser task',prompt:'Return a local answer'};
-    await page.evaluate(async ({sessionId,args}) => {
-      await window.__roleObservation.native();
+    const nativeArgs = {description:`Real native ${provider} browser task`,prompt:'Return a local answer'};
+    await page.evaluate(({sessionId,args,toolName}) => {
+      window.__roleObservation.reconnect();
       window.__roleTool.session(sessionId);
-      window.__roleTool.partial(JSON.stringify(args));window.__roleTool.start('subagent');
-    },{sessionId:parent.id,args:nativeArgs});
-    const receipt = await executeFixtureTool(parent.ctx.tools,{agent:parent,name:'subagent',callId:ToolCallId('role-call'),arguments:nativeArgs,signal:new AbortController().signal});
+      window.__roleTool.partial(JSON.stringify(args));window.__roleTool.start(toolName);
+    },{sessionId:parent.id,args:nativeArgs,toolName});
+    const receipt = await executeFixtureTool(parent.ctx.tools,{agent:parent,name:toolName,callId:ToolCallId('role-call'),arguments:nativeArgs,signal:new AbortController().signal});
     assert.equal(receipt.isError,false);
     await entered.promise;
     assert.equal(receipt.meta?.kind,'activation','the native presenter requires a public activation receipt');
     assert.equal(typeof receipt.meta?.name,'string','this integration exercises the named native Host');
-    await page.evaluate(value=>window.__roleTool.result(value.meta,{name:'subagent',content:value.content}),receipt);
-    const realCard = page.locator('[data-dsmm-native-tool="subagent"]');
+    await page.evaluate(({value,toolName})=>window.__roleTool.result(value.meta,{name:toolName,content:value.content}),{value:receipt,toolName});
+    const realCard = page.locator(`[data-dsmm-native-tool="${toolName}"]`);
     try { await page.waitForFunction(()=>document.querySelector('[data-dsmm-native-tool]')?.getAttribute('data-state')==='running'); assert.equal(await realCard.getAttribute('data-state'),'running'); }
     catch(error) { console.error({nativeRequests,receipt,dom:await page.locator('body').innerText(),slotErrors:await page.evaluate(()=>window.__roleSlotErrors),source:await page.evaluate(id=>window.__roleObservation.snapshot(id),parent.id),oldSource:await page.evaluate(()=>window.__roleObservation.snapshot('owned-role-tool-session'))});throw error; }
     const realToggle = realCard.getByRole('button').first();
     if(await realToggle.getAttribute('aria-expanded')!=='true')await realToggle.click();
-    await realCard.getByText(new RegExp(nativeBackend.adapter.calls[0].model,'u')).waitFor();
     const childId = await nativeBackend.subagents.resolveName(parent,receipt.meta.name,new AbortController().signal);
+    const child = nativeBackend.agents.get(childId);
+    const inheritedEventCount = child.session.inheritedEventCount;
+    const childEvents = child.session.snapshotEvents();
+    if(provider==='fork') {
+      assert.ok(parentHeader && parentMessage);
+      assert.ok(parentHeader.seq<inheritedEventCount,'the parent request header belongs to the inherited prefix');
+      const inheritedHeader = childEvents[parentHeader.seq];
+      assert.equal(inheritedHeader.type,'request/header');
+      assert.equal(inheritedHeader.data.header.config.provider,parentHeader.data.header.config.provider);
+      assert.equal(inheritedHeader.data.header.config.model,parentHeader.data.header.config.model);
+      const inheritedMessage = childEvents.slice(0,inheritedEventCount).find(event=>event.type==='user/message' && event.data.id===parentMessage.data.id);
+      assert.ok(inheritedMessage,'the fork inherits the real parent task');
+      assert.deepEqual(inheritedMessage.data.content,parentMessage.data.content);
+    }
+    const ownHeader = childEvents.slice(inheritedEventCount).findLast(event=>event.type==='request/header');
+    assert.ok(ownHeader,'the child must produce its own request header beyond the seed');
+    assert.ok(ownHeader.seq>=inheritedEventCount);
+    const observed = (await page.evaluate(id=>window.__roleObservation.snapshot(id),parent.id)).calls.find(([id])=>id==='role-call')[1];
+    assert.equal(observed.provider,provider);
+    assert.equal(observed.nativeName,receipt.meta.name);
+    assert.equal(observed.childId,childId);
+    assert.equal(observed.actualRoute.source,'own-native-request-header');
+    assert.equal(observed.actualRoute.route.provider,ownHeader.data.header.config.provider);
+    assert.equal(observed.actualRoute.route.model,ownHeader.data.header.config.model);
+    assert.equal(observed.actualRoute.route.reasoningEffort,ownHeader.data.header.config.reasoningEffort);
+    await realCard.getByText(new RegExp(`${ownHeader.data.header.config.provider}/${ownHeader.data.header.config.model}`,'u')).waitFor();
     assert.match(await realCard.innerText(),new RegExp(childId,'u'));
     await page.evaluate(()=>window.__roleObservation.disconnect());
     await realCard.locator('[data-observation-status="unavailable"]').waitFor();
@@ -531,8 +566,15 @@ test("role adapter preserves the native ToolCall owner through pending, result a
     await realCard.locator('[data-observation-status="live"]').waitFor();
     held.release();
     await page.waitForFunction(()=>document.querySelector('[data-dsmm-native-tool]')?.getAttribute('data-state')==='completed');
-    if(evidence)await page.screenshot({path:join(evidence,'real-native-gateway-settled.png'),fullPage:true});
+    const settled = (await page.evaluate(id=>window.__roleObservation.snapshot(id),parent.id)).calls.find(([id])=>id==='role-call')[1];
+    assert.equal(settled.stopReason,'completed');
+    assert.equal(settled.runId,observed.runId);
+    assert.equal(settled.childId,childId);
+    assert.deepEqual(settled.actualRoute,observed.actualRoute);
+    if(evidence)await page.screenshot({path:join(evidence,`real-native-${provider}-gateway-settled.png`),fullPage:true});
     await page.evaluate(()=>window.__roleObservation.disconnect());
+    t.diagnostic(`Real ${toolName}/${provider}: exact receipt, own route beyond ${inheritedEventCount} inherited events, observer disconnect without cancellation and same-run settled DOM passed.`);
+    }
     assert.deepEqual(errors, []);
     assert.deepEqual(await page.evaluate(() => window.__roleSlotErrors), []);
     t.diagnostic('Real native tool receipt → Gateway → browser Connection/generated Remote → production observation controller → DOM: held child route, observer disposal without cancellation, reconnect and settled completion passed.');
