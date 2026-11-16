@@ -1,6 +1,6 @@
 {
   "name": "@dsmm/dsmm",
-  "version": "0.3.26",
+  "version": "0.3.27",
   "description": "Native Deepwork roles, routing, profiles, and permission controls for DeepSeek Harness.",
   "author": "Hugefiver",
   "license": "LicenseRef-AAAPL",
@@ -86,6 +86,7 @@
     "locale/*.json",
     "agent-presets",
     "docs/agent-presets.md",
+    "docs/agent-teams.md",
     "docs/compatibility.md",
     "docs/design.md",
     "docs/deferred-native-approval-risk.md",
@@ -105,6 +106,7 @@
     "patches",
     "prompts",
     "skills",
+    "!skills/**/__pycache__/**",
     "cordis.patch.yml",
     "dsh-plugin.json",
     "LICENSE",

@@ -12,7 +12,7 @@ On a capable DSH Host, DSMM participates in native subagent-tree communication a
 - Reuse native Team mode, task tools and UI. Do not introduce another task board, runtime, message bus or configuration switch.
 - Keep readonly members limited to task inspection; the root performs task mutations for them.
 - Keep unavailable session Profile switching unavailable where public provider/startup observation cannot prove safe maintenance.
-- Existing history reading and root/child configuration refresh remain implemented. Do not add another reader or migration subsystem; representative DSMM 0.2.x artifacts remain a separate evidence question.
+- Preserve existing native history reading and validated root/child configuration refresh. Historical-version behavior repair, additional readers and migration subsystems are outside this deliverable.
 - Running-activation delivery handoff, out-of-order foreground result submission, active-work Apply, cross-route retry and broader sandbox grants retain their Host boundaries.
 - Each independently useful function and its tests form one commit. Perform one combined implementation review before ordinary push. Do not publish or alter release identity.
 
