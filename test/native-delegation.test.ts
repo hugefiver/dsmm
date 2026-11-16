@@ -40,7 +40,7 @@ function* answer(text: string): Generator<StreamChunk> {
 }
 
 for (const gitWriteGuard of ["deny", "ask"] as const) {
-  test(`explicit ordinary-root Deepwork activation fences a zero-prefix coding child's Git write with ${gitWriteGuard} policy`, async () => {
+  test(`explicit DSMM-root Deepwork activation fences a zero-prefix coding child's Git write with ${gitWriteGuard} policy`, async () => {
     const f = await nativeRoutingFixture({ defaultActive: false, guards: { gitWriteGuard }, roleRouting: {
       "dsmm-coding": { primary: { provider: "fixture", model: "guarded-coding" } }
     } }, { headless: true });
@@ -77,7 +77,7 @@ for (const gitWriteGuard of ["deny", "ask"] as const) {
             : call("pwsh", { command: "git push origin main" });
           else yield* answer("GUARD_PROOF");
         };
-        const parent = await f.create({ agentPreset: "standard" });
+        const parent = await f.create({ agentPreset: "dsmm-orchestrator" });
         const session = await runtime.getSession(parent as DshAgent);
         await runtime.selectMode({ sessionId: parent.id, active: true, expectedModeRevision: session.deepwork!.revision, expectedAdmissionEpoch: session.admissionEpoch }, parent as DshAgent);
         await runFixtureTurn(parent);
@@ -114,7 +114,7 @@ test("mock LLM drives root → deep → coding → read and returns the child's 
         yield* answer("READ_PROOF: child read completed");
       }
     };
-    const parent = await f.create();
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" });
     await runFixtureTurn(parent);
     assert.match(JSON.stringify(parent.session.snapshotEvents().filter((event) => event.type === "tool/result")), /READ_PROOF/);
     assert.deepEqual([...turns], [["native-default", 2], ["local-deep", 2], ["local-coding", 2]]);
@@ -128,7 +128,7 @@ test("native identity fences research, bounded builder and local coordinators ac
   const f = await nativeRoutingFixture({ defaultActive: true, subagents: { maxDepth: 3 } });
   try {
     const readable = join(f.profileDir, "readable.txt"); writeFileSync(readable, "readonly proof");
-    const parent = await f.create();
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" });
     for (const [role, allowed, forbidden] of [
       ["research", [], ["code-search", "quick"]],
       ["deep", ["coding", "code-search"], ["planner", "reviewer", "normal-task", "complex"]],
@@ -195,7 +195,7 @@ test("bounded Builder's admitted deny-write remains effective in its legal quick
   } });
   try {
     const readable = join(f.profileDir, "readable.txt"); writeFileSync(readable, "FILTERED_READ_PROOF");
-    const parent = await f.create();
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" });
     let writes = 0;
     let sentinel = "UNCHANGED";
     f.ctx.on("tools/execute", async (execution, next) => {
@@ -260,7 +260,7 @@ test("headless live continuation retains inherited filters while cold recovery h
   const f = await nativeRoutingFixture({ defaultActive: true, subagents: { enableRunInBackground: true, backgroundMode: "continuable", maxDepth: 3 } }, { headless: true, persistence: true });
   try {
     const readable = join(f.profileDir, "readable.txt"); writeFileSync(readable, "FILTERED_CONTINUATION_PROOF");
-    const parent = await f.create();
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" });
     let writes = 0;
     f.ctx.on("tools/execute", (execution, next) => { if (["write", "pwsh"].includes(execution.name)) writes++; return next(); }, { global: true });
     const owner = await withDelegationFilter(parent, "dsmm-builder", { deny: ["write"] },
@@ -323,7 +323,7 @@ test("headless live continuation retains inherited filters while cold recovery h
 test("opt-in native continuable role accepts a second message on the same child, isolates interrupt authority, and drains before exact parent detach", async () => {
   const f = await nativeRoutingFixture({ defaultActive: true, subagents: { enableRunInBackground: true, backgroundMode: "continuable", maxDepth: 3 } }, { persistence: true });
   try {
-    const parent = await f.create(), sibling = await f.create();
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" }), sibling = await f.create();
     let entered!: () => void;
     const started = new Promise<void>((resolve) => { entered = resolve; });
     f.adapter.beforeStream = async (options) => {
@@ -398,7 +398,7 @@ test("alias capability checks also reject route options contributed by its admit
     }
   });
   try {
-    const parent = await f.create();
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" });
     const provider = f.subagents.getProvider("dsmm-role-reviewer")!;
     assert.equal(provider.capabilities.agentOptions, false);
     assert.equal(typeof provider.prepareContinuable, "function");

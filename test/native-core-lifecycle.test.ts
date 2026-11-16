@@ -40,7 +40,7 @@ test("Core-only admission preserves a foreign native role-named tool and execute
 test("an admitted DSMM delegation remains fenced when its native spawn provider retires", async () => {
   const f = await nativeRoutingFixture({ defaultActive: true });
   try {
-    const root = await f.create();
+    const root = await f.create({ agentPreset: "dsmm-orchestrator" });
     assert.ok(root.ctx.tools.get("dsmm_category", root));
     await f.spawnFiber!.dispose();
     const result = await root.ctx.tools.execute({ agent: root, name: "dsmm_category",

@@ -64,7 +64,7 @@ test("A regression: actual Agent scope-only assembly resolves common without con
   const f = await nativeRoutingFixture({ defaultActive: true });
   try {
     const agent = await f.create({ agentPreset: "standard" });
-    assert.match(renderPrompt(await f.ctx.systemPrompt.assemble({ scope: agent })), /DEEPWORK MODE ENABLED!/);
+    assert.ok((await f.ctx.systemPrompt.assemble({ scope: agent })).sections.some(section => section.name === "dsmm:deepwork" && section.text.length > 0));
   } finally { await f.dispose(); }
 });
 
@@ -78,7 +78,7 @@ test("admission injects configured locale and one legal role identity without a 
     const publicPrompt = await f.ctx.systemPrompt.assemble();
     assert.equal(publicPrompt.sections.filter(section => section.name === "harness:identity").length, 1);
     assert.ok(renderPrompt(publicPrompt).includes(suppliedIdentity));
-    const agent = await f.create({ agentPreset: "standard" });
+    const agent = await f.create({ agentPreset: "dsmm-orchestrator" });
     const assembled = await f.ctx.systemPrompt.assemble({ scope: agent });
     const prompt = renderPrompt(assembled);
     const identity = buildRoleIdentity(DSMM_ROLES.find(role => role.id === "dsmm-orchestrator")!);
@@ -96,7 +96,7 @@ test("admission injects configured locale and one legal role identity without a 
   } finally { await f.dispose(); }
 });
 
-test("ordinary Deepwork adds language guidance and neutralizes native model identity without replacing the persona", async () => {
+test("ordinary Deepwork adds language guidance while preserving native model identity and persona", async () => {
   const f = await nativeRoutingFixture({ locale: "zh-Hans" }, { nativePresets: true, spawn: false });
   try {
     const prefix = "You are a coding agent powered by the {{model}} model.\n\nKeep the project's API conventions.";
@@ -120,15 +120,15 @@ test("ordinary Deepwork adds language guidance and neutralizes native model iden
     for (const active of [true, false, true]) {
       await mode(active);
       const system = await request();
-      assert.equal(system.includes("powered by the native-default model"), !active);
-      assert.equal(system.split("<dsmm-locale-guidance>").length - 1, active ? 1 : 0);
+      assert.equal(system.includes("powered by the native-default model"), true);
+      assert.equal(system.includes("<dsmm-deepwork-mode>"), active);
       assert.match(system, /capturedLocale\\":\\"zh-Hans/u);
       assert.ok(system.includes("Keep the project's API conventions."));
       assert.ok(system.includes("Retain the deployment suffix."));
       assert.equal(system.includes("<agent-role name=\\\"orchestrator\\\">"), false);
       const assembly = await f.ctx.systemPrompt.assemble({ scope: agent });
       assert.equal(assembly.sections.find(section => section.name === "deployment:persona-prefix")?.text,
-        active ? prefix.replace(" powered by the {{model}} model", "") : prefix);
+        prefix);
     }
     assert.equal(await request(foreign), original);
     await f.disposeAgent(agent);
@@ -155,7 +155,7 @@ test("A regression: ordinary active native request never assembles bundled skill
   try {
     const agent = await f.create({ agentPreset: "standard" });
     await runFixtureTurn(agent);
-    assert.match(JSON.stringify(f.adapter.calls.at(-1)?.messages), /DEEPWORK MODE ENABLED!/);
+    assert.match(JSON.stringify(f.adapter.calls.at(-1)?.messages), /<dsmm-deepwork-mode>/);
     assert.doesNotMatch(JSON.stringify(f.adapter.calls.at(-1)?.messages), /<dsmm-skill|# Brainstorming|# Writing Plans/);
   } finally { await f.dispose(); }
 });

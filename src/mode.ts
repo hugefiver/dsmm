@@ -4,7 +4,7 @@ import type { DshAgent, DshContext, DshLlmCallConfig } from "./dsh-types.js";
 import type { Config } from "./index.js";
 import { agentForScope, nativeAgentContext } from "./native-scope.js";
 import { buildDeepworkPrompt } from "./prompts.js";
-import { resolveEffectiveDsmmRole, resolveSelectedAgentPreset } from "./session-scope.js";
+import { resolveAdmittedDsmmRole } from "./role-policy.js";
 import type { DsmmSettingsGetter } from "./settings.js";
 import type { DeepworkModeController } from "./state.js";
 
@@ -31,7 +31,7 @@ export function registerDeepworkPrompt(readyCtx: DshContext, controller: Deepwor
         if (context.scope !== agent && agentForScope(readyCtx, context.scope) !== agent) return "";
         const settings = getSettings(agent);
         if (!settings.modules.deepwork.enabled || !controller.active(agent, settings.defaultActive)) return "";
-        return buildDeepworkPrompt(settings, { route: routeFromAgent(agent), selectedPreset: resolveSelectedAgentPreset(agent.session), roleId: resolveEffectiveDsmmRole(agent, settings, true) ?? null, overrideSection: config.section });
+        return buildDeepworkPrompt(settings, { route: routeFromAgent(agent), roleId: resolveAdmittedDsmmRole(agent, settings, true) ?? null, overrideSection: config.section });
       }
     });
   };

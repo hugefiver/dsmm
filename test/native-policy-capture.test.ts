@@ -20,12 +20,11 @@ function categoryTargets(agent: import("@deepseek-ai/dsh-agent").Agent): string[
 test("retired DSMM entry revokes live child work and releases exact native owned children", async () => {
   const f = await nativeRoutingFixture({ defaultActive: true });
   try {
-    const root = await f.create();
+    const root = await f.create({ agentPreset: "dsmm-orchestrator" });
     const child = await f.createAuxiliary("dsmm-reviewer", undefined, "continuable", root);
     await runFixtureTurn(child);
     assert.ok(child.session.snapshotEvents().some(event => event.type === "turn/end" && event.data.reason.kind === "completed"));
     const admission = f.ctx.dsmmNativeAdmission;
-    const profiles = f.ctx.get("dsmmProfileRuntime") as DsmmProfileRuntime;
     const provider = f.subagents.getProvider("dsmm-role-reviewer")!;
     const tools = f.ctx.agentPresets.serviceFor(root, "tools") ?? root.ctx.tools;
     let bodies = 0;
@@ -50,26 +49,11 @@ test("retired DSMM entry revokes live child work and releases exact native owned
     assert.equal(bodies, 0);
     assert.equal(f.adapter.calls.length, calls);
     await f.ctx.sessionPersistence.flush();
-    const offset = child.session.snapshotEvents().length;
-    const messageId = await f.subagents.sendMessage(root, child.id, [{ type: "text", text: "Native durable reconstruction" }], { signal: new AbortController().signal });
-    assert.equal(typeof messageId, "string");
-    const resumed = f.agents.get(child.id)!;
-    assert.ok(resumed); assert.notEqual(resumed, child); assert.equal(resumed.id, child.id);
-    assert.equal(resumed.session.header.parentSession, root.id);
-    assert.equal(f.agents.isOwnedBy(resumed.id, root), true);
-    assert.equal(admission.owns(resumed), false);
-    assert.equal(profiles.hasAdmission(resumed as unknown as DshAgent), false);
-    assert.equal(admission.invocation(resumed), undefined);
-    await resumed.whenIdle();
-    const own = resumed.session.snapshotEvents().slice(offset);
-    assert.ok(own.some(event => event.type === "user/message" && event.data.id === messageId));
-    assert.match(JSON.stringify(own.filter(event => event.type === "assistant/message")), /fixture complete/);
-    assert.equal(own.filter(event => event.type === "turn/end").at(-1)?.data.reason.kind, "completed");
-    assert.equal(f.adapter.calls.slice(calls).filter(call => call.sessionId === resumed.id).length, 1);
-    assert.equal(f.adapter.calls.slice(calls).some(call => call.sessionId === root.id), false);
+    await assert.rejects(f.subagents.sendMessage(root, child.id, [{ type: "text", text: "Native durable reconstruction" }], { signal: new AbortController().signal }), { code: "NOT_RESUMABLE" });
+    assert.equal(f.agents.get(child.id), undefined, "the disposed DSMM preset cannot supply a new native composition");
+    assert.equal(f.adapter.calls.length, calls);
     assert.equal(admission.owns(root), true);
     await assert.rejects(admission.guardExecution(root));
-    await f.subagents.drainChildren(root, [resumed.id]);
   } finally { await f.dispose(); }
 });
 
@@ -84,7 +68,7 @@ test("busy parent and future role children retain their epoch while fresh roots 
   try {
     const runtime = f.ctx.get("dsmmProfileRuntime") as DsmmProfileRuntime;
     const deployment = f.ctx.get("dsmmDeploymentConfig")!;
-    const parent = await f.create();
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" });
     const before = runtime.admission(parent as unknown as DshAgent);
     let entered!: () => void;
     const started = new Promise<void>(resolve => { entered = resolve; });
@@ -108,7 +92,7 @@ test("busy parent and future role children retain their epoch while fresh roots 
     assert.equal(f.ctx.get("dsmmNativeAdmission")!.invocation(child)?.target, "dsmm-coding");
     assert.deepEqual(captured.settings.roleRouting, before.settings.roleRouting);
     assert.equal(captured.settings.roles["dsmm-coding"], true);
-    const off = await f.create();
+    const off = await f.create({ agentPreset: "dsmm-orchestrator" });
     const offAdmission = runtime.admission(off as unknown as DshAgent);
     assert.equal(offAdmission.settings.roles["dsmm-coding"], false);
     assert.equal(offAdmission.settings.skills.debugging, false);
@@ -125,7 +109,7 @@ test("busy parent and future role children retain their epoch while fresh roots 
       { op: "set", path: ["skills", "debugging"], value: true },
       { op: "set", path: ["runtimeRecovery", "enabled"], value: true }
     ] }, () => {});
-    const on = await f.create();
+    const on = await f.create({ agentPreset: "dsmm-orchestrator" });
     const onAdmission = runtime.admission(on as unknown as DshAgent);
     assert.ok(categoryTargets(on).includes("dsmm-coding"));
     assert.equal(onAdmission.settings.skills.debugging, true);
@@ -147,7 +131,7 @@ test("live reviewer and coding children retain captured read-only and Git ceilin
     const readable = join(f.profileDir, "captured-read.txt");
     writeFileSync(readable, "captured fixture read");
     const runtime = f.ctx.get("dsmmProfileRuntime") as DsmmProfileRuntime;
-    const parent = await f.create();
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" });
     const reviewer = await f.createAuxiliary("dsmm-reviewer", undefined, "continuable", parent);
     const coding = await f.createAuxiliary("dsmm-coding", undefined, "continuable", parent);
     const reviewerAdmission = runtime.admission(reviewer as unknown as DshAgent);

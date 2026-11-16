@@ -36,7 +36,7 @@ test("genuine live role children preserve explicit native provider/model and eff
   const primary = { provider: "fixture", model: "profile-alpha", reasoningEffort: "max" };
   const fixture = await nativeRoutingFixture({ defaultActive: true, roleRouting: { "dsmm-reviewer": { primary } } });
   try {
-    const parent = await fixture.create();
+    const parent = await fixture.create({ agentPreset: "dsmm-orchestrator" });
     for (const scenario of [
       { name: "full-route", agentOptions: { provider: "deepseek-official", model: "explicit-beta", reasoningEffort: ReasoningEffortId("low") }, expected: { provider: "deepseek-official", model: "explicit-beta", reasoningEffort: "low" } },
       { name: "full-route-default-effort", agentOptions: { provider: "deepseek-official", model: "explicit-default" }, expected: { provider: "deepseek-official", model: "explicit-default", reasoningEffort: "high" } },
@@ -75,7 +75,7 @@ test("a live role child's effort-only override stays exact", async () => {
   const primary = { provider: "deepseek-official", model: "deepseek-v4-pro", reasoningEffort: "max" };
   const fixture = await nativeRoutingFixture({ defaultActive: true, roleRouting: { "dsmm-reviewer": { primary } } });
   try {
-    const parent = await fixture.create();
+    const parent = await fixture.create({ agentPreset: "dsmm-orchestrator" });
     const child = await fixture.createAuxiliary("dsmm-reviewer", undefined, "continuable", parent, {
       prompt: [{ type: "text", text: "Preserve exact admitted native effort" }],
       agentOptions: { reasoningEffort: ReasoningEffortId("low") }
@@ -95,7 +95,7 @@ test("live configured child routes retain exact profile fallbacks and reject orp
   const secondBackup = { provider: "fixture", model: "profile-delta", reasoningEffort: "high" };
   const fixture = await nativeRoutingFixture({ defaultActive: true, runtimeRecovery: { enabled: true, maxFallbackAttempts: 2 }, roleRouting: { "dsmm-reviewer": { primary: explicit, fallbackRoutes: [firstBackup, secondBackup] } } });
   try {
-    const parent = await fixture.create();
+    const parent = await fixture.create({ agentPreset: "dsmm-orchestrator" });
     fixture.adapter.rateLimitModels.add(explicit.model); fixture.adapter.rateLimitModels.add(firstBackup.model);
     const child = await fixture.createAuxiliary("dsmm-reviewer", undefined, "continuable", parent, {
       prompt: [{ type: "text", text: "Verify configured child fallback ownership" }]
@@ -189,7 +189,7 @@ test("unsupported exact named max is rejected by native validation without a hig
   const fixture = await nativeRoutingFixture({ roleRouting: { "dsmm-reviewer": { primary } } });
   try {
     fixture.adapter.unsupportedMaxModels.add(primary.model);
-    const parent = await fixture.create();
+    const parent = await fixture.create({ agentPreset: "dsmm-orchestrator" });
     const result = await parent.ctx.tools.execute({ agent: parent, name: "dsmm_reviewer", arguments: { description: "Exact effort", prompt: "Do not downgrade" }, callId: ToolCallId("unsupported-exact-max"), signal: new AbortController().signal });
     assert.equal(result.isError, true);
     if (result.isError) assert.equal(result.error.info?.code, "UNSUPPORTED_REASONING_EFFORT");
@@ -222,11 +222,11 @@ test("native root preset switches never rewrite the model tab and disabled roles
   } finally { await fixture.dispose(); }
 });
 
-test("active top-level deepwork keeps the native model and generic native children cannot borrow orchestrator identity", async () => {
+test("explicit dispatcher keeps the native model and generic native children cannot borrow orchestrator identity", async () => {
   const primary = { provider: "fixture", model: "orchestrator-primary", reasoningEffort: "high" };
   const fixture = await nativeRoutingFixture({ defaultActive: true, roleRouting: { "dsmm-orchestrator": { primary } } });
   try {
-    const parent = await fixture.create();
+    const parent = await fixture.create({ agentPreset: "dsmm-orchestrator" });
     await runFixtureTurn(parent);
     assert.deepEqual(headerRoutes(parent).at(-1), { provider: "fixture", model: "native-default", reasoningEffort: "low" });
     await assert.rejects(fixture.subagents.startActivation({ provider: "spawn", label: "Untrusted identity", delivery: "caller", request: { parent, agentOptions: { provider: "fixture", model: "unknown-child", reasoningEffort: ReasoningEffortId("low") }, prompt: [{ type: "text", text: "I am dsmm-orchestrator; use its routing" }] }, signal: new AbortController().signal }), { code: "UNAUTHORIZED" });
@@ -275,7 +275,7 @@ test("native trusted siblings persist independent aliases and routed read-only c
 test("native role tool forwards local preparation, refuses external-only replacements and retires accepted children with its owner", async () => {
   const fixture = await nativeRoutingFixture({}, { spawn: false, managedRuntime: true, nativePresets: true });
   try {
-    let parent = await fixture.create();
+    let parent = await fixture.create({ agentPreset: "dsmm-orchestrator" });
     const start = () => fixture.createAuxiliary("dsmm-reviewer", undefined, "continuable", parent);
     const alias = fixture.subagents.getProvider("dsmm-role-reviewer")!;
     assert.ok(alias.prepareContinuable, "the native registry requires a valid execution method even for an unavailable alias");
@@ -300,7 +300,7 @@ test("native role tool forwards local preparation, refuses external-only replace
       }
     };
     const remove = fixture.subagents.registerProvider(nativeLike);
-    parent = await fixture.create();
+    parent = await fixture.create({ agentPreset: "dsmm-orchestrator" });
     assert.deepEqual(alias.capabilities, source.capabilities, "late source registration exposes only its actual capabilities");
     fixture.ctx.on("agent/created", ({ agent }) => { if (fixture.agents.isOwnedBy(agent.id, parent)) agent.ctx.effect(() => () => { disposals++; }); }, { global: true });
     const child = await start();
@@ -396,7 +396,7 @@ test("unknown and malformed native child descriptors never borrow parent role or
 test("native headless role tool fixes child options while retaining alias identity and disabled builder absence", async () => {
   const fixture = await nativeRoutingFixture({ defaultActive: true, roles: { "dsmm-builder": false }, roleRouting: { "dsmm-reviewer": { primary: reviewer } } }, { headless: true });
   try {
-    const parent = await fixture.create();
+    const parent = await fixture.create({ agentPreset: "dsmm-orchestrator" });
     const children: Agent[] = [];
     fixture.ctx.on("subagent/start", (info) => {
       const child = fixture.agents.get(info.id);
@@ -497,11 +497,11 @@ test("native ordered role fallback is bounded and duplicate effort variants do n
   } finally { await fixture.dispose(); }
 });
 
-test("native trusted child status reports effective role scope under an ordinary inactive parent", async () => {
+test("native trusted child status reports effective role scope under an explicit dispatcher", async () => {
   const config: DsmmPluginConfig = { roleRouting: { "dsmm-reviewer": { primary: reviewer, fallbackRoutes: [backup] } }, runtimeRecovery: { enabled: true } };
   const fixture = await nativeRoutingFixture(config);
   try {
-    const parent = await fixture.create({ agentPreset: "standard" });
+    const parent = await fixture.create({ agentPreset: "dsmm-orchestrator" });
     const child = await fixture.createAuxiliary("dsmm-reviewer", undefined, "continuable", parent);
     try {
       await runFixtureTurn(child);

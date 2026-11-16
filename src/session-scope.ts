@@ -32,7 +32,7 @@ export function childOwnedSessionEvents(session: DshSession): readonly DshSessio
 }
 
 /** Parent preset/persona inheritance is deliberately not delegated role authority. */
-export function resolveEffectiveDsmmRole(agent: DshAgent, settings: DsmmSettings, modeActive: boolean): DsmmRoleId | undefined {
+export function resolveEffectiveDsmmRole(agent: DshAgent, settings: DsmmSettings, _modeActive: boolean): DsmmRoleId | undefined {
   if (!settings.modules.deepwork.enabled) return undefined;
   let role: DsmmRoleId | undefined;
   if (agent.session.header?.origin === "subagent") {
@@ -43,7 +43,7 @@ export function resolveEffectiveDsmmRole(agent: DshAgent, settings: DsmmSettings
       ?? (descriptor?.mode === "one-shot" ? roleFromProviderName(descriptor.provider) : undefined);
   } else {
     const preset = resolveSelectedAgentPreset(agent.session);
-    role = isDsmmRoleId(preset) ? preset : modeActive ? "dsmm-orchestrator" : undefined;
+    role = isDsmmRoleId(preset) ? preset : undefined;
   }
   return role !== undefined && settings.roles[role] ? role : undefined;
 }

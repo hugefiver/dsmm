@@ -47,7 +47,7 @@ export function resolveAdmittedDsmmRole(agent: DshAgent, settings: DsmmSettings,
   if (Context.is(agent.ctx)) {
     if (!settings.modules.deepwork.enabled || !agent.ctx.get("dsmmNativeAdmission")?.owns(agent as Agent) || agent.session.header?.origin === "subagent") return undefined;
     const preset = agent.ctx.get("agentPresets")?.composedPreset(agent.ctx);
-    const role = isDsmmRoleId(preset) ? preset : active ? "dsmm-orchestrator" : undefined;
+    const role = isDsmmRoleId(preset) ? preset : undefined;
     return role !== undefined && settings.roles[role] ? role : undefined;
   }
   return resolveEffectiveDsmmRole(agent, settings, active);
@@ -64,7 +64,7 @@ interface ToolCall {
 export class DsmmRolePolicy {
   private readonly executions = new AsyncLocalStorage<Readonly<ToolExecution>>();
   private readonly toolCalls = new WeakMap<object, ToolCall>();
-  constructor(private readonly ctx: DshContext, private readonly getSettings: DsmmSettingsGetter, private readonly mode: DeepworkModeController) {}
+  constructor(private readonly ctx: DshContext, private readonly getSettings: DsmmSettingsGetter, _mode: DeepworkModeController) {}
   private agents(): DshAgentsRegistry { const agents = this.ctx.get?.<DshAgentsRegistry>("agents"); if (!agents) throw new SubagentError("Native registry unavailable", "UNAUTHORIZED"); return agents; }
   assertLive(agent: DshAgent): void { if (!agent.id || this.agents().get(agent.id) !== agent) throw new SubagentError("Exact live Agent required", "UNAUTHORIZED"); }
   private selected(agent: DshAgent): string | undefined {
@@ -113,7 +113,7 @@ export class DsmmRolePolicy {
     const settings = this.getSettings(agent), selected = this.selected(agent);
     const parent = this.agents().list().find(row => row !== agent && nativeIsOwnedBy(this.agents(), agent.id!, row));
     if (!parent) this.validateRootRole(agent, this.getSettings.admission!(agent));
-    const role = parent ? undefined : isDsmmRoleId(selected) ? selected : settings.modules.deepwork.enabled && this.mode.active(agent, settings.defaultActive) ? "dsmm-orchestrator" : undefined;
+    const role = parent ? undefined : isDsmmRoleId(selected) && settings.modules.deepwork.enabled && settings.roles[selected] ? selected : undefined;
     return Object.freeze({ role, child: parent !== undefined, parent, epoch: this.getSettings.admission!(agent).epoch });
   }
   admit(agent: DshAgent): DsmmRoleIdentity { return this.identity(agent); }

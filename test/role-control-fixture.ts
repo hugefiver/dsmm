@@ -49,6 +49,7 @@ export async function nativeControlFixture(config: DsmmPluginConfig = {}) {
       requestId: randomUUID(), parentSessionId: parent.id, childSessionId, mode: "continuable" as const, delivery,
       content: [{ type: "text" as const, text }],
     });
-    return { ...f, invoke, start, request, async replaceConnection() { await connection.dispose(); connection = f.ctx.plugin(Connection); await connection.await(); await ready(); } };
+    const create: typeof f.create = (meta = {}, selection, extra) => f.create({ agentPreset: "dsmm-orchestrator", ...meta }, selection, extra);
+    return { ...f, create, invoke, start, request, async replaceConnection() { await connection.dispose(); connection = f.ctx.plugin(Connection); await connection.await(); await ready(); } };
   } catch (error) { await f.dispose(); throw error; }
 }

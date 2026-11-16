@@ -27,7 +27,7 @@ function invoke(parent: Agent, args: Record<string, unknown>, signal = new Abort
 test("official activation returns the useful Coding result and actual child identity", async () => {
   const f = await nativeRoutingFixture({ defaultActive: true, roleRouting: { "dsmm-coding": { primary: { provider: "fixture", model: "coding" } } } }, { nativePresets: true, persistence: true });
   try {
-    const parent = await f.create();
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" });
     const result = await invoke(parent, {});
     assert.equal(result.isError, false, JSON.stringify(result));
     assert.match(JSON.stringify(result), /fixture complete/);
@@ -44,7 +44,7 @@ test("Core mounted before the native preset registry admits Coding after its sub
   try {
     assert.ok(f.ctx.get("dsmmProfileRuntime"));
     await f.mountPresets();
-    const parent = await f.create();
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" });
     const result = await invoke(parent, {});
     assert.equal(result.isError, false, JSON.stringify(result));
     assert.match(JSON.stringify(result), /fixture complete/);
@@ -58,7 +58,7 @@ test("same-parent Coding tiers retain independent immutable routes", { timeout: 
   } } }, { nativePresets: true });
   const ready = gate(), release = gate();
   try {
-    const parent = await f.create();
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" });
     f.adapter.beforeStream = async options => { if (f.adapter.calls.length === 2) ready.release(); await hold(options.signal, release.promise); };
     const low = invoke(parent, { level: "low" }), high = invoke(parent, { level: "high" });
     await ready.promise;
@@ -77,7 +77,7 @@ test("cancellation during awaited created rolls back without releasing queued in
   const entered = gate(), release = gate(), abort = new AbortController();
   let child: Agent | undefined;
   try {
-    const parent = await f.create();
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" });
     f.ctx.on("agent/created", async frame => {
       if (frame.agent.session.header.origin !== "subagent") return;
       child = frame.agent; entered.release(); await release.promise;
@@ -100,7 +100,7 @@ test("accepted activation cancellation disposes its child before the caller sett
   const f = await nativeRoutingFixture({ defaultActive: true }, { nativePresets: true });
   const entered = gate(), release = gate(), abort = new AbortController();
   try {
-    const parent = await f.create();
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" });
     f.adapter.beforeStream = async options => { entered.release(); await hold(options.signal, release.promise); };
     const running = invoke(parent, {}, abort.signal);
     await entered.promise;
@@ -117,7 +117,7 @@ test("accepted activation cancellation disposes its child before the caller sett
 test("native partial output is retained as an incomplete failure, never a successful result", async () => {
   const f = await nativeRoutingFixture({ defaultActive: true }, { nativePresets: true });
   try {
-    const parent = await f.create();
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" });
     f.adapter.streamChunks = async function* () {
       yield { type: "block-start", index: 0, blockType: "text" };
       yield { type: "text-delta", index: 0, text: "PARTIAL_LOCAL_WORK" };
@@ -135,7 +135,7 @@ test("owner unload cancels active work and leaves live Agent execution fail clos
   const f = await nativeRoutingFixture({ defaultActive: true }, { nativePresets: true });
   const entered = gate(), release = gate();
   try {
-    const parent = await f.create();
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" });
     f.adapter.beforeStream = async options => { entered.release(); await hold(options.signal, release.promise); };
     const running = invoke(parent, {});
     await entered.promise;
@@ -149,11 +149,11 @@ test("owner unload cancels active work and leaves live Agent execution fail clos
 });
 
 test("auxiliary preset roots and blank switches cannot execute tools or requests", async () => {
-  const f = await nativeRoutingFixture({ defaultActive: true }, { nativePresets: true });
+  const f = await nativeRoutingFixture({ defaultActive: true }, { nativePresets: true, nativeFs: true });
   try {
     await assert.rejects(f.create({ agentPreset: "dsmm-coding" }));
     await assert.rejects(f.create({ agentPreset: "dsmm-reviewer" }));
-    const parent = await f.create();
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" });
     // Delegation roles are not registered presets: the switch itself is refused
     // and the admitted dispatcher composition keeps its native authority.
     await assert.rejects(f.ctx.get("agentPresets")!.select(parent, "dsmm-coding"), /not-found|Unknown agent preset/u);
@@ -183,7 +183,7 @@ test("native child messaging and interrupt preserve exact adjacency across role 
   const f = await nativeRoutingFixture({ defaultActive: true, subagents: { enableRunInBackground: true } }, { nativePresets: true });
   const entered = gate(), release = gate();
   try {
-    const parent = await f.create(), foreign = await f.create();
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" }), foreign = await f.create();
     f.adapter.beforeStream = async options => { entered.release(); await hold(options.signal, release.promise); };
     const result = await invoke(parent, { run_in_background: true });
     assert.equal(result.isError, false, JSON.stringify(result));

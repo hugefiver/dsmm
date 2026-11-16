@@ -103,7 +103,7 @@ test("native blank preset rebind refreshes the actual tool realm, admits only th
 test("native background activation returns accepted identity and survives caller return until explicit interruption", async () => {
   const f = await nativeRoutingFixture({ defaultActive: true, subagents: { enableRunInBackground: true, maxDepth: 3 } }, { nativePresets: true });
   try {
-    const parent = await f.create(), foreign = await f.create();
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" }), foreign = await f.create();
     const tools = parent.ctx.get("tools")!, caller = new AbortController();
     let entered!: () => void;
     const started = new Promise<void>((done) => { entered = done; });
@@ -123,7 +123,7 @@ test("native background activation returns accepted identity and survives caller
 test("native default depth refuses before publication; foreground failure and abort retain typed terminal outcomes", async () => {
   const f = await nativeRoutingFixture({ defaultActive: true, subagents: { enableRunInBackground: true }, roleRouting: { "dsmm-coding": { primary: { provider: "fixture", model: "typed-error" } } } }, { nativePresets: true });
   try {
-    const parent = await f.create();
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" });
     assert.deepEqual(f.agents.list(), [parent]);
     const child = await f.createAuxiliary("dsmm-deep", undefined, "continuable", parent);
     try {
@@ -150,7 +150,7 @@ test("native default depth refuses before publication; foreground failure and ab
 test("official model-facing controls enforce adjacency and continue useful output on the same interrupted child", { timeout: 15000 }, async () => {
   const f = await nativeRoutingFixture({ defaultActive: true, subagents: { enableRunInBackground: true, maxDepth: 3 } }, { nativePresets: true, nativeControls: true, nativeSubagents: { maxActiveSubagents: 1 } });
   try {
-    const parent = await f.create(), other = await f.create();
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" }), other = await f.create({ agentPreset: "dsmm-orchestrator" });
     let entered!: () => void;
     const started = new Promise<void>((done) => { entered = done; });
     f.adapter.beforeStream = async (options) => {
@@ -241,7 +241,7 @@ test("official model-facing controls enforce adjacency and continue useful outpu
 test("settled native one-shot history cannot be cold-resumed as a continuable child", async () => {
   const f = await nativeRoutingFixture({}, { persistence: true });
   try {
-    const parent = await f.create();
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" });
     const session = f.ctx.sessions.prepare(SessionId("settled-native-one-shot"), { meta: {
       cwd: f.profileDir, parentSession: parent.id, origin: "subagent", delegationDepth: 1
     } });

@@ -158,8 +158,9 @@ export function buildDeepworkPrompt(
   options: DeepworkPromptOptions = {}
 ): string {
   const role = SOURCE_ROLE_CATALOG.find((role) => role.id === (options.roleId === undefined ? options.selectedPreset : options.roleId));
-  const common = role === undefined ? commonDeepworkPrompt : [activation, asset("deepwork/default.md")].join("\n\n---\n\n");
-  const family = roleModelCalibration(role, options.route?.model ?? "");
+  const common = role === undefined ? [asset("deepwork/general.md"), asset("shared/shell-safety.md")].join("\n\n---\n\n")
+    : [activation, asset("deepwork/default.md")].join("\n\n---\n\n");
+  const family = role === undefined ? "" : roleModelCalibration(role, options.route?.model ?? "");
   const base = [options.overrideSection?.trim() || common, settings.skills["avoid-ai-slop"] ? readSharedPromptAsset("avoid-ai-slop.md") : "", family === "" ? "" : `<workflow-model-calibration>\nThe role prompt is authoritative for scope, permissions and output. Model calibration never grants tools or changes the native route.\n\n${family}\n</workflow-model-calibration>`].filter(Boolean).join("\n\n---\n\n").replaceAll("{{modeName}}", settings.modeName);
   const workflowPolicy = settings.workflow.policy === "legacy" ? `<dsmm-workflow-policy>
 policy: legacy

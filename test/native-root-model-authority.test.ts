@@ -62,13 +62,13 @@ for (const effort of ["low", undefined]) test(`root routing preserves the native
   } finally { await fixture.dispose(); }
 });
 
-test("ordinary root RATE_LIMIT retries stay finite on the native model without silently switching profile channels", async () => {
+test("DSMM root RATE_LIMIT retries stay finite on the native model without silently switching profile channels", async () => {
   const fixture = await nativeRoutingFixture({ defaultActive: true, roleRouting: { "dsmm-orchestrator": {
     primary: configured, fallbackRoutes: [{ provider: "deepseek-official", model: "automatic-backup", reasoningEffort: "max" }],
     strategy: "rate-limit-fallback", rateLimit: { maxRetries: 2, switchAfterRateLimits: 1, maxSwitches: 2, initialDelayMs: 0, maxDelayMs: 0, maxTotalDelayMs: 0 }
   } } });
   try {
-    const agent = await fixture.create({}, selection());
+    const agent = await fixture.create({ agentPreset: "dsmm-orchestrator" }, selection());
     fixture.adapter.beforeStream = async () => { throw new LlmError("root native rate limit", "RATE_LIMIT", { status: 429 }); };
     let nativeFallthrough = 0;
     fixture.ctx.on("agent/request-error", async () => { nativeFallthrough += 1; return { kind: "retry" }; });
@@ -92,7 +92,7 @@ test("initial root UNKNOWN_MODEL never authorizes an automatic profile or global
     primary: configured, fallbackRoutes: [{ provider: "deepseek-official", model: "automatic-backup" }]
   } } });
   try {
-    const agent = await fixture.create({}, selection());
+    const agent = await fixture.create({ agentPreset: "dsmm-orchestrator" }, selection());
     fixture.adapter.beforeStream = async () => { throw new LlmError("root native model disappeared", "UNKNOWN_MODEL"); };
     let nativeFallthrough = 0;
     fixture.ctx.on("agent/request-error", async () => { nativeFallthrough += 1; return { kind: "retry" }; });
@@ -108,7 +108,7 @@ test("root pending retry preserves the exact downstream native request configura
   } } });
   try {
     let requests = 0;
-    const agent = await fixture.create({}, undefined, { setup(agentCtx) {
+    const agent = await fixture.create({ agentPreset: "dsmm-orchestrator" }, undefined, { setup(agentCtx) {
       agentCtx.on("agent/request", async (_frame, next) => {
         const downstream = await next();
         return ++requests === 2 ? { ...downstream, reasoningEffort: ReasoningEffortId("high") } : downstream;
@@ -130,7 +130,7 @@ for (const output of ["text", "tool-fragment"] as const) test(`partial root ${ou
     primary: configured, strategy: "rate-limit-fallback", rateLimit: { maxRetries: 2, initialDelayMs: 0, maxDelayMs: 0, maxTotalDelayMs: 0 }
   } } });
   try {
-    const agent = await fixture.create({}, selection());
+    const agent = await fixture.create({ agentPreset: "dsmm-orchestrator" }, selection());
     fixture.adapter.streamChunks = async function* () {
       if (output === "text") yield { type: "text-delta", index: 0, text: "accepted partial root output" };
       else yield { type: "tool-call-delta", index: 0, id: ToolCallId("partial-root-tool"), name: "read", argumentsDelta: "{" };
@@ -167,7 +167,7 @@ test("native cancellation of a no-output failure does not dispatch another retry
     rateLimit: { maxRetries: 2, initialDelayMs: 0, maxDelayMs: 0, maxTotalDelayMs: 0 }
   } } });
   try {
-    const agent = await fixture.create({}, selection());
+    const agent = await fixture.create({ agentPreset: "dsmm-orchestrator" }, selection());
     fixture.adapter.rateLimitModels.add(native.model);
     fixture.ctx.on("agent/assistant-stream", ({ agent: subject, frame }) => {
       if (subject === agent && frame.type === "end") agent.cancel({ kind: "hook", reason: "local retry cancellation" });
