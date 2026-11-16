@@ -4,14 +4,14 @@ DSMM 是 DeepSeek Harness（DSH）的插件。它让不同 Agent 分工处理任
 
 比如，让 Planner 拆解任务、Coding 写代码、Reviewer 检查结果，再由 Orchestrator 协调。各个角色可以用不同的模型，不必共用一套配置。
 
-当前发布版本为 `@dsmm/dsmm@0.3.27`，支持 DSH `>=0.2.1-rc.2 <0.2.2-0 || >=0.2.2-rc.1 <0.3.0`。安装前请确认客户端版本；范围外的 DSH 版本不受支持。Desktop 使用自带运行时，独立命令行环境需要 Node.js 22 或更高版本。
+当前发布版本为 `@dsmm/dsmm@0.3.28`，支持 DSH `>=0.2.1-rc.2 <0.2.2-0 || >=0.2.2-rc.1 <0.3.0`。安装前请确认客户端版本；范围外的 DSH 版本不受支持。Desktop 使用自带运行时，独立命令行环境需要 Node.js 22 或更高版本。
 
 官方 DSH rc.3 以 `engines.dsh` 优先于 peer ranges 判定兼容性；锁文件保留 `0.2.1-rc.2` 作为开发基线。
 
 历史会话仅保守支持已有的原生读取和已验证的受限恢复路径，不承诺补齐旧版本行为或自动迁移。继续执行须满足当前身份与权限检查，历史批准不会恢复为当前授权。
 
 - 源码仓库：[hugefiver/dsmm](https://github.com/hugefiver/dsmm)
-- 安装来源：[npm (@dsmm/dsmm)](https://www.npmjs.com/package/@dsmm/dsmm)；发布资产：[GitHub Releases (v0.3.27)](https://github.com/hugefiver/dsmm/releases/tag/v0.3.27)
+- 安装来源：[npm (@dsmm/dsmm)](https://www.npmjs.com/package/@dsmm/dsmm)；发布资产：[GitHub Releases (v0.3.28)](https://github.com/hugefiver/dsmm/releases/tag/v0.3.28)
 
 ---
 
@@ -22,7 +22,7 @@ DSMM 是 DeepSeek Harness（DSH）的插件。它让不同 Agent 分工处理任
 ### 初次安装
 
 1. 打开 DeepSeek Harness Desktop，进入 **插件（Plugins）** 页面。
-2. 点击 **添加插件（Add plugin）**，输入 `@dsmm/dsmm@0.3.27` 并确认。
+2. 点击 **添加插件（Add plugin）**，输入 `@dsmm/dsmm@0.3.28` 并确认。
 3. 安装完成后，检查插件是否处于启用状态。如果界面提示需要重启，请按提示重启客户端。
 
 Desktop 的插件由客户端自己管理。全局 npm 安装和独立 npm 版 `dsh` 命令不能替代这一步。
@@ -34,7 +34,7 @@ DSH Desktop 当前不支持在界面中用同名版本原位覆盖更新插件�
 1. 保存好正在进行的任务，**正常退出并完全关闭 DSH Desktop**。
 2. 使用 Desktop 安装自带的命令行工具更新配置。以下示例适用于 Windows 默认安装路径（`%LOCALAPPDATA%\Programs\DeepSeek Harness\`）：
    ```powershell
-   & "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add @dsmm/dsmm@0.3.27 --save-exact --ignore-scripts --registry=https://registry.npmjs.org
+   & "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add @dsmm/dsmm@0.3.28 --save-exact --ignore-scripts --registry=https://registry.npmjs.org
    ```
    *若安装在自定义路径，请替换为对应的实际位置；非 Windows 系统请参考 Desktop 自身菜单或官方指引，不要混用非 Desktop 的独立 CLI 命令。*
 3. 重新打开 DSH Desktop 即可加载新版本。
@@ -83,7 +83,7 @@ DSMM 包含两处相互独立的配置区域：
 - **在当前会话中应用方案（Apply profile to current session）**：在已有对话历史的原生会话中直接更换预设方案。
   - 会话必须处于真正空闲状态：无正在生成的回复、无排队输入、无待处理审批且无运行中的子任务。界面单独显示 `idle` 状态并不代表没有后台活动，需等待所有操作完全结束。
   - 切换成功后，已存在的旧子任务继续保留启动时的原配置与限制，后续新委派的子任务才会使用新方案。
-  - 部分新版 Host 无法确认全部后台工作是否空闲，此操作会显示不可用；保存方案和原生模型选择保持独立。
+  - 已停止并完成收尾、或自然完成的会话可以直接切换。切换以当前会话及已加载子会话的实际状态为准；若仍有任务或其他操作进行中，结束后重试。保存方案和原生模型选择保持独立。
 - **使用方案模型（Use profile model）**：对于有对应 DSMM 角色主模型的会话，把原生模型选择切换为方案中配置的主模型。默认的 `rootModelPolicy: native` 下，保存或切换方案不会自动改模型；要一起换模型，需要明确点击这个操作。操作期间如果又手动选择了模型，以较新的选择为准。
 
 ### 配置角色模型与参数

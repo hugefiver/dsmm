@@ -21,7 +21,7 @@ function capabilityReason(reason: SessionActionUnavailableReason | undefined, t:
     case "busy": return t("headerBusy");
     case "maintenance": return t("headerMaintenanceRefused");
     case "module-off": return t("sessionModuleOff");
-    case "runtime-unavailable": return t("headerUnavailableRefused");
+    case "runtime-unavailable": return t("headerRuntimeUnavailable");
     case "model-unconfigured": return t("headerNoProfileModel");
     case "model-service-unavailable": return t("headerModelUnconfirmed");
     case "new-session-required": return t("sessionNewRequired");

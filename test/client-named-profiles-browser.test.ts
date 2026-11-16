@@ -8,13 +8,155 @@ import test from "node:test";
 import { build } from "esbuild";
 import type { ProfilesController } from "../src/client/controller.js";
 import { diagnostic, diagnosticLocation } from "../src/profile-diagnostics.ts";
-import type { ProfileErrorInfo } from "../src/profile-types.js";
+import type { ProfileErrorInfo, SessionProfileSelectRequest, SessionProfileSnapshot } from "../src/profile-types.js";
+import { en } from "../src/client/locales.ts";
 
 declare global {
-  interface Window { __profilesController: ProfilesController }
+  interface Window {
+    __profilesController: ProfilesController;
+    __profileMenuCalls: Array<["choose", string | null] | ["apply"]>;
+  }
 }
 
 const available = process.env.DSMM_TEST_DSH_ENTRY !== undefined && process.env.DSMM_TEST_PLAYWRIGHT_ENTRY !== undefined;
+
+test("Session profile menu applies B and baseline through the controller and distinguishes unavailable feedback", {
+  skip: !available && "requires explicit DSH and Playwright anchors (DSMM_TEST_DSH_ENTRY and DSMM_TEST_PLAYWRIGHT_ENTRY)",
+  timeout: 30_000,
+}, async () => {
+  const sdk = createRequire(await realpath(process.env.DSMM_TEST_DSH_ENTRY!));
+  const { chromium } = createRequire(process.env.DSMM_TEST_PLAYWRIGHT_ENTRY!)("playwright");
+  const { startProfileUiServer } = await import(new URL("../scripts/profile-ui-harness-server.mjs", import.meta.url).href);
+  const { compositionBundle } = await import(new URL("../scripts/profile-ui-harness-browser.mjs", import.meta.url).href);
+  const owned = await realpath(await mkdtemp(join(await realpath(tmpdir()), "dsmm-profile-menu-browser-")));
+  const packageRoot = join(owned, "package");
+  let server: Awaited<ReturnType<typeof startProfileUiServer>> | undefined;
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  try {
+    await mkdir(join(packageRoot, "lib"), { recursive: true });
+    const bundle = await build({
+      stdin: {
+        sourcefile: "session-profile-menu.tsx", resolveDir: fileURLToPath(new URL("../src/client/", import.meta.url)), loader: "tsx",
+        contents: `
+          import React, { useEffect, useSyncExternalStore } from 'react';
+          import { SessionProfiles } from './SessionProfiles.tsx';
+          import { ProfilesController } from './controller.ts';
+          import { en } from './locales.ts';
+          import { PROFILE_STYLES } from './styles.ts';
+          const controller = new ProfilesController({
+            describe: () => window.__profilesBridge({ method: 'describe' }),
+            describeSession: id => window.__profilesBridge({ method: 'describeSession', id }),
+            selectSession: (id, request) => window.__profilesBridge({ method: 'selectSession', id, request }),
+          });
+          window.__profilesController = controller;
+          window.__profileMenuCalls = [];
+          const actions = { ...controller.actions,
+            chooseSessionProfile: id => { window.__profileMenuCalls.push(['choose', id]); controller.actions.chooseSessionProfile(id); },
+            applySession: () => { window.__profileMenuCalls.push(['apply']); return controller.actions.applySession(); },
+          };
+          function Surface() {
+            const state = useSyncExternalStore(controller.store.subscribe, controller.store.getSnapshot);
+            useEffect(() => { controller.setSession('stopped-session'); void controller.refresh(); }, []);
+            return <SessionProfiles {...actions} hooks={{ profiles: controller.store }}
+              readProfileView={controller.store.getSnapshot} useProfiles={select => select(state)}
+              t={(key, values) => en[key].replace(/\\{([^}]+)\\}/g, (match, name) => values?.[name] ?? match)} />;
+          }
+          export const inject = ['slots'];
+          export function apply(ctx) {
+            ctx.effect(() => {
+              const style = document.createElement('style'); style.textContent = PROFILE_STYLES;
+              document.head.append(style); return () => { style.remove(); controller.dispose(); };
+            });
+            ctx.slots.inject('settings.section', () => ctx.slots.register({ name: 'settings.section', id: 'dsmm-profiles' }, Surface));
+          }
+        `,
+      },
+      bundle: true, write: false, platform: "browser", format: "cjs", target: "es2022",
+      external: ["react", "react/jsx-runtime", "@deepseek-ai/dsh-client-ui-primitives"],
+      banner: { js: 'window.__ModuleLoader__.load({id:"@dsmm/dsmm",factory:(require)=>{const module={exports:{}};const exports=module.exports;' },
+      footer: { js: "return module.exports;}});" },
+    });
+    await writeFile(join(packageRoot, "lib", "client.js"), bundle.outputFiles[0]!.text);
+    server = await startProfileUiServer({ nativeRequire: sdk, packageRoot, sha256: "owned-session-menu-fixture", composition: compositionBundle({ containerMode: "fixed-height" }) });
+    browser = await chromium.launch({ executablePath: process.env.DSMM_TEST_BROWSER_EXECUTABLE ?? chromium.executablePath(), headless: true, args: ["--disable-extensions", "--disable-sync"] });
+    const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: "block" });
+    await context.route("**/*", (route: { request(): { url(): string }; continue(): Promise<void>; abort(): Promise<void> }) =>
+      new URL(route.request().url()).origin === server!.origin ? route.continue() : route.abort());
+    const page = await context.newPage();
+    page.setDefaultTimeout(5_000);
+    const errors: string[] = [];
+    page.on("pageerror", (error: Error) => errors.push(error.message));
+    await page.exposeBinding("__dsmmNativeBridge", () => ({ ok: false, error: { code: "gateway/unavailable", message: "Unavailable", details: {} } }));
+    const revision = "stat-v1-100-200";
+    const profiles = [{ id: "a", label: "A", revision }, { id: "b", label: "B", revision }];
+    const selections: SessionProfileSelectRequest[] = [];
+    let selectedId: string | null = "a", capability = true, readFailure = false;
+    const session = (): SessionProfileSnapshot => {
+      const selection = { selectedId, appliedRevision: selectedId === null ? null : revision, sourceRevision: selectedId === null ? null : revision, selectionRevision: revision };
+      return { sessionId: "stopped-session", selection, admittedSelection: selection,
+        globalDefault: { selectedId: "a", appliedRevision: revision, selectionRevision: revision },
+        scope: selectedId === null ? "deployment-baseline" : "session-override", admissionEpoch: `epoch-${selections.length}`,
+        switchAllowed: capability, canApplyOverlay: capability, ...(!capability ? { applyOverlayUnavailableReason: "runtime-unavailable" as const } : {}),
+        canSelectModel: false, canToggleMode: false };
+    };
+    await page.exposeBinding("__profilesBridge", (_source: unknown, input: { method: string; request?: SessionProfileSelectRequest }) => {
+      if (input.method === "describe") return { ok: true, value: { profiles, selectedId: "a", appliedRevision: revision, selectionRevision: revision } };
+      if (input.method === "describeSession") return readFailure
+        ? { ok: false, error: { code: "dsmm-profiles/refused", details: { code: "unavailable", message: "Unavailable" } } }
+        : { ok: true, value: session() };
+      assert.equal(input.method, "selectSession");
+      selections.push(input.request!); selectedId = input.request!.id;
+      return { ok: true, value: session() };
+    });
+    await page.goto(server.origin);
+    const trigger = page.locator(".dsmm-profile-trigger"), menu = page.locator(".dsmm-profile-menu");
+    await page.waitForFunction(() => window.__profilesController?.store.getSnapshot().sessionBusy === null && window.__profilesController.store.getSnapshot().snapshot !== null);
+    await trigger.click();
+    const optionB = menu.getByText("B", { exact: true });
+    assert.equal(await optionB.isEnabled(), true);
+    await optionB.click();
+    await page.waitForFunction(() => window.__profilesController.store.getSnapshot().session?.admittedSelection?.selectedId === "b");
+    assert.equal(selections[0]!.id, "b");
+    assert.equal(selections[0]!.expectedAdmissionEpoch, "epoch-0");
+    await trigger.click();
+    await menu.getByText(en.headerCurrentProfile.replace("{profile}", "B"), { exact: true }).waitFor();
+    const baseline = menu.getByText(en.sessionBaseline, { exact: true });
+    assert.equal(await baseline.isEnabled(), true);
+    await baseline.click();
+    await page.waitForFunction(() => window.__profilesController.store.getSnapshot().session?.admittedSelection?.selectedId === null);
+    assert.equal(selections[1]!.id, null);
+    assert.equal(selections[1]!.expectedAdmissionEpoch, "epoch-1");
+    assert.deepEqual(await page.evaluate(() => window.__profileMenuCalls), [["choose", "b"], ["apply"], ["choose", null], ["apply"]]);
+    assert.equal(await page.evaluate(() => window.__profilesController.store.getSnapshot().snapshot?.selectedId), "a");
+    await trigger.click();
+    await menu.getByText(en.headerCurrentProfile.replace("{profile}", en.sessionBaseline), { exact: true }).waitFor();
+    await page.keyboard.press("Escape");
+    capability = false;
+    await page.evaluate(() => window.__profilesController.actions.refreshSession());
+    await trigger.click();
+    await menu.getByText(en.headerRuntimeUnavailable, { exact: true }).waitFor();
+    assert.equal(await optionB.isEnabled(), false);
+    assert.equal(await page.locator(".dsmm-profile-announcement").getAttribute("role"), "status");
+    await page.keyboard.press("Escape");
+    readFailure = true;
+    await page.evaluate(() => window.__profilesController.actions.refreshSession());
+    await trigger.click();
+    await menu.getByText(en.headerUnavailableRefused, { exact: true }).waitFor();
+    assert.equal(await optionB.isEnabled(), false);
+    assert.equal(await page.locator(".dsmm-profile-announcement").getAttribute("role"), "alert");
+    assert.equal(selections.length, 2);
+    capability = true; readFailure = false;
+    await menu.getByText(en.headerCompactRefresh, { exact: true }).click();
+    await page.waitForFunction(() => window.__profilesController.store.getSnapshot().sessionIssue === null && window.__profilesController.store.getSnapshot().sessionBusy === null);
+    await trigger.click();
+    assert.equal(await optionB.isEnabled(), true);
+    assert.deepEqual(errors, []);
+  } finally {
+    if (browser) await browser.close();
+    if (server) await server.close();
+    await rm(owned, { recursive: true, force: true });
+  }
+});
 
 test("Named profiles redesigned UI page-level browser QA and interactive flows", {
   skip: !available && "requires explicit DSH and Playwright anchors (DSMM_TEST_DSH_ENTRY and DSMM_TEST_PLAYWRIGHT_ENTRY)",

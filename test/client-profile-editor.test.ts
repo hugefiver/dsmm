@@ -702,14 +702,27 @@ test("native profile menu retains admitted unavailable identity without standalo
   f.controller.dispose();
 });
 
-test("native menu immediately applies with existing CAS, then displays accepted admission without global mutation", async () => {
+test("native menu applies an enabled profile and baseline with existing CAS and updates the current selection", async t => {
   const component = await nativeHeaderComponent();
-  const f = fixture(); await f.controller.refresh(); f.controller.setSession("header-root"); await settle(f.controller);
-  headerMenu(headerTree(component, f.controller)).props.onSelect("p"); await settle(f.controller);
-  assert.deepEqual(f.selections, [{ sessionId: "header-root", id: "p", expectedRevision: revision, expectedSelectionRevision: "absent", expectedAdmissionEpoch: "epoch-1" }]);
-  assert.equal(headerMenu(headerTree(component, f.controller)).props.selectedId, "p");
-  assert.equal(f.calls.includes("select"), false);
-  f.controller.dispose();
+  const f = fixture();
+  const choose = t.mock.method(f.controller.actions, "chooseSessionProfile");
+  const apply = t.mock.method(f.controller.actions, "applySession");
+  try {
+    await f.controller.refresh(); f.controller.setSession("header-root"); await settle(f.controller);
+    assert.equal(menuRowDisabled(headerTree(component, f.controller), "p"), false);
+    headerMenu(headerTree(component, f.controller)).props.onSelect("p"); await settle(f.controller);
+    assert.deepEqual(f.selections, [{ sessionId: "header-root", id: "p", expectedRevision: revision, expectedSelectionRevision: "absent", expectedAdmissionEpoch: "epoch-1" }]);
+    assert.equal(headerMenu(headerTree(component, f.controller)).props.selectedId, "p");
+    assert.equal(f.controller.store.getSnapshot().sessionChoice, "p");
+    assert.equal(menuRowDisabled(headerTree(component, f.controller), ""), false);
+    headerMenu(headerTree(component, f.controller)).props.onSelect(""); await settle(f.controller);
+    assert.deepEqual(f.selections[1], { sessionId: "header-root", id: null, expectedSelectionRevision: otherRevision, expectedAdmissionEpoch: "epoch-2" });
+    assert.equal(headerMenu(headerTree(component, f.controller)).props.selectedId, "");
+    assert.equal(f.controller.store.getSnapshot().sessionChoice, null);
+    assert.deepEqual(choose.mock.calls.map(call => call.arguments[0]), ["p", null]);
+    assert.equal(apply.mock.callCount(), 2);
+    assert.equal(f.calls.includes("select"), false);
+  } finally { f.controller.dispose(); }
 });
 
 test("header refusal retains admitted selection and dirty drafts disable selection without automatic discard", async () => {
@@ -793,6 +806,40 @@ test("busy-session menu keeps its trigger inspectable, explains refusal inside a
   headerMenu(tree).props.onSelect("p"); await settle(f.controller);
   assert.deepEqual(f.selections, []);
   f.controller.dispose();
+});
+
+test("unavailable capability and failed session read have distinct feedback and recover through refresh", async () => {
+  const component = await nativeHeaderComponent();
+  for (const failure of ["capability", "read"] as const) {
+    let recovered = false;
+    const f = fixture({ describeSession: async id => recovered ? success(session(id))
+      : failure === "read" ? { ok: false, error: new RemoteError("dsmm-profiles/refused", "unavailable", { code: "unavailable", message: "unavailable" }) }
+      : success({ ...session(id), canApplyOverlay: false, applyOverlayUnavailableReason: "runtime-unavailable" }) });
+    const render = () => component({ ...f.controller.actions, readProfileView: f.controller.store.getSnapshot,
+      useProfiles: select => select(f.controller.store.getSnapshot()), t: key => key });
+    try {
+      await f.controller.refresh(); f.controller.setSession("unavailable-header"); await settle(f.controller);
+      const tree = render(), menu = headerMenu(tree);
+      assert.equal(menuRowDisabled(tree, "p"), true);
+      menu.props.onSelect("p"); await settle(f.controller);
+      assert.deepEqual(f.selections, []);
+      if (failure === "capability") {
+        assert.equal(f.controller.store.getSnapshot().sessionIssue, null);
+        assert.ok(menu.props.items.some(entry => entry.id === "@overlay-reason" && "text" in entry && entry.text === "headerRuntimeUnavailable"));
+        assert.equal(menu.props.items.some(entry => entry.id === "@diagnostic"), false);
+      } else {
+        assert.equal(f.controller.store.getSnapshot().session, null);
+        assert.equal(menuFeedback(tree), "headerUnavailableRefused");
+        assert.ok(elements(tree).some(node => node.props.role === "alert"));
+        assert.ok(menu.props.items.some(entry => entry.id === "@diagnostic"));
+      }
+      assert.ok(menu.props.footer.some(entry => entry.id === "@refresh" && !entry.disabled));
+      recovered = true;
+      menu.props.onSelect("@refresh"); await settle(f.controller);
+      assert.equal(menuRowDisabled(render(), "p"), false);
+      assert.equal(headerMenu(render()).props.items.some(entry => entry.id === "@overlay-reason" || entry.id === "@diagnostic"), false);
+    } finally { f.controller.dispose(); }
+  }
 });
 
 function appliedWithModel(id: string, model = "profile-main"): SessionProfileSnapshot {

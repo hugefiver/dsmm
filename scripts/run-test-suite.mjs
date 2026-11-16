@@ -97,7 +97,7 @@ if (mode === "--list") {
 }
 
 if (process.exitCode === undefined && selected.length > 0) {
-  const hostFiles = new Set(integrationSuites["native-teams"]);
+  const hostFiles = new Set([...integrationSuites["native-teams"], ...integrationSuites["profile-switching"]]);
   const groups = [
     { files: selected.filter(file => !hostFiles.has(file)), loader: "./test/prompt-source-loader.mjs" },
     { files: selected.filter(file => hostFiles.has(file)), loader: "./test/host-llm-source-loader.mjs" },

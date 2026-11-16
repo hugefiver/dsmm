@@ -172,8 +172,6 @@ export class NativeAdmission {
   private readonly nativeToolExecution = new AsyncLocalStorage<ToolExecution["token"]>();
   private readonly observedCallRuns = new Map<string, CallRecord>();
   private readonly callSubscribers = new Set<RoleCallSubscriber>();
-  private readonly providerScopes = new Map<object, boolean>();
-  private readonly opaqueAgents = new WeakSet<Agent>();
   private readonly admissionRoutes = new WeakMap<Agent, AdmissionRouteCache>();
   private readonly admissionRouteFailures = new WeakMap<Agent, AdmissionRouteFailure>();
   private readonly setupSelectionCursors = new WeakMap<object, number>();
@@ -194,18 +192,6 @@ export class NativeAdmission {
       const errors = results.flatMap(result => result.status === "rejected" ? [result.reason] : []);
       if (errors.length) throw new AggregateError(errors, "Native activation teardown failed");
     });
-    const observeProviders = () => { if (!this.lifetime.signal.aborted) this.observeProviders(); };
-    ctx.on("subagent/provider-added", observeProviders, { global: true });
-    ctx.on("subagent/provider-removed", observeProviders, { global: true });
-    ctx.on("internal/plugin", observeProviders, { global: true });
-    ctx.on("internal/status", observeProviders, { global: true });
-    ctx.on("internal/service", name => {
-      // A Service registers in super(), before subclass fields are initialized.
-      if (name === "subagents" || name === "agents") queueMicrotask(observeProviders);
-    }, { global: true });
-    // Existing Agents may have unpublished starts from before this observer.
-    for (const agent of ctx.agents.list()) this.opaqueAgents.add(agent);
-    observeProviders();
     ctx.on("subagent/start", info => { this.admitPublishedChild(info); this.startObservedActivation(info); }, { global: true });
     ctx.on("subagent/end", info => { this.endObservedActivation(info); }, { global: true });
     ctx.on("session/created", session => {
@@ -638,37 +624,14 @@ export class NativeAdmission {
     }
     return tree;
   }
-  private observeProviders(): void {
-    const scopes = new Set<Context>([this.ctx, this.ctx.root]);
-    for (const plugin of this.ctx.registry.values()) for (const fiber of plugin.fibers) scopes.add(fiber.ctx);
-    const registry = original(this.ctx.agents), current = new Map<object, boolean>();
-    for (const scope of scopes) {
-      const agents = scope.get("agents", false), runtime = scope.get("subagents", false);
-      if (agents === undefined || original(agents) !== registry || runtime === undefined || current.has(original(runtime))) continue;
-      // Hosts without provider enumeration cannot prove that external starts are absent.
-      current.set(original(runtime), typeof runtime.list !== "function"
-        || runtime.list().some(name => runtime.getProvider(name)?.prepareContinuable === undefined));
-    }
-    // Any native service sharing this registry may accept these exact parents,
-    // including isolated services the Agent's own context does not resolve.
-    // Removal and late start/end cannot prove unpublished external starts ended.
-    if ([...this.providerScopes.values(), ...current.values()].some(Boolean)) {
-      for (const agent of this.ctx.agents.list()) this.opaqueAgents.add(agent);
-    }
-    this.providerScopes.clear();
-    for (const [runtime, opaque] of current) this.providerScopes.set(runtime, opaque);
-  }
   blankReason(agent: Agent, allowQueued = false): SessionActionUnavailableReason | undefined {
     if (!this.isReady || this.failedInstallations.has(agent) || this.ctx.agents.get(agent.id) !== agent || !nativeRoots(this.ctx.agents).includes(agent) || this.dependencies(agent).some(value => value === undefined)) return "runtime-unavailable";
     const live = this.live.get(agent);
     if (!live || live.parent || agent.session.header.origin === "subagent") return "runtime-unavailable";
     if (this.selecting.has(agent) && !allowQueued) return "busy";
     try {
-      this.observeProviders();
       for (const member of this.residentTree(agent)) {
         this.assertBinding(member, allowQueued ? agent : undefined);
-        const runtime = member.ctx.get("subagents");
-        if (runtime === undefined || !this.providerScopes.has(original(runtime)) || this.opaqueAgents.has(member)) return "runtime-unavailable";
         if (this.dependencies(member).some(value => value === undefined)) return "runtime-unavailable";
         if (member.status !== "idle" || hasOpenTurn(sessionEvents(member.session)) || (this.calls.get(member) ?? 0) !== 0
           || (this.executions.get(member)?.size ?? 0) !== 0 || [...this.pending.values()].some(row => row.parent === member)
@@ -908,7 +871,6 @@ export class NativeAdmission {
     const pending = this.pending.get(agent.id);
     if (pending && source !== "startup") throw new SubagentError("Role creation requires its first pending call", "UNAUTHORIZED");
     if (!this.isReady || !this.install) throw new SubagentError("DSMM admission is initializing", "UNAUTHORIZED");
-    this.observeProviders();
     let signal = AbortSignal.any([...creationSignal ? [creationSignal] : [], this.lifetime.signal]);
     signal.throwIfAborted();
     const parents = this.ctx.agents.list().filter(parent => parent !== agent && nativeIsOwnedBy(this.ctx.agents, agent.id, parent));

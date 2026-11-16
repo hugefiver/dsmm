@@ -62,6 +62,9 @@ export const integrationSuites = Object.freeze({
     "native-tree-collaboration.test.ts",
     "native-tree-generic.test.ts",
   ]),
+  "profile-switching": Object.freeze([
+    "session-profile-tree-host.test.ts",
+  ]),
   frontend: Object.freeze([
     "client-deployment-core-browser.test.ts",
     "client-editable-choice-browser.test.ts",

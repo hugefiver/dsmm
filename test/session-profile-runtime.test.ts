@@ -670,7 +670,7 @@ test("a running grandchild blocks the root while completed resident descendants 
   } finally { blocked.release(); await f.dispose(); }
 });
 
-test("native services without provider enumeration allow execution but refuse session configuration changes", async t => {
+test("native services without provider enumeration switch idle roots to B and baseline for subsequent requests", async t => {
   for (const service of ["resolved", "isolated"] as const) await t.test(service, async () => {
     const f = await nativeRoutingFixture({ defaultActive: true }, { async beforeDsmm(ctx) {
       let native = ctx.subagents;
@@ -683,98 +683,24 @@ test("native services without provider enumeration allow execution but refuse se
     } });
     try {
       const runtime = runtimeOf(f), root = await f.create({ agentPreset: "dsmm-orchestrator" });
-      const before = runtime.admission(structural(root));
       await runFixtureTurn(root);
-      assert.equal(f.adapter.calls.at(-1)?.sessionId, root.id);
-      assert.equal((await runtime.getSession(structural(root))).applyOverlayUnavailableReason, "runtime-unavailable");
-      await assert.rejects(runtime.selectSession(await request(runtime, root, null), structural(root)), { code: "unavailable" });
-      assert.equal(runtime.admission(structural(root)), before);
-      const child = await residentChild(f, root);
-      assert.equal(f.agents.isOwnedBy(child.id, root), true);
-      await f.releaseAuxiliary(child);
-      await runFixtureTurn(root);
-      assert.equal(f.adapter.calls.at(-1)?.sessionId, root.id);
-    } finally { await f.dispose(); }
-  });
-});
-
-test("opaque foreign startup stays unavailable after provider removal and cannot cross an idle profile transaction", async t => {
-  for (const service of ["resolved", "isolated"] as const) for (const timing of ["before", "during"] as const) await t.test(`${service}-${timing}`, async () => {
-    const f = await nativeRoutingFixture({ defaultActive: true, locale: "en" });
-    let isolated: ReturnType<typeof f.ctx.plugin> | undefined;
-    let native = f.subagents;
-    const entered = gate(), allowStart = gate(), finishRun = gate(), selectingEntered = gate(), allowSelection = gate();
-    let removeProvider: (() => void | Promise<void>) | undefined;
-    let starting: Promise<SubagentActivation> | undefined, transaction: Promise<unknown> | undefined;
-    let interception: ReturnType<typeof mock.method> | undefined;
-    let disposed = 0, startSignal: AbortSignal | undefined;
-    try {
-      const runtime = runtimeOf(f), root = await f.create({ agentPreset: "standard" });
-      assert.ok(identity(root.ctx.get("subagents")!) === identity(f.subagents));
-      await runFixtureTurn(root);
-      const before = runtime.admission(structural(root)), history = root.session.snapshotEvents(), options = structuredClone(root.options);
-      const saved = await runtime.save({ id: "opaque-b", content: profile("opaque-b", "opaque-b"), expectedRevision: null });
-      const choice = await request(runtime, root, saved.id, saved.revision);
       assert.equal((await runtime.getSession(structural(root))).canApplyOverlay, true);
-      if (timing === "during") {
-        const original = ProfileStore.prototype.selectSession;
-        interception = mock.method(ProfileStore.prototype, "selectSession", function (this: ProfileStore, ...[request, epoch, validate, commit]: Parameters<ProfileStore["selectSession"]>) {
-          return original.call(this, request, epoch, async document => { selectingEntered.release(); await allowSelection.promise; return validate(document); }, commit);
-        });
-        transaction = assert.rejects(runtime.selectSession(choice, structural(root)), { code: "conflict" });
-        await selectingEntered.promise;
-      }
-      if (service === "isolated") {
-        isolated = f.ctx.isolate("subagents").plugin(SubagentRuntime, {}); await isolated.await();
-        native = isolated.ctx.get("subagents")!;
-        assert.ok(identity(native) !== identity(root.ctx.get("subagents")!));
-      }
-      const provider: SubagentProvider = {
-        name: "foreign-deferred", capabilities: {}, inheritsParentContext: false,
-        async start(request) {
-          startSignal = request.signal; entered.release(); await allowStart.promise;
-          return { id: SessionId(`foreign-deferred-${root.id}`), result: finishRun.promise.then(() => ({ output: [], stopReason: "completed" as const })),
-            async dispose() { disposed++; } };
-        },
-      };
-      removeProvider = native.registerProvider(provider);
-      const exposed = await f.create({ agentPreset: "standard" });
-      starting = native.startActivation({ provider: provider.name, label: "Opaque local fixture", delivery: "caller", signal: new AbortController().signal,
-        request: { parent: root, prompt: [] } });
-      await entered.promise;
-      await removeProvider(); removeProvider = undefined;
-      assert.equal(native.getProvider(provider.name), undefined);
-      assert.equal((await runtime.getSession(structural(exposed))).applyOverlayUnavailableReason, "runtime-unavailable");
-      assert.equal(root.status, "idle");
-      assert.equal(f.agents.list().some(agent => f.agents.isOwnedBy(agent.id, root)), false);
-      if (transaction) { allowSelection.release(); await transaction; }
-      else {
-        assert.equal((await runtime.getSession(structural(root))).applyOverlayUnavailableReason, "runtime-unavailable");
-        await assert.rejects(runtime.selectSession(choice, structural(root)), { code: "unavailable" });
-      }
-      assert.equal(runtime.admission(structural(root)), before);
-      assert.equal((await centralStore(f).loadSessionSelection(root.id)).admissionEpoch, null);
-      assert.deepEqual(root.session.snapshotEvents(), history); assert.deepEqual(root.options, options);
-      assert.equal(startSignal?.aborted, false); assert.equal(disposed, 0, "configuration maintenance must not cancel opaque work");
-      interception?.mock.restore(); interception = undefined;
-      const fresh = await f.create({ agentPreset: "dsmm-orchestrator" });
-      const child = await residentChild(f, fresh), childCapture = runtime.admission(structural(child));
-      assert.equal((await runtime.getSession(structural(fresh))).canApplyOverlay, true, "a new exact Agent after removal was never exposed to that provider");
-      await runtime.selectSession(await request(runtime, fresh, saved.id, saved.revision), structural(fresh));
-      assert.equal(runtime.admission(structural(child)), childCapture);
-      await f.releaseAuxiliary(child);
-      allowStart.release(); const activation = await starting;
-      assert.equal((await runtime.getSession(structural(root))).applyOverlayUnavailableReason, "runtime-unavailable");
-      finishRun.release(); await activation.result;
-      assert.equal(startSignal?.aborted, false);
-      assert.equal((await runtime.getSession(structural(root))).applyOverlayUnavailableReason, "runtime-unavailable", "late start/end cannot prove absence of earlier unpublished starts");
+      const saved = await runtime.save({ id: "no-list-b", expectedRevision: null,
+        content: JSON.stringify({ version: 1, id: "no-list-b", settings: { defaultActive: true, locale: "ja" } }) });
+      await runtime.selectSession(await request(runtime, root, saved.id, saved.revision), structural(root));
       await runFixtureTurn(root);
-      assert.equal(runtime.admission(structural(root)), before);
-    } finally {
-      allowSelection.release(); allowStart.release(); finishRun.release();
-      await transaction; await starting?.then(activation => activation.result); await removeProvider?.();
-      interception?.mock.restore(); await isolated?.dispose(); await f.dispose();
-    }
+      assert.match(JSON.stringify(f.adapter.calls.at(-1)?.messages), /capturedLocale\\":\\"ja/u);
+      assert.equal(headerRoutes(root).at(-1)?.model, "native-default");
+      const child = await residentChild(f, root), captured = runtime.admission(structural(child));
+      assert.equal(f.agents.isOwnedBy(child.id, root), true);
+      const baseline = await runtime.selectSession(await request(runtime, root, null), structural(root));
+      assert.equal(baseline.scope, "deployment-baseline");
+      assert.equal(runtime.admission(structural(child)), captured);
+      await runFixtureTurn(root);
+      assert.equal(runtime.admission(structural(root)).settings.locale, undefined);
+      assert.equal(headerRoutes(root).at(-1)?.model, "native-default");
+      await f.releaseAuxiliary(child);
+    } finally { await f.dispose(); }
   });
 });
 
@@ -830,25 +756,6 @@ test("opaque providers on an independent Agent registry do not restrict an admit
     assert.equal((await runtime.getSession(structural(root))).canApplyOverlay, true);
     await runFixtureTurn(root); assert.equal(f.adapter.calls.at(-1)?.model, "native-default");
   } finally { await removeProvider?.(); await service.dispose(); await registry.dispose(); await f.dispose(); }
-});
-
-test("a pre-existing isolated native service is covered before a new Agent's admission", async () => {
-  let removeProvider: (() => void | Promise<void>) | undefined;
-  const f = await nativeRoutingFixture({}, { async beforeDsmm(ctx) {
-    const service = ctx.isolate("subagents").plugin(SubagentRuntime, {}); await service.await();
-    removeProvider = service.ctx.get("subagents")!.registerProvider({ name: "foreign-existing", capabilities: {}, inheritsParentContext: false,
-      async start() { throw new Error("This fixture only probes registry exposure"); } });
-  } });
-  try {
-    const runtime = runtimeOf(f), root = await f.create({ agentPreset: "standard" });
-    const choice = await request(runtime, root, null);
-    assert.equal((await runtime.getSession(structural(root))).applyOverlayUnavailableReason, "runtime-unavailable");
-    await removeProvider?.(); removeProvider = undefined;
-    await assert.rejects(runtime.selectSession(choice, structural(root)), { code: "unavailable" });
-    const fresh = await f.create({ agentPreset: "standard" });
-    assert.equal((await runtime.getSession(structural(fresh))).canApplyOverlay, true);
-    await runtime.selectSession(await request(runtime, fresh, null), structural(fresh));
-  } finally { await removeProvider?.(); await f.dispose(); }
 });
 
 test("blank choices read current deployment values but cannot mount runtime or permission capabilities above startup", async () => {
