@@ -67,6 +67,7 @@ test("real selected calibration layers expose no model or family identity", () =
     ["dsmm-research", "k3p1"],
     ["dsmm-builder", "swe-2-fast"],
     ["dsmm-orchestrator", "claude-opus-5"],
+    ["dsmm-builder", "claude-fable-5-2"],
     ["dsmm-planner", "custom-unmatched"]
   ] as const) {
     const role = SOURCE_ROLE_CATALOG.find(row => row.id === roleId)!;

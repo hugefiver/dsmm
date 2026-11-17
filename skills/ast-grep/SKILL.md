@@ -82,7 +82,7 @@ A single-file Python 3 stdlib wrapper. Same on every OS. The agent's default ent
 ### `search` — find all matches of a pattern
 
 ```bash
-python3 scripts/ast_grep_helper.py search 'console.log($MSG)' --lang ts src/
+python3 scripts/ast_grep_helper.py search 'console.log($MSG)' src/ --lang ts
 ```
 
 Validates the pattern offline first. If the pattern looks like regex (`\w`, `.*`, `|`, etc.) the helper exits with a hint and never calls `sg` — saves a round-trip. Pass `--force` to skip validation.
@@ -97,10 +97,10 @@ Flags:
 
 ```bash
 # Dry-run preview (default — no files mutated)
-python3 scripts/ast_grep_helper.py replace 'console.log($MSG)' 'logger.info($MSG)' --lang ts src/
+python3 scripts/ast_grep_helper.py replace 'console.log($MSG)' 'logger.info($MSG)' src/ --lang ts
 
 # Actually apply
-python3 scripts/ast_grep_helper.py replace 'console.log($MSG)' 'logger.info($MSG)' --lang ts src/ --apply
+python3 scripts/ast_grep_helper.py replace 'console.log($MSG)' 'logger.info($MSG)' src/ --lang ts --apply
 ```
 
 The helper:
@@ -120,8 +120,11 @@ python3 scripts/ast_grep_helper.py scan -r rules/no-console.yml src/
 # Apply auto-fixes
 python3 scripts/ast_grep_helper.py scan -U src/
 
-# CI-friendly GitHub annotations
-python3 scripts/ast_grep_helper.py scan --report-style short src/
+# Compact one-line findings
+python3 scripts/ast_grep_helper.py scan src/ --report-style short
+
+# GitHub annotations use sg directly
+sg scan --format github src/
 ```
 
 ### `validate` — offline pattern check (no `sg` call)
@@ -258,7 +261,7 @@ The full YAML rule schema is in `references/yaml-rules.md`. Project setup (`sgco
 - `sg run --json=compact` produces an array of match objects: `{ file, range: {start, end}, text, replacement?, lines, language, ... }`. Pipe through `jq` for further processing.
 - Without `--json`, `sg` produces human-readable colored output suitable for terminals.
 - The helper's default output is human-readable (file:line:column + match preview). Pass `--json-out` for raw JSON.
-- The helper's `replace` always summarizes: number of matches, number of files, per-location preview.
+- `replace` previews each match in dry-run mode; `--apply` reports the match and file totals.
 
 When summarizing for the user, **always include the count of files affected**, not just the count of matches. Users care about blast radius.
 

@@ -17,7 +17,22 @@ If the project does not yet have react-scan and react-doctor wired into its dev 
 
 ## Lighthouse run + react-scan/lite
 
-`playwright-lighthouse` already drives a real Chrome. Inject `react-scan/lite` BEFORE React mounts via `page.addInitScript`. Then drain its `onEvent` stream during the run and assert on render budgets at the end.
+Bundle this browser entry as `audit/react-scan-init.js` (IIFE) with the project's existing bundler. Measure React commits on the Playwright page and Lighthouse scores for the same URL. Lighthouse may use a different page, so the two measurements need not cover the same navigation. A bare package import inside `addInitScript` is not resolved by the app bundler.
+
+```ts
+import { instrument, type LiteEvent } from "react-scan/lite";
+
+declare global {
+  interface Window { __renderEvents: LiteEvent[] }
+}
+window.__renderEvents = [];
+instrument({
+  recordChangeDescriptions: true,
+  onEvent(event) {
+    if (event.kind === "commit") window.__renderEvents.push(event);
+  },
+});
+```
 
 ```ts
 // scripts/audit-with-react-scan.ts
@@ -132,21 +147,7 @@ async function launchOwnedAuditBrowser(): Promise<OwnedAuditBrowser> {
 
 const ownedBrowser = await launchOwnedAuditBrowser();
 try {
-  // Inject react-scan/lite BEFORE the app boots. Initialization failure still reaches finally.
-  await ownedBrowser.context.addInitScript(() => {
-    // @ts-ignore — pulled from the project's node_modules or a self-hosted bundle
-    import("react-scan/lite").then(({ instrument }) => {
-      (window as any).__renderEvents = [];
-      instrument({
-        onEvent: (event: any) => {
-          if (event.kind === "commit") (window as any).__renderEvents.push(event);
-        },
-        recordChangeDescriptions: true,
-        includeFiberSource: true,
-        includeFiberIdentity: true,
-      });
-    });
-  });
+  await ownedBrowser.context.addInitScript({ path: "audit/react-scan-init.js" });
 
   await ownedBrowser.page.goto("http://localhost:3000/<route>");
   await playAudit({
@@ -157,15 +158,12 @@ try {
     config: { extends: "lighthouse:default", settings: { formFactor: "mobile" } },
   });
 
-  // Pull render events and assert on render quality
-  const events = await ownedBrowser.page.evaluate(() => (window as any).__renderEvents);
-  const unnecessary = events.filter((e: any) =>
-    e.tree?.some((node: any) => node.changeDescription?.kind === "unnecessary"),
-  );
-
-  if (unnecessary.length > 0) {
-    throw new Error(`FAIL: ${unnecessary.length} unnecessary renders detected during audit`);
-  }
+  const commits = await ownedBrowser.page.evaluate(() => window.__renderEvents);
+  if (!commits.length) throw new Error("No React commits observed on the Playwright page");
+  const parentOnly = commits.flatMap(commit => (commit.tree ?? []).filter(({ changeDescription: change }) =>
+    change?.parent && !change.isFirstMount && !change.props?.length && !change.state && !change.context && !change.hooks.length,
+  ).map(({ name, actualDuration }) => ({ name, actualDuration })));
+  console.table(parentOnly); // Inspect these candidates against the route's expected updates.
   await ownedBrowser.page.screenshot({ path: "lighthouse-react-<route>.png", fullPage: true });
 } finally {
   await ownedBrowser.close();
@@ -204,7 +202,7 @@ Run them in this order, stop at the first failure:
 
 1. **`react-doctor`** — cheapest. Catches missing memoization, broken list keys, unstable callback refs, expensive children that re-render unnecessarily. Fix everything it reports BEFORE running Lighthouse — half the perf score wins live here.
 2. **`react-scan` interactive in dev** — load the page in real Chrome with `npx react-scan@latest init` already wired (see the dev-tooling reference). Walk the LCP route, the most-clicked CTA, and any animation-heavy view. The toolbar shows render counts; the overlay highlights unnecessary renders in gray. Fix until clean.
-3. **`react-scan/lite` in the Lighthouse run** — once interactive is clean, run the Playwright audit above. This catches anything that only shows under throttling or only on first paint.
+3. **`react-scan/lite` on the Playwright page** — inspect parent-only renders against the route's expected updates. A parent render alone does not establish that a child's work was wasted.
 4. **Playwright + Lighthouse** — standard run from `README.md` audit workflow. Score 100 + zero unnecessary renders from step 3 = done.
 
 ## React-specific perf root causes (extends `README.md` ROOT-CAUSE CHECKLIST)

@@ -95,9 +95,10 @@ Each `match_reasons` entry includes `query`, `platform`, `field`, and `snippet`,
 | `--cwd` | Working-directory substring |
 | `--model` | Model substring |
 | `--limit` | Maximum results |
-| `--query` | Repeatable search query; multiple queries return per-query groups plus a de-duplicated merged result list |
 | `--workers` | Parallel worker count for platform scans, transcript parsing, OpenCode message joins, and multi-query matching |
 | `--include-subagents` | Include subagent/child sessions as standalone `list`/`search` results (hidden by default) |
+
+Use `--query` with `search` (alias `find`) for text matching. Repeating it returns per-query groups and a de-duplicated result list. `list` ignores query text.
 
 When `--platform` is omitted, the finder searches every registered platform in parallel. Each optional platform first probes fixed, known transcript roots and returns immediately when the product has no local store, so broad default searches stay cheap. Use repeatable flags such as `--platform openclaw --platform droid` only when narrowing. Comma-separated platform values are intentionally unsupported.
 

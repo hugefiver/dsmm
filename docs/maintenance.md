@@ -63,7 +63,9 @@ and the old calibration. Selection preserves the first model identity and keeps
 structured provider metadata outside model matching. Gemini 4.x, including Argon,
 receives the selected `gemini-4` additive layer. No injected self-identification
 or textual model guard is needed. Prompt selection does not change provider,
-effort, fallback chains or DSH model capabilities.
+effort, fallback chains or DSH model capabilities. Fable 5.2 and Mythos 5.2 select
+`deepwork/claude-fable-5-2.md` for admitted roles and categories. It directs the
+agent to finish actionable work in its assignment and diagnose a failure before retrying.
 
 The K3.1+ scope-and-delivery calibration selectively adapts Senpi `2026.11.3-3`'s
 `kimi-k3-1.ts` at published source `29eedcbe7c0cdf1c89eac7c94d4093b485925303`.

@@ -9,6 +9,7 @@ interface ModelNameRecognition {
   series: ModelSeries | undefined;
   version: readonly [number, number, number] | undefined;
   versionParts: number | undefined;
+  fable52: boolean;
   opus5: boolean;
   gemini4: boolean;
 }
@@ -79,18 +80,18 @@ function identifierFor(marker: string): ModelIdentifier {
   if (marker.startsWith("k2")) return "kimi";
   if (marker.startsWith("swe")) return "swe-2";
   if (marker === "chatgpt") return "gpt";
-  if (marker === "fable") return "claude";
+  if (marker === "fable" || marker === "mythos") return "claude";
   return marker as Exclude<ModelIdentifier, "swe-2">;
 }
 
 /** Model fields are complete names here; route owners separate provider metadata. */
 export function recognizeModelName(model: string, options: { promptAliases?: boolean } = {}): ModelNameRecognition | undefined {
   const name = model.trim().toLowerCase();
-  const markers = name.matchAll(/(?<![a-z0-9])(?:(?:chatgpt|gpt|codex|claude|fable|gemini|glm|deepseek|kimi|opus|sonnet|haiku|sol|terra|astra|luna)(?=\d|[^a-z0-9]|$)|(?:k2[-_.\s/]*p[5-8]|swe[-_.\s/]+2)(?![a-z0-9])|k(?=\d)|\d+)/gu);
+  const markers = name.matchAll(/(?<![a-z0-9])(?:(?:chatgpt|gpt|codex|claude|fable|mythos|gemini|glm|deepseek|kimi|opus|sonnet|haiku|sol|terra|astra|luna)(?=\d|[^a-z0-9]|$)|(?:k2[-_.\s/]*p[5-8]|swe[-_.\s/]+2)(?![a-z0-9])|k(?=\d)|\d+)/gu);
   let first: ModelNameRecognition | undefined;
   let consumedEnd = 0;
   for (const marker of markers) {
-    if (marker.index < consumedEnd) continue;
+    if (marker.index < consumedEnd || marker[0] === "mythos" && !options.promptAliases) continue;
     let identifier: ModelIdentifier;
     let parsed: ReturnType<typeof readVersion>;
     let wildcardGemini4 = false;
@@ -144,6 +145,7 @@ export function recognizeModelName(model: string, options: { promptAliases?: boo
     const family = identifier === "swe-2" || /^k2[-_.\s/]*p8$/u.test(marker[0]) ? "unknown" : identifier;
     first = {
       identifier, family, series, version: parsed.version, versionParts: parsed.versionParts,
+      fable52: /^(?:claude-)?(?:fable|mythos)-5[.-]2(?=$|[-@:/\s])/u.test(name.slice(marker.index)),
       opus5: series === "opus" && parsed.version?.[0] === 5 && (parsed.versionParts === 1 || parsed.versionParts === 2 && parsed.version[1] === 5),
       gemini4: identifier === "gemini" && (wildcardGemini4 || parsed.version?.[0] === 4)
     };

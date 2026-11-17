@@ -90,6 +90,8 @@ test("base role selection and additive deduplication retain GPT, Codex, Opus and
   const planner = SOURCE_ROLE_CATALOG.find(row => row.sourceId === "planner")!;
   for (const [model, additives] of [["gpt-6.1-sol", ["gpt"]], ["gemini-3.1-pro", []], ["glm-5.2", []],
     ["kimi-k3.1", ["kimi-k3-1"]], ["gemini-4-argon", ["gemini-4"]], ["swe-2", ["swe-2"]],
+    ["us.anthropic.claude-fable-5-2-20261109", ["claude-fable-5-2"]], ["mythos-5.2@default", ["claude-fable-5-2"]],
+    ["claude-fable-5-20", []], ["claude-mythos-5-1", []], ["claude-opus-5-claude-fable-5-2", []],
     ["claude-opus-5", []], ["gpt-5.5-codex", ["gpt"]]] as const) {
     assert.equal(roleModelCalibration(planner, model), ["planner", ...additives].map(variant => marker(`deepwork/${variant}.md`)).join("\n\n---\n\n"), model);
   }
@@ -105,7 +107,8 @@ test("category composition keeps its family layer before additives without impor
     ["auto-gpt/6.1/sol", "gpt", ["gpt"]], ["prefix-gpt-5.6-codex-fast", "gpt", ["gpt"]],
     ["claude-opus-5-gpt-6-codex", "claude", []], ["gemini-4-pro-gpt-6-codex", "gemini", ["gemini-4"]],
     ["auto-k2p8-gpt-6", "unknown", ["kimi"]], ["auto-swe/2/high-gpt-6", "unknown", ["swe-2"]],
-    ["group/glm-5.3-1m", "glm", []], ["auto-fable-5", "claude", []]
+    ["group/glm-5.3-1m", "glm", []], ["auto-fable-5", "claude", []],
+    ["claude-mythos-5.2", "claude", ["claude-fable-5-2"]]
   ] as const) {
     assert.equal(roleModelCalibration(category, model), [`[fixture:category:${family}]`, ...additives.map(variant => marker(`deepwork/${variant}.md`))].join("\n\n---\n\n"), model);
   }
