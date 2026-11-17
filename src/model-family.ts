@@ -9,9 +9,9 @@ interface ModelNameRecognition {
   series: ModelSeries | undefined;
   version: readonly [number, number, number] | undefined;
   versionParts: number | undefined;
-  fable52: boolean;
-  opus5: boolean;
-  gemini4: boolean;
+  fable52OrLater: boolean;
+  opus5OrLater: boolean;
+  gemini4OrLater: boolean;
 }
 
 function seriesFamily(series: ModelSeries): "gpt" | "claude" {
@@ -94,7 +94,8 @@ export function recognizeModelName(model: string, options: { promptAliases?: boo
     if (marker.index < consumedEnd || marker[0] === "mythos" && !options.promptAliases) continue;
     let identifier: ModelIdentifier;
     let parsed: ReturnType<typeof readVersion>;
-    let wildcardGemini4 = false;
+    let geminiWildcardMajor: number | undefined;
+    let fable = options.promptAliases === true && (marker[0] === "fable" || marker[0] === "mythos");
     let series = seriesAt(name, marker.index);
     if (marker[0] === "k") {
       if (!options.promptAliases || marker.index > 0 && name[marker.index - 1] !== "/") continue;
@@ -119,15 +120,25 @@ export function recognizeModelName(model: string, options: { promptAliases?: boo
       let start = skipSeparators(name, markerEnd);
       const kimiKVersion = options.promptAliases && identifier === "kimi" && /^k(?=\d)/u.test(name.slice(start));
       if (kimiKVersion) start++;
-      series = start > markerEnd ? seriesAt(name, start, identifier) : undefined;
+      const claudeAlias = options.promptAliases && marker[0] === "claude" && /^(?:fable|mythos)(?=\d|[^a-z0-9]|$)/u.exec(name.slice(start));
+      if (claudeAlias) {
+        fable = true;
+        start = skipSeparators(name, start + claudeAlias[0].length);
+      }
+      series = !fable && start > markerEnd ? seriesAt(name, start, identifier) : undefined;
       if (series !== undefined) start = skipSeparators(name, start + series.length);
-      if (identifier === "gemini" && /^4\.x/u.test(name.slice(start))) {
-        const end = start + 3;
-        wildcardGemini4 = /^(?:$|[-_.\s/@:])/u.test(name.slice(end)) && !versionStartsAt(name, skipSeparators(name, end));
+      const wildcard = identifier === "gemini" && /^(\d+)\.x/u.exec(name.slice(start));
+      if (wildcard && (options.promptAliases || wildcard[1] === "4")) {
+        const end = start + wildcard[0].length;
+        const major = Number(wildcard[1]);
+        if (Number.isSafeInteger(major) && !suffixNumber(wildcard[1]) && /^(?:$|[-_.\s/@:])/u.test(name.slice(end))
+          && !versionStartsAt(name, skipSeparators(name, end))) {
+          geminiWildcardMajor = major;
+        }
         parsed = { version: undefined, versionParts: undefined, series: undefined, end };
       } else {
-        const compactGemini4 = identifier === "gemini" && /^4(?=[^a-z0-9]|$)/u.test(name.slice(start));
-        parsed = start === markerEnd && identifier !== "gpt" && !compactGemini4
+        const compactGemini = identifier === "gemini" && (options.promptAliases || /^4(?=[^a-z0-9]|$)/u.test(name.slice(start)));
+        parsed = start === markerEnd && identifier !== "gpt" && !compactGemini && !fable
           ? { version: undefined, versionParts: undefined, series: undefined, end: markerEnd }
           : readVersion(name, start, identifier, options.promptAliases && identifier === "kimi");
       }
@@ -143,11 +154,12 @@ export function recognizeModelName(model: string, options: { promptAliases?: boo
       continue;
     }
     const family = identifier === "swe-2" || /^k2[-_.\s/]*p8$/u.test(marker[0]) ? "unknown" : identifier;
+    const version = /^\.x/u.test(name.slice(parsed.end)) ? undefined : parsed.version;
     first = {
       identifier, family, series, version: parsed.version, versionParts: parsed.versionParts,
-      fable52: /^(?:claude-)?(?:fable|mythos)-5[.-]2(?=$|[-@:/\s])/u.test(name.slice(marker.index)),
-      opus5: series === "opus" && parsed.version?.[0] === 5 && (parsed.versionParts === 1 || parsed.versionParts === 2 && parsed.version[1] === 5),
-      gemini4: identifier === "gemini" && (wildcardGemini4 || parsed.version?.[0] === 4)
+      fable52OrLater: fable && version !== undefined && (version[0] > 5 || version[0] === 5 && version[1] >= 2),
+      opus5OrLater: !fable && series === "opus" && (version?.[0] ?? 0) >= 5,
+      gemini4OrLater: identifier === "gemini" && (geminiWildcardMajor ?? version?.[0] ?? 0) >= 4
     };
     consumedEnd = parsed.end;
   }

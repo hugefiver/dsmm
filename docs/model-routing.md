@@ -122,11 +122,16 @@ Foreground tool cards subscribe through the native read-only Gateway stream befo
 
 Provider call IDs can repeat across requests. Reuse never blocks delegation: ambiguous live card correlation is removed, while each final result retains its own child/run-bound comparison. Watching a child session requires verified live lineage and grants no additional prompt or interrupt authority. Closing observation leaves native execution and delivery ownership unchanged.
 
-## Gemini 4 calibration
+## Model-family prompt calibration
 
-Models with an explicit Gemini 4 identity share the `gemini-4` additive calibration. Supported names include `gemini-4`, numerical minor versions, `gemini-4.x`/`gemini-4.x-pro`, compact `gemini4`/`gemini4.1`, and their `@default`/`:latest` suffixes. A wildcard name does not claim a precise numeric version. Bare `4.x` and a Gemini provider name alone do not select this calibration.
+With Deepwork enabled, prompt assembly uses the first recognized identity in the effective model name. A provider name or a later model in the same string cannot supply a missing family or version. Ordinary presets receive neutral behavior guidance; DW roles retain their existing base, planner or category layers.
 
-The first recognized model identity controls calibration. Role, planner and category prompt assembly retain their existing layer order and load the additive once; Deepwork-off behavior is unchanged.
+- GPT and Codex use their family calibration regardless of generation, including GPT-6.2 and later. Codex keeps its DW base wherever that base applies.
+- Gemini major 4 and later inherit the `gemini-4` additive. Both numeric names (`gemini4.1`, `gemini-5-pro`) and explicit major wildcards (`gemini-4.x-pro`, `gemini5.x:latest`) qualify. A wildcard supplies only its major; bare `4.x` does not identify Gemini.
+- Opus 5 and later select the `claude-opus-5` base for the orchestrator and the corresponding neutral guidance for ordinary presets. Other DW roles keep their existing layers.
+- Fable and Mythos 5.2 and later share the `claude-fable-5-2` additive. Kimi K3.1 and later use `kimi-k3-1`; older and unversioned Kimi identities keep `kimi`.
+
+Version thresholds compare numeric components, so 5.10 follows 5.2. A malformed version does not select a version-specific layer. These thresholds select prompts only; native capabilities and request parameters are unchanged.
 
 ## Generic model parameters
 

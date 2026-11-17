@@ -112,8 +112,8 @@ test("versions require whole numeric segments and never retry malformed numeric 
   for (const model of ["gpt6.1foo", "gpt-6.1foo-sol", "sol6.1foo", "opus5.5foo", "gemini-4.1foo",
     "gpt-6.1.2.3", "sol6.1.2.3", "opus5.5.0.0", "gpt4o", "deepseek-v41"]) {
     assert.equal(recognizeModelName(model)?.version, undefined, model);
-    assert.equal(recognizeModelName(model)?.opus5, false, model);
-    assert.equal(recognizeModelName(model)?.gemini4, false, model);
+    assert.equal(recognizeModelName(model)?.opus5OrLater, false, model);
+    assert.equal(recognizeModelName(model)?.gemini4OrLater, false, model);
   }
   for (const model of ["4.7", "6.1", "xsol6.1", "notgpt6.1sol", "6.1solar", "solstice6.1", "astral6", "lunar6", "sonnetish4.6",
     "4.5.6.1sol", "4-5-6-1-sol", "4.5.6.1sol-gemini-4", "6.1foo-sol"]) {
@@ -149,26 +149,27 @@ test("non-target compact family markers retain only coarse identity", () => {
     assert.equal(recognized.family, family, model);
     assert.equal(recognized.version, undefined, model);
     assert.equal(recognized.versionParts, undefined, model);
-    assert.equal(recognized.gemini4, false, model);
+    assert.equal(recognized.gemini4OrLater, false, model);
   }
   assert.deepEqual(recognizeModelName("gemini-4.1")?.version, [4, 1, 0]);
-  assert.equal(recognizeModelName("gemini-4.1")?.gemini4, true);
+  assert.equal(recognizeModelName("gemini-4.1")?.gemini4OrLater, true);
   assert.deepEqual(recognizeModelName("claude-opus4.7")?.version, [4, 7, 0]);
 });
 
-test("explicit Gemini 4 identities retain numeric versions and leave wildcard versions unknown", () => {
+test("Gemini prompt identities retain numeric versions and leave wildcard versions unknown", () => {
   for (const [model, version, parts] of [
     ["gemini-4", [4, 0, 0], 1], ["gemini4", [4, 0, 0], 1],
     ["gemini4.1", [4, 1, 0], 2], ["gemini-4.12-pro", [4, 12, 0], 2],
     ["gemini-4.1.2", [4, 1, 2], 3], ["gemini-4.x", undefined, undefined],
     ["gemini-4.x-pro", undefined, undefined], ["gemini4.x-pro", undefined, undefined],
-    ["gateway/GEMINI/4/pro", [4, 0, 0], 1], ["auto.gemini_4_1", [4, 1, 0], 2]
+    ["gateway/GEMINI/4/pro", [4, 0, 0], 1], ["auto.gemini_4_1", [4, 1, 0], 2],
+    ["gemini5.1", [5, 1, 0], 2], ["gemini-40-pro", [40, 0, 0], 1], ["gemini10.x-pro", undefined, undefined]
   ] as const) {
     for (const suffix of ["", "@default", ":latest"]) {
       const fullId = model + suffix;
-      const recognized = recognizeModelName(fullId)!;
+      const recognized = recognizeModelName(fullId, { promptAliases: true })!;
       assert.equal(recognized.family, "gemini", fullId);
-      assert.equal(recognized.gemini4, true, fullId);
+      assert.equal(recognized.gemini4OrLater, true, fullId);
       assert.deepEqual(recognized.version, version, fullId);
       assert.equal(recognized.versionParts, parts, fullId);
     }
@@ -180,15 +181,15 @@ test("explicit Gemini 4 identities retain numeric versions and leave wildcard ve
   }
 });
 
-test("Gemini 4 recognition rejects malformed versions and respects the first identity", () => {
-  for (const model of ["gemini-3.1-pro", "gemini-5-pro", "gemini-40-pro", "gemini3", "gemini5", "gemini40",
+test("Gemini prompt recognition rejects malformed versions and respects the first identity", () => {
+  for (const model of ["gemini-3.1-pro", "gemini3", "gemini-3.x", "gemini5.x.1", "gemini5.x1",
     "gemini-4argon", "gemini4argon", "gemini-4.1foo", "gemini4.1foo", "gemini-4.1.2.3", "gemini4.1.2.3",
     "gemini-4.xfoo", "gemini-4.x1", "gemini-4.x.1", "gemini-4.9007199254740992",
     "gemini-3-gemini4.1", "gemini-gemini-4.x-pro", "gpt-6/gemini4.1", "opus5/gemini-4.x"]) {
-    assert.equal(recognizeModelName(model)?.gemini4, false, model);
+    assert.equal(recognizeModelName(model, { promptAliases: true })?.gemini4OrLater, false, model);
   }
   for (const model of ["gemini-4.x-pro-gpt-6", "gemini4.1/claude-opus-5"]) {
-    assert.equal(recognizeModelName(model)?.gemini4, true, model);
+    assert.equal(recognizeModelName(model)?.gemini4OrLater, true, model);
     assert.equal(recognizeModelName(model)?.family, "gemini", model);
   }
 });

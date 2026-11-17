@@ -32,7 +32,7 @@ function generalModelCalibration(model: string): string {
     case "codex":
       return "Lead with the result and its supporting evidence. Reuse checks that still cover the claim; qualify only what remains uncertain.";
     case "gemini":
-      return recognized.gemini4
+      return recognized.gemini4OrLater
         ? "Ground claims about files and runtime behavior in what you observed. Distinguish a proposed change from an applied one, and a successful build from evidence that the requested behavior works."
         : "Deliver the full requested result without adjacent cleanup or speculative additions. Keep explanations separate from changes the user asked you to make.";
     case "glm":
@@ -44,8 +44,8 @@ function generalModelCalibration(model: string): string {
     case "swe-2":
       return "Use the failing case or interface contract to choose the next change. When that choice is settled, carry it out and report what happened rather than promising to act.";
     case "claude":
-      if (recognized.fable52) return "Complete the parts of the request that are still feasible. If one part is blocked, deliver the independent results and identify the specific blocker instead of ending with a checklist.";
-      if (recognized.opus5) return "Keep the result bounded by the request. Reuse evidence that still applies, and report the outcome without extra polish or repeated checks.";
+      if (recognized.fable52OrLater) return "Complete the parts of the request that are still feasible. If one part is blocked, deliver the independent results and identify the specific blocker instead of ending with a checklist.";
+      if (recognized.opus5OrLater) return "Keep the result bounded by the request. Reuse evidence that still applies, and report the outcome without extra polish or repeated checks.";
   }
   return "";
 }
@@ -54,8 +54,8 @@ export function promptModelVariants(role: string | undefined, model: string): st
   const recognized = recognizeModelName(model, { promptAliases: true });
   const identifier = recognized?.identifier;
   const gpt = identifier === "gpt" || identifier === "codex";
-  const additive = recognized?.fable52 ? ["claude-fable-5-2"] : gpt ? ["gpt"] : recognized?.identifier === "kimi" ? [kimiVariant(recognized.version)] : recognized?.gemini4 ? ["gemini-4"] : identifier === "swe-2" ? ["swe-2"] : [];
-  const base = role === "planner" ? "planner" : role === "orchestrator" && recognized?.opus5 ? "claude-opus-5"
+  const additive = recognized?.fable52OrLater ? ["claude-fable-5-2"] : gpt ? ["gpt"] : recognized?.identifier === "kimi" ? [kimiVariant(recognized.version)] : recognized?.gemini4OrLater ? ["gemini-4"] : identifier === "swe-2" ? ["swe-2"] : [];
+  const base = role === "planner" ? "planner" : role === "orchestrator" && recognized?.opus5OrLater ? "claude-opus-5"
     : recognized?.family === "codex" ? "codex" : gpt ? "gpt" : identifier === "gemini" ? "gemini" : identifier === "glm" ? "glm" : "default";
   return [...new Set([base, ...additive])].filter((variant) => variant !== "default");
 }
