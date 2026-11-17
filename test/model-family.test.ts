@@ -38,7 +38,9 @@ test("classifyModelFamily applies approved provider hints and priority", () => {
     [{ providerID: "deepseek" }, "deepseek"],
     [{ providerID: "openai" }, "unknown"],
     [{ providerID: "anthropic", modelID: "auto-k2p8-gpt-6" }, "unknown"],
-    [{ providerID: "codex", modelID: "auto-swe/2/high-gpt-6" }, "unknown"]
+    [{ providerID: "codex", modelID: "auto-swe/2/high-gpt-6" }, "unknown"],
+    [{ providerID: "codex", modelID: "swe-20" }, "codex"],
+    [{ providerID: "codex", modelID: "swe-3/gpt-6" }, "gpt"]
   ] as const;
 
   for (const [input, expected] of cases) {

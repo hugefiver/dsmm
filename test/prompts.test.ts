@@ -57,12 +57,12 @@ test("ordinary presets select only neutral behavior for the actual model", () =>
     selectedPreset: "dsmm-builder", roleId: null, route: { provider: "gemini-4-provider", model }
   });
   const baseline = render("");
-  for (const model of ["unrelated", "deepseek-v4-pro", "opus4.7", "claude-fable-5.1.9", "claude-fable-5.2foo", "mythos-7.x", "opus6.x", "swe-20"]) {
+  for (const model of ["unrelated", "deepseek-v4-pro", "opus4.7", "claude-fable-5.1.9", "claude-fable-5.2foo", "mythos-7.x", "opus6.x", "swe-1", "swe-latest", "swe-3.x", "swe-2.1foo"]) {
     assert.equal(render(model), baseline, model);
   }
   const calibrations = new Set<string>();
   for (const models of [["gpt-6.1-sol", "gpt-6.2", "gpt-7-codex", "codex"], ["gemini-3.1-pro"], ["gemini4", "gemini-4.x", "gemini5.1", "gemini-10.x"],
-    ["glm-5.2"], ["kimi-k2.7", "k3.0"], ["kimi-k3.1", "k3p1"], ["swe-2-fast"],
+    ["glm-5.2"], ["kimi-k2.7", "k3.0"], ["kimi-k3.1", "k3p1"], ["swe-2-fast", "swe-3", "swe-20"],
     ["claude-fable-5-2", "mythos-5.2", "claude-fable-5-20", "claude-mythos-6"], ["opus5", "claude-opus-5.5", "opus6.1.2"]]) {
     const prompt = render(models[0]);
     const body = /<model-behavior-calibration>\n([\s\S]+?)\n<\/model-behavior-calibration>/u.exec(prompt)?.[1];

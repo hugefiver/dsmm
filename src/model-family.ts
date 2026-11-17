@@ -1,6 +1,6 @@
 export type DsmmModelFamily = "gpt" | "codex" | "claude" | "gemini" | "glm" | "kimi" | "deepseek" | "unknown";
 
-type ModelIdentifier = Exclude<DsmmModelFamily, "unknown"> | "swe-2";
+type ModelIdentifier = Exclude<DsmmModelFamily, "unknown"> | "swe";
 type ModelSeries = "opus" | "sonnet" | "haiku" | "sol" | "terra" | "astra" | "luna";
 
 interface ModelNameRecognition {
@@ -12,6 +12,7 @@ interface ModelNameRecognition {
   fable52OrLater: boolean;
   opus5OrLater: boolean;
   gemini4OrLater: boolean;
+  swe2OrLater: boolean;
 }
 
 function seriesFamily(series: ModelSeries): "gpt" | "claude" {
@@ -78,20 +79,21 @@ function readVersion(name: string, start: number, family?: ModelIdentifier, kimi
 
 function identifierFor(marker: string): ModelIdentifier {
   if (marker.startsWith("k2")) return "kimi";
-  if (marker.startsWith("swe")) return "swe-2";
   if (marker === "chatgpt") return "gpt";
   if (marker === "fable" || marker === "mythos") return "claude";
-  return marker as Exclude<ModelIdentifier, "swe-2">;
+  return marker as ModelIdentifier;
 }
 
 /** Model fields are complete names here; route owners separate provider metadata. */
 export function recognizeModelName(model: string, options: { promptAliases?: boolean } = {}): ModelNameRecognition | undefined {
   const name = model.trim().toLowerCase();
-  const markers = name.matchAll(/(?<![a-z0-9])(?:(?:chatgpt|gpt|codex|claude|fable|mythos|gemini|glm|deepseek|kimi|opus|sonnet|haiku|sol|terra|astra|luna)(?=\d|[^a-z0-9]|$)|(?:k2[-_.\s/]*p[5-8]|swe[-_.\s/]+2)(?![a-z0-9])|k(?=\d)|\d+)/gu);
+  const markers = name.matchAll(/(?<![a-z0-9])(?:(?:chatgpt|gpt|codex|claude|fable|mythos|gemini|glm|deepseek|kimi|opus|sonnet|haiku|sol|terra|astra|luna)(?=\d|[^a-z0-9]|$)|(?:k2[-_.\s/]*p[5-8]|swe)(?![a-z0-9])|k(?=\d)|\d+)/gu);
   let first: ModelNameRecognition | undefined;
   let consumedEnd = 0;
   for (const marker of markers) {
     if (marker.index < consumedEnd || marker[0] === "mythos" && !options.promptAliases) continue;
+    // Outside prompt selection, only the historical SWE-2 marker participates in classification.
+    if (marker[0] === "swe" && !options.promptAliases && !/^[-_.\s/]+2(?![a-z0-9])/u.test(name.slice(marker.index + marker[0].length))) continue;
     let identifier: ModelIdentifier;
     let parsed: ReturnType<typeof readVersion>;
     let geminiWildcardMajor: number | undefined;
@@ -153,13 +155,14 @@ export function recognizeModelName(model: string, options: { promptAliases?: boo
       consumedEnd = parsed.end;
       continue;
     }
-    const family = identifier === "swe-2" || /^k2[-_.\s/]*p8$/u.test(marker[0]) ? "unknown" : identifier;
+    const family = identifier === "swe" || /^k2[-_.\s/]*p8$/u.test(marker[0]) ? "unknown" : identifier;
     const version = /^\.x/u.test(name.slice(parsed.end)) ? undefined : parsed.version;
     first = {
       identifier, family, series, version: parsed.version, versionParts: parsed.versionParts,
       fable52OrLater: fable && version !== undefined && (version[0] > 5 || version[0] === 5 && version[1] >= 2),
       opus5OrLater: !fable && series === "opus" && (version?.[0] ?? 0) >= 5,
-      gemini4OrLater: identifier === "gemini" && (geminiWildcardMajor ?? version?.[0] ?? 0) >= 4
+      gemini4OrLater: identifier === "gemini" && (geminiWildcardMajor ?? version?.[0] ?? 0) >= 4,
+      swe2OrLater: identifier === "swe" && (version?.[0] ?? 0) >= 2
     };
     consumedEnd = parsed.end;
   }

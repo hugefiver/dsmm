@@ -54,7 +54,7 @@ export function promptModelVariants(role: string | undefined, model: string): st
   const recognized = recognizeModelName(model, { promptAliases: true });
   const identifier = recognized?.identifier;
   const gpt = identifier === "gpt" || identifier === "codex";
-  const additive = recognized?.fable52OrLater ? ["claude-fable-5-2"] : gpt ? ["gpt"] : recognized?.identifier === "kimi" ? [kimiVariant(recognized.version)] : recognized?.gemini4OrLater ? ["gemini-4"] : identifier === "swe-2" ? ["swe-2"] : [];
+  const additive = recognized?.fable52OrLater ? ["claude-fable-5-2"] : gpt ? ["gpt"] : recognized?.identifier === "kimi" ? [kimiVariant(recognized.version)] : recognized?.gemini4OrLater ? ["gemini-4"] : recognized?.swe2OrLater ? ["swe-2"] : [];
   const base = role === "planner" ? "planner" : role === "orchestrator" && recognized?.opus5OrLater ? "claude-opus-5"
     : recognized?.family === "codex" ? "codex" : gpt ? "gpt" : identifier === "gemini" ? "gemini" : identifier === "glm" ? "glm" : "default";
   return [...new Set([base, ...additive])].filter((variant) => variant !== "default");

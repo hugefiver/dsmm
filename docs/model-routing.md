@@ -128,6 +128,7 @@ With Deepwork enabled, prompt assembly uses the first recognized identity in the
 
 - GPT and Codex use their family calibration regardless of generation, including GPT-6.2 and later. Codex keeps its DW base wherever that base applies.
 - Gemini major 4 and later inherit the `gemini-4` additive. Both numeric names (`gemini4.1`, `gemini-5-pro`) and explicit major wildcards (`gemini-4.x-pro`, `gemini5.x:latest`) qualify. A wildcard supplies only its major; bare `4.x` does not identify Gemini.
+- SWE major 2 and later share the `swe-2` additive and its ordinary behavior guidance. For example, `swe-3` and `swe-20` qualify; `swe-1` and `swe-latest` do not.
 - Opus 5 and later select the `claude-opus-5` base for the orchestrator and the corresponding neutral guidance for ordinary presets. Other DW roles keep their existing layers.
 - Fable and Mythos 5.2 and later share the `claude-fable-5-2` additive. Kimi K3.1 and later use `kimi-k3-1`; older and unversioned Kimi identities keep `kimi`.
 

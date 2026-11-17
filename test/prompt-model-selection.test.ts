@@ -127,7 +127,8 @@ test("shared name recognition bounds prompt attributes to the leftmost identifie
     ["gemini-3-gemini-4-pro", ["gemini"]], ["gemini-gpt-6", ["gemini"]],
     ["auto-k2p8-gpt-6", ["kimi"]], ["auto-swe/2/high-gpt-6", ["swe-2"]],
     ["kimi-k3-kimi-k3.1", ["kimi"]], ["gpt-6-kimi-k3.1", ["gpt"]], ["kimi/k3.1/preview", ["kimi-k3-1"]],
-    ["swe-20", []], ["xkimi-k3", []], ["notgpt-6", []], ["codexish", []]
+    ["swe-20", ["swe-2"]], ["SWE-3.1-preview", ["swe-2"]], ["swe-1/swe-3", []], ["swe-latest/swe-3", []],
+    ["swe-3.2foo/swe-20", []], ["swe-3.2.1.4", []], ["gpt-6/swe-20", ["gpt"]], ["xkimi-k3", []], ["notgpt-6", []], ["codexish", []]
   ] as const) {
     assert.deepEqual(promptModelVariants("builder", model), variants, model);
     assert.deepEqual(promptModelVariants("planner", model), ["planner", ...variants.filter(variant => ["gpt", "kimi", "kimi-k3-1", "gemini-4", "swe-2"].includes(variant))], model);
