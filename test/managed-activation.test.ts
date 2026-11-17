@@ -86,8 +86,10 @@ test("ordinary native identity, persona, route and subagent execution survive De
       assert.deepEqual(headerRoutes(child), [route]);
       assert.equal(admission.invocation(child), undefined);
       const rootPrompt = JSON.stringify(calls[0].messages.filter(message => message.role === "system"));
-      assert.ok(rootPrompt.includes("NATIVE_HARNESS_IDENTITY"));
-      assert.ok(rootPrompt.includes(`NATIVE_PERSONA: You are a coding agent powered by the ${route.model} model.`));
+      assert.equal(rootPrompt.includes("NATIVE_HARNESS_IDENTITY"), !active);
+      assert.equal(rootPrompt.includes(`powered by the ${route.model} model.`), !active);
+      assert.ok(rootPrompt.includes("NATIVE_PERSONA:"));
+      assert.equal(rootPrompt.includes("<model-behavior-calibration>"), active);
       assert.equal(rootPrompt.includes("<dsmm-deepwork-mode>"), active);
       assert.equal(rootPrompt.includes("<workflow-model-calibration>"), false);
       assert.equal(rootPrompt.includes("You are DW Orchestrator."), false);

@@ -9,6 +9,7 @@ import type { DshAgent } from "../lib/dsh-types.js";
 import { sessionEvents } from "../lib/session-scope.js";
 import { isDeepworkActive } from "../lib/state.js";
 import { DSMM_ROLES } from "../lib/roles.js";
+import { buildDeepworkPrompt } from "../lib/prompts.js";
 import { headerRoutes, nativeRoutingFixture, runFixtureTurn } from "./native-routing-fixture.ts";
 
 const adapterAgent = (agent: Agent): Omit<DshAgent, "ctx"> => agent;
@@ -101,6 +102,31 @@ test("native mode changes affect only the exact Agent common section and lazy sk
     await f.dsmmFiber.dispose();
     assert.deepEqual(await ordinary.ctx.get("skills")!.list({ scope: ordinary }), []);
     assert.equal((await render(ordinary)).includes(section), false);
+  } finally { await f.dispose(); }
+});
+
+test("ordinary and DW prompts follow a model switch on its first request", async () => {
+  const f = await nativeRoutingFixture({ defaultActive: true }, { nativePresets: true });
+  try {
+    for (const preset of ["standard", "dsmm-orchestrator"]) {
+      const selection: ModelSelectionRef = { current: { provider: "fixture", model: "gpt-5" }, assembled: undefined };
+      const agent = await f.create({ agentPreset: preset }, selection);
+      const settings = (f.ctx.get("dsmmProfileRuntime") as DsmmProfileRuntime).getSettings(adapterAgent(agent));
+      let previous: string | undefined;
+      for (const model of ["gpt-5", "gemini-4-pro", "unknown-local"]) {
+        selection.current = { provider: "fixture", model };
+        agent.session.append("model/selection", selection.current);
+        await runFixtureTurn(agent);
+        const call = f.adapter.calls.at(-1)!;
+        assert.equal(call.model, model);
+        const system = JSON.stringify(call.messages.filter(message => message.role === "system"));
+        const expected = buildDeepworkPrompt(settings, { route: selection.current, roleId: preset === "standard" ? null : preset });
+        const rendered = JSON.stringify(expected).slice(1, -1);
+        assert.ok(system.includes(rendered), `${preset}: current ${model} calibration`);
+        if (previous) assert.ok(!system.includes(previous), `${preset}: old calibration removed`);
+        previous = rendered;
+      }
+    }
   } finally { await f.dispose(); }
 });
 

@@ -42,12 +42,14 @@ base Deepwork prompt, run `pnpm run generate:roles`. CI uses
 stale. Generated assets are package resources, not an alternate source of truth.
 
 Ordinary native presets use `prompts/source/deepwork/general.md` while Deepwork is
-active. Their native identity, persona, model selection, effort and delegation stay
-in place. DSMM identity comes from an explicit DSMM preset or trusted invocation,
+active. A neutral opening replaces the harness identity and the stock model announcement
+is omitted. Custom persona instructions, model selection, effort and delegation stay in place. DSMM identity comes from an explicit DSMM preset or trusted invocation,
 not mode activation or `defaultActive`. The full `deepwork/default.md` workflow and
 role/model workflow calibrations apply only to admitted DSMM roles. Ordinary
-Agents still receive general guidance, lazy skills and applicable model-parameter
-tuning; they acquire no planner/critic dispatch requirement or DSMM role tools.
+Agents receive general guidance, a behavior-only calibration for the current model,
+lazy skills and applicable model-parameter tuning; they acquire no planner/critic
+dispatch requirement or DSMM role tools. Both preset types select calibration using
+the current prompt assembly rather than the preceding request header.
 
 Model guidance is subordinate to the selected role and the current runtime's tools
 and permissions. Role and workflow prompts contain usage guidance rather than a

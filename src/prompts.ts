@@ -21,13 +21,40 @@ Understand the requested outcome and relevant facts first. Load the full \`brain
 const commonDeepworkPrompt = [activation, asset("deepwork/default.md"), asset("shared/shell-safety.md")].join("\n\n---\n\n");
 export const BASE_DEEPWORK_PROMPT = [commonDeepworkPrompt, readSharedPromptAsset("avoid-ai-slop.md")].join("\n\n---\n\n");
 
+function kimiVariant(version: readonly [number, number, number] | undefined) {
+  return version !== undefined && (version[0] > 3 || version[0] === 3 && version[1] >= 1) ? "kimi-k3-1" : "kimi";
+}
+
+function generalModelCalibration(model: string): string {
+  const recognized = recognizeModelName(model, { promptAliases: true });
+  switch (recognized?.identifier) {
+    case "gpt":
+    case "codex":
+      return "Lead with the result and its supporting evidence. Reuse checks that still cover the claim; qualify only what remains uncertain.";
+    case "gemini":
+      return recognized.gemini4
+        ? "Ground claims about files and runtime behavior in what you observed. Distinguish a proposed change from an applied one, and a successful build from evidence that the requested behavior works."
+        : "Deliver the full requested result without adjacent cleanup or speculative additions. Keep explanations separate from changes the user asked you to make.";
+    case "glm":
+      return "Answer once the evidence settles the question. Put the conclusion first, followed by the facts that support it and any gap that changes the answer.";
+    case "kimi":
+      return kimiVariant(recognized.version) === "kimi-k3-1"
+        ? "Carry the user's latest choice through to an observable result. Keep unrelated defects outside the change, and name any requested part that remains unfinished."
+        : "Once the evidence settles the next in-scope action, take it rather than comparing equivalent approaches again. Reopen the decision only if a new fact matters.";
+    case "swe-2":
+      return "Use the failing case or interface contract to choose the next change. When that choice is settled, carry it out and report what happened rather than promising to act.";
+    case "claude":
+      if (recognized.fable52) return "Complete the parts of the request that are still feasible. If one part is blocked, deliver the independent results and identify the specific blocker instead of ending with a checklist.";
+      if (recognized.opus5) return "Keep the result bounded by the request. Reuse evidence that still applies, and report the outcome without extra polish or repeated checks.";
+  }
+  return "";
+}
+
 export function promptModelVariants(role: string | undefined, model: string): string[] {
   const recognized = recognizeModelName(model, { promptAliases: true });
   const identifier = recognized?.identifier;
   const gpt = identifier === "gpt" || identifier === "codex";
-  const version = recognized?.version;
-  const kimi = version !== undefined && (version[0] > 3 || version[0] === 3 && version[1] >= 1) ? "kimi-k3-1" : "kimi";
-  const additive = recognized?.fable52 ? ["claude-fable-5-2"] : gpt ? ["gpt"] : identifier === "kimi" ? [kimi] : recognized?.gemini4 ? ["gemini-4"] : identifier === "swe-2" ? ["swe-2"] : [];
+  const additive = recognized?.fable52 ? ["claude-fable-5-2"] : gpt ? ["gpt"] : recognized?.identifier === "kimi" ? [kimiVariant(recognized.version)] : recognized?.gemini4 ? ["gemini-4"] : identifier === "swe-2" ? ["swe-2"] : [];
   const base = role === "planner" ? "planner" : role === "orchestrator" && recognized?.opus5 ? "claude-opus-5"
     : recognized?.family === "codex" ? "codex" : gpt ? "gpt" : identifier === "gemini" ? "gemini" : identifier === "glm" ? "glm" : "default";
   return [...new Set([base, ...additive])].filter((variant) => variant !== "default");
@@ -167,8 +194,11 @@ export function buildDeepworkPrompt(
   const role = SOURCE_ROLE_CATALOG.find((role) => role.id === (options.roleId === undefined ? options.selectedPreset : options.roleId));
   const common = role === undefined ? [asset("deepwork/general.md"), asset("shared/shell-safety.md")].join("\n\n---\n\n")
     : [activation, asset("deepwork/default.md")].join("\n\n---\n\n");
-  const family = role === undefined ? "" : roleModelCalibration(role, options.route?.model ?? "");
-  const base = [options.overrideSection?.trim() || common, settings.skills["avoid-ai-slop"] ? readSharedPromptAsset("avoid-ai-slop.md") : "", family === "" ? "" : `<workflow-model-calibration>\nThe role prompt is authoritative for scope, permissions and output. Model calibration never grants tools or changes the native route.\n\n${family}\n</workflow-model-calibration>`].filter(Boolean).join("\n\n---\n\n").replaceAll("{{modeName}}", settings.modeName);
+  const model = options.route?.model ?? "";
+  const family = role === undefined ? generalModelCalibration(model) : roleModelCalibration(role, model);
+  const calibration = family === "" ? "" : role === undefined ? `<model-behavior-calibration>\n${family}\n</model-behavior-calibration>`
+    : `<workflow-model-calibration>\nThe role prompt is authoritative for scope, permissions and output. Model calibration never grants tools or changes the native route.\n\n${family}\n</workflow-model-calibration>`;
+  const base = [options.overrideSection?.trim() || common, settings.skills["avoid-ai-slop"] ? readSharedPromptAsset("avoid-ai-slop.md") : "", calibration].filter(Boolean).join("\n\n---\n\n").replaceAll("{{modeName}}", settings.modeName);
   const workflowPolicy = settings.workflow.policy === "legacy" ? `<dsmm-workflow-policy>
 policy: legacy
 strictGates: ${String(settings.workflow.strictGates)}

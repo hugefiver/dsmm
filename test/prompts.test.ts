@@ -52,6 +52,30 @@ test("selected calibration keeps route metadata out of the model-facing prompt",
   assert.deepEqual(route, { provider: "private-provider-sentinel", model: "gpt-6.1-sol-private-model-sentinel" });
 });
 
+test("ordinary presets select only neutral behavior for the actual model", () => {
+  const render = (model: string) => buildDeepworkPrompt(DEFAULT_DSMM_SETTINGS, {
+    selectedPreset: "dsmm-builder", roleId: null, route: { provider: "gemini-4-provider", model }
+  });
+  const baseline = render("");
+  for (const model of ["unrelated", "deepseek-v4-pro", "opus4.7", "claude-fable-5-20", "swe-20"]) {
+    assert.equal(render(model), baseline, model);
+  }
+  const calibrations = new Set<string>();
+  for (const models of [["gpt-6.1-sol", "gpt-5.5-codex", "codex"], ["gemini-3.1-pro"], ["gemini4", "gemini-4.x"],
+    ["glm-5.2"], ["kimi-k2.7", "k3.0"], ["kimi-k3.1", "k3p1"], ["swe-2-fast"],
+    ["claude-fable-5-2", "mythos-5.2"], ["opus5", "claude-opus-5.5"]]) {
+    const prompt = render(models[0]);
+    const body = /<model-behavior-calibration>\n([\s\S]+?)\n<\/model-behavior-calibration>/u.exec(prompt)?.[1];
+    assert.ok(body, models[0]);
+    assert.doesNotMatch(body, /\b(?:planner|orchestrator|permission|tool|workflow|gpt|codex|gemini|glm|kimi|swe|fable|opus)\b/iu);
+    assert.equal(prompt.includes("<workflow-model-calibration>"), false);
+    assert.ok(!calibrations.has(body), models[0]);
+    calibrations.add(body);
+    for (const alias of models.slice(1)) assert.equal(render(alias), prompt, alias);
+  }
+  assert.equal(baseline.includes("<model-behavior-calibration>"), false);
+});
+
 test("real selected calibration layers expose no model or family identity", () => {
   const forbiddenIdentity = /(?:^|[^a-z0-9])(?:gpt|codex|claude|opus|gemini|argon|glm|kimi|fable|swe)(?=$|[^a-z0-9])/iu;
   for (const [roleId, model] of [

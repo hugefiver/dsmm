@@ -120,7 +120,7 @@ test("ordinary Deepwork adds language guidance while preserving native model ide
     for (const active of [true, false, true]) {
       await mode(active);
       const system = await request();
-      assert.equal(system.includes("powered by the native-default model"), true);
+      assert.equal(system.includes("powered by the native-default model"), !active);
       assert.equal(system.includes("<dsmm-deepwork-mode>"), active);
       assert.match(system, /capturedLocale\\":\\"zh-Hans/u);
       assert.ok(system.includes("Keep the project's API conventions."));
@@ -128,7 +128,7 @@ test("ordinary Deepwork adds language guidance while preserving native model ide
       assert.equal(system.includes("<agent-role name=\\\"orchestrator\\\">"), false);
       const assembly = await f.ctx.systemPrompt.assemble({ scope: agent });
       assert.equal(assembly.sections.find(section => section.name === "deployment:persona-prefix")?.text,
-        prefix);
+        active ? "Keep the project's API conventions." : prefix);
     }
     assert.equal(await request(foreign), original);
     await f.disposeAgent(agent);
