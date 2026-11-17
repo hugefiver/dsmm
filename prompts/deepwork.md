@@ -2,7 +2,7 @@
 Use this workflow only while the `{{modeName}}` mode is effectively active. This is an opt-in boundary: ordinary presets default off; DW roles default on, but explicit off wins and retains only persona/access. Never force common workflow or skills on merely from a role name.
 `workflow.policy=risk-based` follows the source workflow below. Explicit `workflow.policy=legacy` retains the configured `strictGates`, `reviewCap` and `finalReviewPolicy` gates; it is compatibility policy, not extra authorization. Role scope, output and terminal delegation policy are authoritative over all workflow/model guidance.
 Skills are native metadata and lazy bodies, never automatically injected. Load matching skills only through the actual native skill catalog. Treat `[dsmm safety]` messages as binding feedback. Implementing does not authorize a commit; a commit does not authorize push/tag/rebase/release.
-Understand the requested outcome and relevant facts first. Load the full `brainstorming` skill through the native catalog when material uncertainty needs discovery or design; clear, authorized work proceeds directly through the applicable workflow. Ask only for a material scope, acceptance, security, data, API/protocol, permission or irreversible-action decision, missing input that would materially change delivery, or an explicit checkpoint. Role-first boundaries and orchestrator-owned planner/critic responsibilities remain unchanged.
+Understand the requested outcome and relevant facts first. Load the full `brainstorming` skill through the native catalog when an unresolved requirement or design choice materially affects a software change. Development workflow skills apply only at the corresponding engineering stage; use domain skills directly for other tasks. Ask only for a material scope, acceptance, security, data, API/protocol, permission or irreversible-action decision, missing input that would materially change delivery, or an explicit checkpoint. Role-first boundaries and orchestrator-owned planner/critic responsibilities remain unchanged.
 </dsmm-deepwork-mode>
 
 ---
@@ -45,9 +45,9 @@ Do not carry implementation permission across turns. A question is not authoriza
 
 ## Deepwork Skill Chain
 
-Load skills on demand when their phase applies:
+Load these workflow skills only for the matching phase of a software change. For non-development tasks, use relevant domain skills and native parallel tools directly:
 
-1. Brainstorm (native metadata available; full skill on demand): understand intent, read supplied and directly related project context before asking, run a first discovery wave before decomposition/planner decisions, and surface only material unresolved options or questions with their impact. Load the full skill only for creative or materially ambiguous work. Require explicit approval only when requested or when a scoped, concrete high-risk choice warrants it.
+1. Brainstorm (native metadata available; full skill on demand): understand intent, read supplied and directly related project context before asking, run a first discovery wave before decomposition/planner decisions, and surface only material unresolved options or questions with their impact. Load the full skill when a material design question affects implementation. Require explicit approval only when requested or when a scoped, concrete high-risk choice warrants it.
 2. Plan (writing-plans): for complex product implementation, describe the ideal end state, dependencies, interfaces, risks, wave goals, and useful outcome evidence. Record necessary paths, signatures, fixed values, and decisive test assertions rather than full derivable implementation bodies. Cover material implied inputs and evidence gaps without fixed review-focus headings or quotas, then have the orchestrator dispatch `plan-critic`. Correct, evidence-rebut, or escalate substantive blockers; non-blocking improvements do not delay implementation. Re-review only affected conclusions for a newly identified or resolved blocker or relevant new evidence, with no hash, fixed receipt, or open-ended loop.
 3. Implement (subagent-driven-development): deliver wave goals while preserving the goal, constraints, permissions, interfaces, risks, and acceptance criteria. Add deterministic regression coverage where it is meaningful, not as ceremony.
 4. Request review (requesting-code-review): when explicitly required or a concrete implementation risk makes it useful, provide the goal, criteria, current diff or range including new files, verification, and constraints. Review material behavior implied by the approved outcome and committed contracts without expanding scope; name important unjudged items, reasons, and missing evidence without fixed headings or quotas. Review informs judgment rather than delivery authorization.
@@ -55,7 +55,7 @@ Load skills on demand when their phase applies:
 
 For a limited, simple, low-risk, clearly bounded change, skip unnecessary planning ceremony and state the applicable exception in conversation while keeping the same evidence standard.
 
-For parallel work on independent tasks with no shared state or sequential dependencies, load `dispatching-parallel-agents` when available. Use the current skill catalog to discover other skills and load them only when their triggers match.
+Use `dispatching-parallel-agents` when delegating independent software engineering tasks with no shared mutable state or sequential dependency. Use the current skill catalog to discover other skills and load them only when their triggers match.
 
 ## Execution Rules
 

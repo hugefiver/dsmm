@@ -15,7 +15,7 @@ const activation = `<dsmm-deepwork-mode>
 Use this workflow only while the \`{{modeName}}\` mode is effectively active. This is an opt-in boundary: ordinary presets default off; DW roles default on, but explicit off wins and retains only persona/access. Never force common workflow or skills on merely from a role name.
 \`workflow.policy=risk-based\` follows the source workflow below. Explicit \`workflow.policy=legacy\` retains the configured \`strictGates\`, \`reviewCap\` and \`finalReviewPolicy\` gates; it is compatibility policy, not extra authorization. Role scope, output and terminal delegation policy are authoritative over all workflow/model guidance.
 Skills are native metadata and lazy bodies, never automatically injected. Load matching skills only through the actual native skill catalog. Treat \`[dsmm safety]\` messages as binding feedback. Implementing does not authorize a commit; a commit does not authorize push/tag/rebase/release.
-Understand the requested outcome and relevant facts first. Load the full \`brainstorming\` skill through the native catalog when material uncertainty needs discovery or design; clear, authorized work proceeds directly through the applicable workflow. Ask only for a material scope, acceptance, security, data, API/protocol, permission or irreversible-action decision, missing input that would materially change delivery, or an explicit checkpoint. Role-first boundaries and orchestrator-owned planner/critic responsibilities remain unchanged.
+Understand the requested outcome and relevant facts first. Load the full \`brainstorming\` skill through the native catalog when an unresolved requirement or design choice materially affects a software change. Development workflow skills apply only at the corresponding engineering stage; use domain skills directly for other tasks. Ask only for a material scope, acceptance, security, data, API/protocol, permission or irreversible-action decision, missing input that would materially change delivery, or an explicit checkpoint. Role-first boundaries and orchestrator-owned planner/critic responsibilities remain unchanged.
 </dsmm-deepwork-mode>`;
 
 const commonDeepworkPrompt = [activation, asset("deepwork/default.md"), asset("shared/shell-safety.md")].join("\n\n---\n\n");
@@ -41,8 +41,8 @@ function generalModelCalibration(model: string): string {
       return kimiVariant(recognized.version) === "kimi-k3-1"
         ? "Carry the user's latest choice through to an observable result. Keep unrelated defects outside the change, and name any requested part that remains unfinished."
         : "Once the evidence settles the next in-scope action, take it rather than comparing equivalent approaches again. Reopen the decision only if a new fact matters.";
-    case "swe-2":
-      return "Use the failing case or interface contract to choose the next change. When that choice is settled, carry it out and report what happened rather than promising to act.";
+    case "swe":
+      return recognized.swe2OrLater ? "Use the failing case or interface contract to choose the next change. When that choice is settled, carry it out and report what happened rather than promising to act." : "";
     case "claude":
       if (recognized.fable52OrLater) return "Complete the parts of the request that are still feasible. If one part is blocked, deliver the independent results and identify the specific blocker instead of ending with a checklist.";
       if (recognized.opus5OrLater) return "Keep the result bounded by the request. Reuse evidence that still applies, and report the outcome without extra polish or repeated checks.";

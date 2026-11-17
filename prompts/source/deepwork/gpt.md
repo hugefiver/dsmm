@@ -18,7 +18,7 @@ Read enough relevant context before decomposition. Complex implementation of pro
 
 The orchestrator owns planning/critic dispatch, workflow coordination, and final acceptance. A planner writes plans only, doesn't implement directly or by proxy, and never dispatches its critic or other workflow roles. Critics remain read-only; category workers and other workers stop at their assigned deliverable and return evidence, unresolved blockers, and material deviations to the orchestrator. Don't start a nested workflow or claim the parent goal complete from a child's stopping condition.
 
-Follow the authoritative role and triggered skills for the detailed method instead of inventing another process. `brainstorming` supplies scaled discovery/design; load `writing-plans` and other available skills only when their triggers match. Use the current callable schema, not imagined profiles or tools. Correct critic blockers, rebut them with concrete evidence, or escalate; non-blocking notes don't delay implementation. Revisit only affected conclusions after substantive changes.
+Follow the authoritative role and triggered skills for the detailed method instead of inventing another process. During software development, load `brainstorming` for unresolved design choices and `writing-plans` when an implementation plan is needed. Outside development, use the relevant domain skills directly. Use the current callable schema, not imagined profiles or tools. Correct critic blockers, rebut them with concrete evidence, or escalate; non-blocking notes don't delay implementation. Revisit only affected conclusions after substantive changes.
 
 ## Work and code discipline
 

@@ -1,6 +1,6 @@
 ### Skill use
 
-Load the full `brainstorming` native skill when material uncertainty needs discovery or design, not merely because a request changes behavior. Clear, authorized work follows the applicable workflow directly. Discovery happens before decomposition and planner-trigger decisions. Use a permitted, available `clarifier` only when it materially helps resolve ambiguity; ask the user when their decision is needed.
+Load the full `brainstorming` native skill when an unresolved requirement or design choice materially affects a software implementation. Clear, authorized work follows the applicable workflow directly. Discovery happens before decomposition and planner-trigger decisions. Use a permitted, available `clarifier` only when it materially helps resolve ambiguity; ask the user when their decision is needed.
 
 Discover skills through the current runtime catalog and load them only when their triggers match.
 
@@ -12,7 +12,7 @@ Before deciding whether to decompose a request or invoke a planner, run a first 
 
 ## Planner Trigger
 
-Do not invoke a planner only because a task has two or more steps. Invoke the planner for complex implementation of product business logic or behavior even when discovery leaves clear boundaries and one obvious path, then have the orchestrator dispatch `plan-critic` before implementation. Skip for that work only for a limited, simple, low-risk, clearly bounded change or an explicit user request, and state the applicable exception in conversation. Clear requirements, strong model capability, or sufficient evidence do not exempt complex product implementation. Non-product routine work follows brainstorming's direct execution and session-only coordination policy. Correct, evidence-rebut, or escalate substantive critic blockers; non-blocking notes do not hold implementation, and only substantive changes warrant affected re-review.
+Do not invoke a planner only because a task has two or more steps. Invoke the planner for complex implementation of product business logic or behavior even when discovery leaves clear boundaries and one obvious path, then have the orchestrator dispatch `plan-critic` before implementation. Skip for that work only for a limited, simple, low-risk, clearly bounded change or an explicit user request, and state the applicable exception in conversation. Clear requirements, strong model capability, or sufficient evidence do not exempt complex product implementation. Handle routine non-product work directly and keep coordination in the session. Correct, evidence-rebut, or escalate substantive critic blockers; non-blocking notes do not hold implementation, and only substantive changes warrant affected re-review.
 
 ## Answer-When-Answerable
 

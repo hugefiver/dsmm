@@ -54,7 +54,9 @@ the current prompt assembly rather than the preceding request header.
 Model guidance is subordinate to the selected role and the current runtime's tools
 and permissions. Role and workflow prompts contain usage guidance rather than a
 static Host contract or duplicate skill/MCP inventories; availability comes from
-the current runtime catalog.
+the current runtime catalog. The six development workflow skills describe their software
+engineering stage in both discovery metadata and their frontmatter. Other tasks can
+use domain skills and native delegation without loading a development workflow.
 Model identifiers and families select resources in code; calibration text, headings
 and tags are model-neutral. Source filenames retain selector identities. Kimi
 K3 and earlier, and names without a determinate version, use `deepwork/kimi.md`.
@@ -62,10 +64,10 @@ K3.1 and later numeric generations, including K3.2 and K4+, exclusively use
 `deepwork/kimi-k3-1.md`. Prompt-only K aliases such as `k3p1` leave reasoning-family
 classification unchanged. Existing `kimi-k27` names retain their K2.7 meaning
 and the old calibration. Selection preserves the first model identity and keeps
-structured provider metadata outside model matching. Gemini 4.x, including Argon,
-receives the selected `gemini-4` additive layer. No injected self-identification
+structured provider metadata outside model matching. Gemini 4 and later, including Argon,
+receive the `gemini-4` additive layer. No injected self-identification
 or textual model guard is needed. Prompt selection does not change provider,
-effort, fallback chains or DSH model capabilities. Fable 5.2 and Mythos 5.2 select
+effort, fallback chains or DSH model capabilities. Fable and Mythos from 5.2 onward select
 `deepwork/claude-fable-5-2.md` for admitted roles and categories. It directs the
 agent to finish actionable work in its assignment and diagnose a failure before retrying.
 

@@ -1,6 +1,6 @@
 ---
 name: requesting-code-review
-description: Use when an implemented change benefits from independent review before delivery or merge
+description: Use to request independent code review of an implemented software change when review is required or a concrete implementation risk warrants it.
 ---
 
 ## DSH resource and authority contract

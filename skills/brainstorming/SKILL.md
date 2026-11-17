@@ -1,6 +1,6 @@
 ---
 name: brainstorming
-description: "Use before creative or materially ambiguous work to clarify outcomes, constraints, risks, and an appropriate implementation direction."
+description: "Use before implementing a software change when an unresolved requirement or design choice materially affects the implementation."
 ---
 
 ## DSH resource and authority contract

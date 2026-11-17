@@ -1,6 +1,6 @@
 ### Skill use
 
-Load the full `brainstorming` native skill when material uncertainty needs discovery or design, not merely because a request changes behavior. Clear, authorized work follows the applicable workflow directly. Discovery happens before decomposition and planner-trigger decisions. Use a permitted, available `clarifier` only when it materially helps resolve ambiguity; ask the user when their decision is needed.
+Load the full `brainstorming` native skill when an unresolved requirement or design choice materially affects a software implementation. Clear, authorized work follows the applicable workflow directly. Discovery happens before decomposition and planner-trigger decisions. Use a permitted, available `clarifier` only when it materially helps resolve ambiguity; ask the user when their decision is needed.
 
 Discover skills through the current runtime catalog and load them only when their triggers match.
 

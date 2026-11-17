@@ -1,6 +1,6 @@
 ---
 name: dispatching-parallel-agents
-description: Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies
+description: Use when delegating two or more independent software engineering tasks that share no mutable state and do not depend on one another's results.
 ---
 
 ## DSH resource and authority contract
