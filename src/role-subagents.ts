@@ -25,7 +25,7 @@ import type { ResolvedRoleInvocation } from "./role-invocation.js";
 import { modelRouteFromCall } from "./role-llm.js";
 import type { NativeAdmission } from "./native-admission.js";
 import { buildDsmmDelegationGuidance, buildDsmmTeamGuidance } from "./prompts.js";
-import { startNativeActivation } from "./native-subagents.js";
+import { startNativeActivation, supportsNativeNames } from "./native-subagents.js";
 
 // Conditional Team tools stay in their native layer: copying a definition would discard its `when` registration.
 const hostControls = ["send_message", "interrupt_agent", "list_agents", "wait_agent", "exit_plan_mode", "ask_user_question", "todo_write", "job_output", "job_list", "job_kill"];
@@ -161,6 +161,7 @@ function registerRoleTool(agent: DshAgent, agentCtx: Context, tools: ToolRuntime
   const settings = getSettings(agent);
   const subagents = agentCtx.get("subagents");
   if (subagents === undefined) throw new Error("DSMM role tools require native subagents");
+  const named = supportsNativeNames(subagents);
   const forcedBackground = settings.subagents.forceBackground;
   const background = settings.subagents.enableRunInBackground || forcedBackground;
   const admittedProviders = new Map(entry.targets.map(target => [target, subagents.getProvider(roleProviderName(target))]));
@@ -169,6 +170,7 @@ function registerRoleTool(agent: DshAgent, agentCtx: Context, tools: ToolRuntime
     name: entry.name, description: `Delegate a bounded ${entry.kind} task through native activation.${forcedBackground ? " Deployment forces background parent delivery even when run_in_background is omitted or false. Returns an accepted child/message receipt; native completion notifies the parent." : ` Waits for the useful result by default.${background ? " Set run_in_background to receive an accepted child/message receipt; native completion notifies the parent." : " Background execution is disabled."}`}`,
     isConcurrencySafe: () => true,
     parameters: { description: { type: "string", required: true }, prompt: { type: "string", required: true },
+      ...(named ? { name: { type: "string" as const, description: "Optional sibling name, e.g. review-api. Use 1–32 lowercase letters, digits or hyphens starting with a letter (except lead). Defaults to role-number." } } : {}),
       ...(entry.targetParameter === undefined ? {} : { [entry.targetParameter]: { type: "string" as const, enum: entry.targets, required: true as const } }),
       level: { type: "string", enum: ["normal", "low", "high", "max"] },
       ...(settings.subagents.allowRouteOverride ? { route: { oneOf: [
@@ -177,12 +179,12 @@ function registerRoleTool(agent: DshAgent, agentCtx: Context, tools: ToolRuntime
       ] as const } } : {}),
       ...(background ? { run_in_background: { type: "boolean" as const } } : {}) },
     output: { schema: { type: "json" }, render(_args, value) {
-      const result = value as unknown as { kind: string; subagentId?: string; invocation?: { role: string; level: string; route?: { provider: string; model: string; reasoningEffort?: string } }; output?: ContentBlock[] };
+      const result = value as unknown as { kind: string; name?: string; subagentId?: string; invocation?: { role: string; level: string; route?: { provider: string; model: string; reasoningEffort?: string } }; output?: ContentBlock[] };
       const invocation = result.invocation;
       const route = invocation?.route;
       const metadata = invocation === undefined ? "" : `${invocation.role} level=${invocation.level}${route === undefined ? "" : ` route=${route.provider}/${route.model}${route.reasoningEffort === undefined ? "" : ` effort=${route.reasoningEffort}`}`}`;
-      return result.kind === "foreground" ? [{ type: "text", text: metadata }, ...result.output ?? []]
-        : [{ type: "text", text: `${metadata}\naccepted subagent ${result.subagentId}` }];
+      return result.kind === "foreground" ? [{ type: "text", text: result.name ? `${metadata}\nsubagent ${result.name}` : metadata }, ...result.output ?? []]
+        : [{ type: "text", text: `${metadata}\naccepted subagent ${result.name ?? result.subagentId}` }];
     }, presentationMeta(_args, value) { return typeof value === "object" && value !== null && !Array.isArray(value) ? value.invocation ?? null : null; } },
     finalizeContent(exec, result) {
       const partial = incomplete.get(exec.token); incomplete.delete(exec.token);
@@ -191,7 +193,7 @@ function registerRoleTool(agent: DshAgent, agentCtx: Context, tools: ToolRuntime
         ...partial.diagnostic === undefined ? [] : [{ type: "text" as const, text: `Provider diagnostic: ${partial.diagnostic}` }]];
     },
     async execute(args, exec): Promise<Extract<ToolExecutionResult, { isError: false }>["value"]> {
-      const fields = ["description", "prompt", "level", ...entry.targetParameter === undefined ? [] : [entry.targetParameter],
+      const fields = ["description", "prompt", "level", ...named ? ["name"] : [], ...entry.targetParameter === undefined ? [] : [entry.targetParameter],
         ...settings.subagents.allowRouteOverride ? ["route"] : [], ...background ? ["run_in_background"] : []];
       if (Object.keys(exec.arguments as Record<string, unknown>).some((key) => !fields.includes(key))) throw new SubagentError("DSMM delegation parameter is unsupported by this admitted tool", "UNSUPPORTED_CAPABILITY");
       const parent = exec.agent;
@@ -219,11 +221,11 @@ function registerRoleTool(agent: DshAgent, agentCtx: Context, tools: ToolRuntime
        const requestedBackground = forcedBackground || settings.subagents.enableRunInBackground && args.run_in_background === true;
        assertCurrent();
         const pending = await admission.reserve(exec, invocation, provider, args.description, requestedBackground ? "parent" : "caller", request.maxDepth);
-       let activation: import("@deepseek-ai/dsh-subagent").SubagentActivation | undefined;
+       let activation: Awaited<ReturnType<typeof startNativeActivation>> | undefined;
        let cancellation: Promise<void> | undefined;
        const cancel = () => { if (activation) { cancellation ??= activation.dispose(); void cancellation.catch(() => {}); } };
        try {
-         activation = await startNativeActivation(subagents, { childId: pending.childId, provider: provider.name, label, request, signal: pending.signal, delivery: requestedBackground ? "parent" : "caller" });
+         activation = await startNativeActivation(subagents, { childId: pending.childId, provider: provider.name, label, request, signal: pending.signal, delivery: requestedBackground ? "parent" : "caller" }, named ? { role: role.sourceId, name: args.name } : undefined);
          admission.track(activation);
          pending.signal.addEventListener("abort", cancel, { once: true });
          if (pending.signal.aborted) { cancel(); await cancellation; pending.signal.throwIfAborted(); }
@@ -238,13 +240,14 @@ function registerRoleTool(agent: DshAgent, agentCtx: Context, tools: ToolRuntime
             throw error;
           }
           pending.signal.throwIfAborted();
-          if (requestedBackground) return { kind: "continuable", subagentId: activation.childId, messageId: activation.messageId ?? null, invocation: { ...pending.view() } };
+          const address: Record<string, string> = activation.name === undefined ? {} : { name: activation.name };
+          if (requestedBackground) return { kind: "continuable", subagentId: activation.childId, ...address, messageId: activation.messageId ?? null, invocation: { ...pending.view() } };
          const result = await activation.result;
          if (result.stopReason !== "completed") incomplete.set(exec.token, result);
          if (cancellation) await cancellation;
          pending.signal.throwIfAborted();
          if (result.stopReason !== "completed") throw new SubagentError(`Role activation ended: ${result.stopReason}`, "DSMM_INCOMPLETE");
-         return { kind: "foreground", output: result.output as unknown as Extract<ToolExecutionResult, { isError: false }>["value"],
+         return { kind: "foreground", ...address, output: result.output as unknown as Extract<ToolExecutionResult, { isError: false }>["value"],
            ...(result.structured === undefined ? {} : { structured: result.structured as unknown as Extract<ToolExecutionResult, { isError: false }>["value"] }), invocation: { ...pending.view() } };
        } finally {
          pending.signal.removeEventListener("abort", cancel);

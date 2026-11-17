@@ -53,6 +53,21 @@ function holdChildRequests(f: Awaited<ReturnType<typeof nativeRoutingFixture>>, 
 
 const treeHost = process.env.DSMM_TEST_DSH_ENTRY !== undefined;
 
+test("DSMM role receipts address their native named member", { skip: !treeHost, timeout: 20000 }, async () => {
+  const f = await nativeRoutingFixture({ subagents: { enableRunInBackground: true, toolTopology: "parameterized" } }, { nativeControls: true });
+  const release = holdChildRequests(f);
+  try {
+    const root = await f.create({ agentPreset: "dsmm-orchestrator" });
+    const runtime = f.subagents as unknown as { resolveName(parent: Agent, name: string, signal: AbortSignal): Promise<string> };
+    for (const [target, name, expected] of [["dsmm-planner", undefined, "planner-1"], ["dsmm-reviewer", "api-check", "api-check"]] as const) {
+      const result = await invoke(root, "dsmm_role", { role: target, ...(name ? { name } : {}), description: "Review a change", prompt: "Return done", run_in_background: true });
+      assert.ok(!result.isError && typeof result.value === "object" && result.value && "name" in result.value && "subagentId" in result.value, JSON.stringify(result));
+      assert.equal(result.value.name, expected);
+      assert.equal(await runtime.resolveName(root, expected, new AbortController().signal), result.value.subagentId);
+    }
+  } finally { release(); await f.dispose(); }
+});
+
 test("cold target ceilings propagate through newly delegated parameterized descendants", { skip: !treeHost, timeout: 20000 }, async () => {
   const f = await nativeRoutingFixture({ subagents: { maxDepth: 4, enableRunInBackground: true, toolTopology: "parameterized" } }, { persistence: true, nativeControls: true });
   let release = holdChildRequests(f);

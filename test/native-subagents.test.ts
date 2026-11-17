@@ -19,6 +19,31 @@ test("activation task fields follow the Host's nested or native-tree contract", 
   assert.deepEqual(seen, { ...request, childId: spec.childId, provider: spec.provider, label: spec.label, signal, delivery: spec.delivery });
 });
 
+test("named activations keep the reserved UUID and only advance an automatically rejected name", async () => {
+  const parent = { session: { snapshotEvents: () => [], inheritedEventCount: 0 } } as unknown as Agent;
+  const taken = new Set(["planner-1"]), seen: string[] = [];
+  const duplicate = Object.assign(new Error("taken"), { code: "DUPLICATE_AGENT_NAME" });
+  const tree = { rootOf: () => parent, async startActivation({ name, childId }: { name: string; childId: string }) {
+    seen.push(name);
+    if (taken.has(name)) throw duplicate;
+    taken.add(name);
+    return { childId, name: `parent/${name}` };
+  } } as unknown as SubagentRuntime;
+  const spec = { provider: "dsmm-planner", request: { parent, prompt: [] }, label: "plan", signal: new AbortController().signal, delivery: "caller" as const };
+  const launch = (id: string, name?: string) => startNativeActivation(tree, { ...spec, childId: SessionId(id) }, { role: "planner", name });
+  const children = await Promise.all([launch("uuid-a"), launch("uuid-b")]);
+  assert.deepEqual(new Set(children.map(c => c.name)), new Set(["parent/planner-2", "parent/planner-3"]));
+  assert.deepEqual(children.map(c => c.childId), ["uuid-a", "uuid-b"]);
+  assert.equal((await launch("uuid-c", "api-check")).name, "parent/api-check");
+  await assert.rejects(launch("uuid-d", "api-check"), duplicate);
+  assert.equal(seen.length, 5);
+  const failure = new Error("uncertain start");
+  let calls = 0;
+  const failed = { rootOf: () => parent, async startActivation() { calls++; throw failure; } } as unknown as SubagentRuntime;
+  await assert.rejects(startNativeActivation(failed, spec, { role: "planner" }), failure);
+  assert.equal(calls, 1);
+});
+
 test("direct child discovery preserves legacy catalogs and filters native-tree descendants by catalog parent", async () => {
   const parentId = SessionId("parent"), childId = SessionId("child"), signal = new AbortController().signal;
   const catalog = [{ id: childId, mode: "continuable" as const, label: "Direct child" }];

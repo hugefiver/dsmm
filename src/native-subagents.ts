@@ -4,13 +4,33 @@ import type { SubagentActivation, SubagentCatalogEntry, SubagentDescendantListEn
 
 type ActivationSpec = Parameters<SubagentRuntime["startActivation"]>[0];
 type FlatActivationSpec = Omit<ActivationSpec, "request"> & ActivationSpec["request"];
-type TreeRuntime = { rootOf(agent: Agent): Agent; startActivation(spec: FlatActivationSpec): Promise<SubagentActivation> };
+type AddressedActivation = SubagentActivation & { readonly name?: string };
+type TreeRuntime = { rootOf(agent: Agent): Agent; startActivation(spec: FlatActivationSpec & { name?: string }): Promise<AddressedActivation> };
+const childOrdinals = new WeakMap<Agent, number>();
+
+export function supportsNativeNames(runtime: SubagentRuntime): boolean {
+  return "namesOf" in runtime && typeof runtime.namesOf === "function" && "resolveName" in runtime && typeof runtime.resolveName === "function";
+}
 
 /** Native tree runtimes accept task fields directly on the activation specification. */
-export function startNativeActivation(runtime: SubagentRuntime, spec: ActivationSpec): Promise<SubagentActivation> {
+export async function startNativeActivation(runtime: SubagentRuntime, spec: ActivationSpec, naming?: { role: string; name?: string }): Promise<AddressedActivation> {
   if (typeof (runtime as unknown as Partial<TreeRuntime>).rootOf !== "function") return runtime.startActivation(spec);
   const { request, ...activation } = spec;
-  return (runtime as unknown as TreeRuntime).startActivation({ ...request, ...activation });
+  const tree = runtime as unknown as TreeRuntime;
+  const flat = { ...request, ...activation };
+  if (!naming) return tree.startActivation(flat);
+  if (naming.name !== undefined) return tree.startActivation({ ...flat, name: naming.name });
+  const parent = request.parent;
+  for (;;) {
+    spec.signal.throwIfAborted();
+    const ordinal = (childOrdinals.get(parent) ?? parent.session.snapshotEvents().slice(parent.session.inheritedEventCount).filter(event => event.type === "subagent/catalog").length) + 1;
+    childOrdinals.set(parent, ordinal);
+    try { return await tree.startActivation({ ...flat, name: `${naming.role}-${ordinal}` }); }
+    catch (error) {
+      // Only a rejected name reservation precedes child startup; never replay an ambiguous start.
+      if (!(error instanceof Error && "code" in error && error.code === "DUPLICATE_AGENT_NAME")) throw error;
+    }
+  }
 }
 
 export type NativeChildEntry = Pick<SubagentCatalogEntry, "id" | "mode"> & { readonly label?: string };

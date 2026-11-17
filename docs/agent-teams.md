@@ -22,6 +22,8 @@ Use the task's current revision as `expectedRevision` when updating through the 
 
 ## Member lifetime
 
+On Hosts with native named members, DSMM role and category calls accept `name` (for example `review-api`). A name is unique among siblings, starts with a lowercase letter, and contains at most 32 lowercase letters, digits or hyphens; `lead` is reserved. When omitted, calls use the role and a sibling number, such as `planner-1`. Use the returned `name` (including the parent path for nested members) for native messages. `subagentId` remains the durable session ID. Hosts without named members retain ID-based addressing.
+
 On tree-capable Hosts, messages preserve their sender and stay within the native tree. Native names and `list_agents` identify members; `wait_agent` is available when the Host exposes it. Ancestors can interrupt descendants; siblings cannot use interruption as a coordination shortcut.
 
 Supported members can continue under the verified live root after their durable creator exits. Cold continuation uses current selected-profile content and retains captured DSMM restrictions. Generic native members retain their native model authority and do not acquire a DSMM role. Details and legacy-record limits are in [Agent presets](agent-presets.md) and [compatibility](compatibility.md).
