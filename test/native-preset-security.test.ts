@@ -6,10 +6,10 @@ import * as Persona from "@deepseek-ai/dsh-persona";
 import { SessionProjectionRegistry } from "@deepseek-ai/dsh-session-projection";
 import { createScope } from "@deepseek-ai/dsh-scope";
 import { SystemPrompt, renderPrompt } from "@deepseek-ai/dsh-system-prompt";
-import type { DshAgent } from "../src/dsh-types.js";
 import { DSMM_ROLES, rolePluginRows } from "../src/roles.js";
 import { buildRoleIdentity } from "../src/prompt-content.js";
 import { registerRoleHarnessIdentity } from "../src/role-identity.js";
+import { agentScopeService } from "../src/native-scope.js";
 
 test("native role persona and instruction compositions accept required Config fields and activate", async () => {
   const ctx = new Context();
@@ -39,7 +39,7 @@ test("native role persona and instruction compositions accept required Config fi
       const failures = activation.flatMap((result) => result.status === "rejected" ? [String(result.reason)] : []);
       assert.deepEqual(failures, [], `${role.id} native composition failed Config validation or activation`);
       scope.ctx.get("systemPrompt")!.section({ name: "fixture:workspace-instructions", order: 50, text: "Native workspace instructions" });
-      const disposeIdentity = registerRoleHarnessIdentity(key as unknown as DshAgent, role.id);
+      const disposeIdentity = registerRoleHarnessIdentity(scope.ctx.get("systemPrompt")!, role.id);
       const prompt = await ctx.systemPrompt.assemble({ scope: key });
       assert.equal(prompt.sections[0]?.name, "harness:identity");
       assert.equal(prompt.sections[0]?.text, `You are ${role.name}.`);
@@ -52,15 +52,18 @@ test("native role persona and instruction compositions accept required Config fi
       const childRole = DSMM_ROLES[(DSMM_ROLES.indexOf(role) + 1) % DSMM_ROLES.length]!;
       const child = { ctx: undefined as unknown as Context };
       child.ctx = createScope(scope.ctx, child, { parent: key }).ctx;
-      const disposeChild = registerRoleHarnessIdentity(child as unknown as DshAgent, childRole.id, true);
+      const generation = child.ctx.plugin((scope: Context) => {
+        registerRoleHarnessIdentity(agentScopeService(scope, "systemPrompt")!, childRole.id, true);
+      });
+      await generation.await();
       const childPrompt = await ctx.systemPrompt.assemble({ scope: child });
       assert.equal(childPrompt.sections[0]?.text, `You are ${childRole.name}.`);
       assert.equal(childPrompt.sections.find((section) => section.name === Persona.PERSONA_PREFIX_SECTION)?.text, childRole.persona);
       assert.equal(renderPrompt(childPrompt).split(buildRoleIdentity(childRole)).length - 1, 1, `${childRole.id} child identity must be assembled once`);
       assert.equal(renderPrompt(childPrompt).includes(buildRoleIdentity(role)), false, "child must shadow the parent identity");
       assert.equal(renderPrompt(await ctx.systemPrompt.assemble({ scope: key })), renderPrompt(prompt), "child registration must not change the parent");
-      disposeChild();
-      assert.equal(renderPrompt(await ctx.systemPrompt.assemble({ scope: child })), renderPrompt(prompt), "child disposal restores inherited sections");
+      await generation.dispose();
+      assert.equal(renderPrompt(await ctx.systemPrompt.assemble({ scope: child })), renderPrompt(prompt), "retiring the generation restores inherited sections on the same child");
       disposeIdentity();
       const restored = await ctx.systemPrompt.assemble({ scope: key });
       assert.equal(restored.sections[0]?.text, (await ctx.systemPrompt.assemble()).sections[0]?.text);

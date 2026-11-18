@@ -11,6 +11,7 @@ import type { DsmmRolePolicy } from "./role-policy.js";
 import { DSMM_DISPATCHER_ROLE, DSMM_ROLES, isRootRole } from "./roles.js";
 import type { NativeAdmission } from "./native-admission.js";
 import { capturedRoleInvocation } from "./role-invocation.js";
+import { assertResidentRootCurrent } from "./resident-root.js";
 import type { DsmmProfileAdmission, DsmmSettingsGetter } from "./settings.js";
 
 export interface CorePermissionAuthorityOptions {
@@ -96,6 +97,7 @@ export function createCorePermissionAuthority(ctx: Context, options: CorePermiss
   };
 
   const coreDomain = (agent: Agent) => {
+    assertResidentRootCurrent(agent, integration());
     const core = ctx.get("dsmmCoreLlmOwner"), profiles = ctx.get("dsmmProfileRuntime");
     const ownerCore = coreOwner.get("dsmmCoreLlmOwner"), realmCore = agent.ctx.get("dsmmCoreLlmOwner");
     if (core === undefined || ownerCore === undefined || realmCore === undefined || profiles === undefined
@@ -183,6 +185,7 @@ export function createCorePermissionAuthority(ctx: Context, options: CorePermiss
     current,
     captureIntegrity(exec) {
       const chain = ancestry(exec), realms = chain.map(agent => agent.ctx);
+      for (const agent of chain) assertResidentRootCurrent(agent, integration());
       const signals = chain.map(agent => {
         let signal = physicalLifetimes.get(agent);
         if (signal === undefined) {

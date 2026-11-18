@@ -246,8 +246,12 @@ test("real Cordis Loader shares preset but Agent skills/mode/cwd stay private; b
     const quiet = changes; await f.ctx.skills.list({ scope: a }); await f.ctx.skills.list({ scope: b });
     assert.equal(changes, quiet, "metadata queries never reflect skills/change into invalidate loops");
     stop();
+    const sections = async () => (await f.ctx.systemPrompt.assemble({ scope: a })).sections.map(section => section.name);
+    assert.ok((await sections()).includes("dsmm:deepwork"));
     await f.dsmmFiber.dispose();
+    assert.equal(f.agents.get(a.id), a);
     assert.deepEqual(await f.ctx.skills.list({ scope: a }), []);
+    assert.equal((await sections()).some(name => name.startsWith("dsmm:")), false);
   } finally { await f.dispose(); }
 });
 

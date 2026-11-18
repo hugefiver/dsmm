@@ -33,8 +33,6 @@ export interface DsmmRoleIdentity {
   readonly independentComposition?: boolean;
 }
 const liveIdentities = new WeakMap<DshAgent, DsmmRoleIdentity>();
-const toolIdentities = new WeakMap<DshAgent, { realm: object; definitions: Map<string, ToolDefinition> }>();
-const controlledDefinitions = new WeakSet<ToolDefinition>();
 export const READONLY_ROLE_DENIED_TOOLS = ["write", "edit", "bash", "pwsh"] as const;
 const readTools = new Set(["read", "glob", "grep", "read_image", "web_search", "web_fetch", "skill", "load_skill", "structured_output", "send_message", "interrupt_agent", "list_agents", "wait_agent", "team_task_list", "team_task_get", "exit_plan_mode", "ask_user_question", "todo_write", "job_output", "job_list", "job_kill"]);
 const readLsp = new Set(["status", "diagnostics", "goto_definition", "find_references", "find_symbol_related", "symbols", "prepare_rename"]);
@@ -69,6 +67,8 @@ interface ToolCall {
 export class DsmmRolePolicy {
   private readonly executions = new AsyncLocalStorage<Readonly<ToolExecution>>();
   private readonly toolCalls = new WeakMap<object, ToolCall>();
+  private readonly toolIdentities = new WeakMap<DshAgent, { realm: object; definitions: Map<string, ToolDefinition> }>();
+  private readonly controlledDefinitions = new WeakSet<ToolDefinition>();
   constructor(private readonly ctx: DshContext, private readonly getSettings: DsmmSettingsGetter, _mode: DeepworkModeController) {}
   private agents(): DshAgentsRegistry { const agents = this.ctx.get?.<DshAgentsRegistry>("agents"); if (!agents) throw new SubagentError("Native registry unavailable", "UNAUTHORIZED"); return agents; }
   assertLive(agent: DshAgent): void { if (!agent.id || this.agents().get(agent.id) !== agent) throw new SubagentError("Exact live Agent required", "UNAUTHORIZED"); }
@@ -135,7 +135,7 @@ export class DsmmRolePolicy {
       creatorId: parent.id, maxDepth, preset, epoch: admission.epoch, targetCeiling: upstream.targetCeiling,
       readOnly: this.readOnly(upstream), toolFilter: inheritToolFilter(upstream.toolFilter, this.visibleToolCeiling(parent)) }));
   }
-  release(agent: DshAgent): void { liveIdentities.delete(agent); toolIdentities.delete(agent); }
+  release(agent: DshAgent): void { liveIdentities.delete(agent); this.toolIdentities.delete(agent); }
   assertModuleAdmission(agent: DshAgent): void {
     this.assertLive(agent);
     const settings = this.getSettings(agent), identity = liveIdentities.get(agent), selected = this.selected(agent);
@@ -176,12 +176,12 @@ export class DsmmRolePolicy {
     return { parent, role, epoch: this.identity(parent).epoch };
   }
   captureTools(agent: DshAgent, tools: ToolRuntime, names: readonly string[] = [], reset = false): void {
-    const realm: object = Reflect.get(tools, symbols.original) ?? tools, previous = toolIdentities.get(agent);
+    const realm: object = Reflect.get(tools, symbols.original) ?? tools, previous = this.toolIdentities.get(agent);
     const definitions = previous === undefined || reset || previous.realm !== realm ? new Map<string, ToolDefinition>() : previous.definitions;
     for (const schema of tools.schemas(agent as Agent)) if (!previous || reset || previous.realm !== realm || names.includes(schema.name)) {
-      const definition = tools.get(schema.name, agent as Agent)!; definitions.set(schema.name, definition); if (names.includes(schema.name)) controlledDefinitions.add(definition);
+      const definition = tools.get(schema.name, agent as Agent)!; definitions.set(schema.name, definition); if (names.includes(schema.name)) this.controlledDefinitions.add(definition);
     }
-    toolIdentities.set(agent, { realm, definitions });
+    this.toolIdentities.set(agent, { realm, definitions });
   }
   toolBlacklistDenial(agent: DshAgent, name: string, execution?: Readonly<ToolExecution>): string | undefined { return this.preToolDenial(agent, name, undefined, execution); }
   captureToolExecution(execution: Readonly<ToolExecution>, _full: boolean): void {
@@ -194,7 +194,7 @@ export class DsmmRolePolicy {
       owner: this.identity(agent as DshAgent).owner, parentSession: agent.session.header.parentSession,
       name: execution.name, args: execution.arguments, callId: execution.callId, signal: execution.signal,
       toolFilter: this.visibleToolCeiling(agent as DshAgent),
-      ...(definition === undefined || !controlledDefinitions.has(definition) ? {} : { definition, body: definition.execute, argumentsJson: JSON.stringify(execution.arguments) }) });
+      ...(definition === undefined || !this.controlledDefinitions.has(definition) ? {} : { definition, body: definition.execute, argumentsJson: JSON.stringify(execution.arguments) }) });
   }
   /** Visible native names are a narrowing ceiling, never permission to execute a definition. */
   visibleToolCeiling(agent: DshAgent): ToolRestriction {
@@ -227,13 +227,13 @@ export class DsmmRolePolicy {
   preToolDenial(agent: DshAgent, name: string, tools?: ToolRuntime, execution?: Readonly<ToolExecution>): string | undefined {
     const identity = this.identity(agent), settings = this.getSettings(agent);
     const native = agent.ctx as Context, realm = tools ?? native.get("agentPresets")?.serviceFor(agent as Agent, "tools") ?? native.get("tools");
-    const definition = realm?.get(name, agent as Agent), owned = definition !== undefined && controlledDefinitions.has(definition);
+    const definition = realm?.get(name, agent as Agent), owned = definition !== undefined && this.controlledDefinitions.has(definition);
     const target = owned ? roleFromToolName(name) : undefined, merged = owned && ["dsmm_role", "dsmm_category"].includes(name);
     if (tools && (this.readOnly(identity) || target || merged)) {
-      const admitted = toolIdentities.get(agent);
+      const admitted = this.toolIdentities.get(agent);
       if (!admitted || admitted.realm !== (Reflect.get(tools, symbols.original) ?? tools) || admitted.definitions.get(name) !== definition) return "Tool definition was not admitted in this Agent realm";
     }
-    const nativeOutput = name === "structured_output" && definition !== undefined && toolIdentities.get(agent)?.definitions.get(name) === definition;
+    const nativeOutput = name === "structured_output" && definition !== undefined && this.toolIdentities.get(agent)?.definitions.get(name) === definition;
     if (identity.toolFilter?.allow !== undefined && !identity.toolFilter.allow.includes(name) && !nativeOutput || identity.toolFilter?.deny?.includes(name)) return "Tool exceeds inherited filter";
     const lifetimeOwner = identity.owner ?? identity.parent;
     if (identity.toolFilter && lifetimeOwner && name !== "structured_output") {

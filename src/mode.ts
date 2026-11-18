@@ -1,31 +1,29 @@
-import { getTraceable } from "@deepseek-ai/cordis";
-import type { Agent } from "@deepseek-ai/dsh-agent";
-import type { DshAgent, DshContext } from "./dsh-types.js";
+import type { Context } from "@deepseek-ai/cordis";
+import type { DshAgent } from "./dsh-types.js";
 import type { Config } from "./index.js";
-import { agentForScope, nativeAgentContext } from "./native-scope.js";
+import { agentScopeService } from "./native-scope.js";
 import { buildDeepworkPrompt } from "./prompts.js";
 import { resolveAdmittedDsmmRole } from "./role-policy.js";
 import type { DsmmSettingsGetter } from "./settings.js";
 import type { DeepworkModeController } from "./state.js";
 
-const bindings = new WeakMap<DshAgent, () => void>();
+const bindings = new WeakMap<Context, () => void>();
 
 /** The admission installer owns scope selection; assembly reads the immutable Agent configuration. */
-export function registerDeepworkPrompt(readyCtx: DshContext, controller: DeepworkModeController, getSettings: DsmmSettingsGetter, config: Config, agent: DshAgent, lifetime: AbortSignal): void {
-  const refresh = bindings.get(agent);
+export function registerDeepworkPrompt(ctx: Context, controller: DeepworkModeController, getSettings: DsmmSettingsGetter, config: Config, agent: DshAgent): void {
+  const refresh = bindings.get(ctx);
   if (refresh) { refresh(); return; }
-  const ctx = nativeAgentContext(agent);
   let dispose: (() => void) | undefined;
   const reconcile = () => {
     dispose?.();
-    const registry = ctx.get("agentPresets")?.serviceFor(agent as Agent, "systemPrompt") ?? ctx.get("systemPrompt");
+    const registry = agentScopeService(ctx, "systemPrompt");
     if (!registry) throw new Error("Deepwork requires the native system prompt service");
-    dispose = getTraceable(ctx, registry).section({ name: "dsmm:deepwork", order: getSettings(agent).promptOrder, interpolate: false, text: "" });
+    dispose = registry.section({ name: "dsmm:deepwork", order: getSettings(agent).promptOrder, interpolate: false, text: "" });
   };
   // Native selection writes this step's variables on the return path of the waterfall.
   const stopAssembly = ctx.on("system-prompt/assemble", async (_assembly, context, next) => {
     const assembled = await next();
-    if (context.scope !== agent && agentForScope(readyCtx, context.scope) !== agent) return assembled;
+    if (context.scope !== agent) return assembled;
     if (context.signal?.aborted || getSettings.subagentRuntime?.().deliveryFenceReady === false) return assembled;
     const settings = getSettings(agent);
     if (!settings.modules.deepwork.enabled || !controller.active(agent, settings.defaultActive)) return assembled;
@@ -42,9 +40,7 @@ export function registerDeepworkPrompt(readyCtx: DshContext, controller: Deepwor
     }
     return assembled;
   }, { prepend: true });
-  bindings.set(agent, reconcile);
-  const retire = () => { stopAssembly(); dispose?.(); bindings.delete(agent); lifetime.removeEventListener("abort", retire); };
-  lifetime.addEventListener("abort", retire, { once: true });
-  ctx.effect(() => retire);
+  bindings.set(ctx, reconcile);
+  ctx.effect(() => () => { stopAssembly(); dispose?.(); bindings.delete(ctx); });
   reconcile();
 }

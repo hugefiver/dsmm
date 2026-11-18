@@ -17,6 +17,7 @@ import type { ResolvedRoleInvocation } from "./role-invocation.js";
 import { invocationView } from "./role-invocation.js";
 import type { DsmmRolePolicy } from "./role-policy.js";
 import { scopeLifetime } from "./lifetime.js";
+import { assertResidentRootCurrent, captureResidentTool, guardResidentRealm, markResidentAgent, publishResidentAgent, restoreResidentRoot } from "./resident-root.js";
 import { sessionEvents, childOwnedSessionEvents } from "./session-scope.js";
 import { scopeParentOf, scopeOf } from "./native-scope.js";
 import { bindNativeParent, nativeIsOwnedBy, nativeRoots, nativeTreeRoot } from "./native-ownership.js";
@@ -176,7 +177,8 @@ export class NativeAdmission {
   private readonly admissionRouteFailures = new WeakMap<Agent, AdmissionRouteFailure>();
   private readonly setupSelectionCursors = new WeakMap<object, number>();
   private ready = false;
-  private install?: (agent: Agent, getSettings: DsmmSettingsGetter) => Promise<void>;
+  private readonly scopes = new Map<Agent, Context>();
+  private install?: (agent: Agent, getSettings: DsmmSettingsGetter, scope: Context) => Promise<void>;
   private admissionModelSelection?: (agent: Agent, info: DsmmAdmissionRouteInfo) => Promise<DsmmPreparedAdmissionRoute | undefined>;
   constructor(readonly ctx: Context, readonly profiles: DsmmProfileRuntime, readonly policy: DsmmRolePolicy,
     private readonly configurationCommitted: (agents: readonly Agent[]) => void = () => {}) {
@@ -188,6 +190,8 @@ export class NativeAdmission {
     });
     ctx.effect(() => async () => {
       const results = await Promise.allSettled([...this.activations].map(activation => activation.dispose()));
+      const scopes = await Promise.allSettled([...this.scopes.values()].map(scope => scope.fiber.dispose()));
+      results.push(...scopes);
       await Promise.allSettled(this.activities.keys());
       const errors = results.flatMap(result => result.status === "rejected" ? [result.reason] : []);
       if (errors.length) throw new AggregateError(errors, "Native activation teardown failed");
@@ -232,10 +236,15 @@ export class NativeAdmission {
     ctx.on("agent/request", async (frame, next) => { await this.guardExecution(frame.agent); return next(); }, { global: true, prepend: true });
     ctx.on("tools/execute", async (exec, next) => {
       const native = exec.agent && await this.guardExecution(exec.agent) === "native";
-      return this.nativeToolExecution.run(exec.token, () => native ? next() : policy.duringToolExecution(exec, next));
+      if (native) return this.nativeToolExecution.run(exec.token, next);
+      const caller = exec.signal;
+      if (exec.agent) exec.signal = AbortSignal.any([caller, this.lifetime.signal, this.agentLifetimes.get(exec.agent)!.signal]);
+      try { return await this.nativeToolExecution.run(exec.token, () => policy.duringToolExecution(exec, next)); }
+      finally { exec.signal = caller; }
     }, { global: true, prepend: true });
     ctx.on("tools/pre-execute", async (exec, next) => {
       if (exec.agent) {
+        captureResidentTool(exec.agent, this, exec.token);
         this.trackExecution(exec);
         await this.guardExecution(exec.agent);
         this.beginNativeToolObservation(exec);
@@ -256,6 +265,22 @@ export class NativeAdmission {
   }
   activate(install: NonNullable<NativeAdmission["install"]>): void {
     this.lifetime.signal.throwIfAborted(); this.install = install; this.ready = true;
+  }
+  async restoreResidentRoots(): Promise<void> {
+    if (this.ctx.fiber.state === 1) {
+      // Own services become visible on ACTIVE, after the apply callback returns.
+      // Claim idle roots' native maintenance slots in that same status dispatch.
+      const detach = this.ctx.on("internal/status", fiber => {
+        if (fiber.ctx !== this.ctx.fiber.ctx || fiber.state !== 2) return;
+        detach(); return this.restoreResidentRoots();
+      }, { global: true });
+      return;
+    }
+    if (!this.isReady) throw new SubagentError("DSMM owner is not ready for resident admission", "UNAUTHORIZED");
+    await Promise.all(nativeRoots(this.ctx.agents).map(async agent => {
+      try { await restoreResidentRoot(agent, this, signal => this.created(agent, "startup", signal, true)); }
+      catch (error) { if (!this.lifetime.signal.aborted) this.ctx.logger.warn("Resident root %s remains revoked: %s", agent.id, error); }
+    }));
   }
   /** Bind asynchronous metadata preparation; later lifecycle callbacks only install its immutable result. */
   bindAdmissionModelSelection(hook: (agent: Agent, info: DsmmAdmissionRouteInfo) => Promise<DsmmPreparedAdmissionRoute | undefined>): void {
@@ -544,6 +569,7 @@ export class NativeAdmission {
   /** Exact process-local capture, retained after retirement so stale objects never become native. */
   owns(agent: Agent): boolean { return this.agentLifetimes.has(agent); }
   async guardExecution(agent: Agent): Promise<"native" | "dsmm"> {
+    assertResidentRootCurrent(agent, this);
     await this.awaitingPublication.get(agent)?.promise;
     if (!this.owns(agent)) {
       const registry = agent.ctx.get("agents");
@@ -685,7 +711,7 @@ export class NativeAdmission {
         }
       }
     };
-    const install = (admission: DsmmProfileAdmission) => this.installing.run({ agent, admission }, () => this.install!(agent, this.getter(agent)));
+    const install = (admission: DsmmProfileAdmission) => this.installing.run({ agent, admission }, () => this.install!(agent, this.getter(agent), this.scopes.get(agent)!));
     return {
       assertCurrent,
       prepare: async (admission, describe) => {
@@ -814,13 +840,13 @@ export class NativeAdmission {
     }).finally(() => { if (!this.ctx.agents.get(activation.childId)) this.activations.delete(activation); }).catch(() => {});
     if (this.lifetime.signal.aborted) void activation.dispose().catch(error => this.ctx.logger.error(error));
   }
-  private guardTools(agent: Agent): void {
+  private guardTools(agent: Agent, scope: Context): void {
     const tools = agent.ctx.get("agentPresets")?.serviceFor(agent, "tools") ?? agent.ctx.get("tools");
     if (!tools) return;
     const identity = original(tools), installed = this.guardedTools.get(agent) ?? new Set<object>();
     if (installed.has(identity)) return;
     installed.add(identity); this.guardedTools.set(agent, installed);
-    getTraceable(agent.ctx, tools).guard(exec => {
+    getTraceable(scope, tools).guard(exec => {
       if (exec.agent !== agent) return;
       this.assert(agent);
       const current = agent.ctx.get("agentPresets")?.serviceFor(agent, "tools") ?? agent.ctx.get("tools");
@@ -855,18 +881,21 @@ export class NativeAdmission {
     if (previous === undefined) throw new SubagentError("The blank Agent owner was retired", "UNAUTHORIZED");
     if (previous.preset === agent.ctx.get("agentPresets")?.composedPreset(agent.ctx) && previous.scopeParent === scopeParentOf(agent)) return;
     if (this.selecting.has(agent)) throw new SubagentError("Session configuration maintenance owns the blank composition", "UNAUTHORIZED");
-    if (previous.parent || (this.calls.get(agent) ?? 0) !== 0 || [...this.pending.values()].some(row => row.parent === agent)
+    if (previous.parent || previous.owner || (this.calls.get(agent) ?? 0) !== 0 || [...this.pending.values()].some(row => row.parent === agent)
       || this.ctx.agents.list().some(child => nativeIsOwnedBy(this.ctx.agents, child.id, agent)) || sessionEvents(agent.session).some(event => event.type === "turn/start")) throw new SubagentError("Preset change requires a new session", "UNAUTHORIZED");
     this.policy.validateRootRole(agent as DshAgent, previous.admission);
     const preset = agent.ctx.get("agentPresets")?.composedPreset(agent.ctx), scopeParent = scopeParentOf(agent);
-    this.guardTools(agent);
-    await this.install!(agent, this.getter(agent));
+    const scope = this.scopes.get(agent)!;
+    guardResidentRealm(agent);
+    this.guardTools(agent, scope);
+    await this.install!(agent, this.getter(agent), scope);
     this.lifetime.signal.throwIfAborted();
     this.agentLifetimes.get(agent)!.signal.throwIfAborted();
     if (!this.isReady || this.ctx.agents.get(agent.id) !== agent || this.live.get(agent) !== previous || scopeParentOf(agent) !== scopeParent) throw new SubagentError("Composition changed during blank admission", "UNAUTHORIZED");
     this.live.set(agent, Object.freeze({ ...previous, preset, scopeParent, dependencies: this.dependencies(agent) }));
+    publishResidentAgent(agent, this);
   }
-  private async created(agent: Agent, source: string, creationSignal?: AbortSignal): Promise<void> {
+  private async created(agent: Agent, source: string, creationSignal?: AbortSignal, restoring = false): Promise<void> {
     if (this.owns(agent)) { this.assert(agent); return; }
     const pending = this.pending.get(agent.id);
     if (pending && source !== "startup") throw new SubagentError("Role creation requires its first pending call", "UNAUTHORIZED");
@@ -895,14 +924,20 @@ export class NativeAdmission {
       || agent.session.header.parentSession !== ceiling.creatorId || descriptor?.provider !== ceiling.provider
       || (roleFromProviderName(descriptor.provider) ?? null) !== ceiling.role)) throw new SubagentError("Delegation ceiling identity mismatch", "UNAUTHORIZED");
     if (!parent && !owner && (!nativeRoots(this.ctx.agents).includes(agent) || agent.session.header.origin === "subagent" || descriptor !== undefined)) throw new SubagentError("Child requires its native creator or ceiling", "UNAUTHORIZED");
+    const isRoot = !owner && !parent;
+    if (restoring && !isRoot) throw new SubagentError("Resident root ownership changed", "UNAUTHORIZED");
     if (owner) this.assert(owner);
+    if (restoring) guardResidentRealm(agent);
+    else markResidentAgent(agent, this, isRoot);
+    const scope = agent.ctx.plugin(function dsmmAgentGeneration() {}).ctx;
+    this.scopes.set(agent, scope);
     this.agentLifetimes.set(agent, new AbortController());
     signal = AbortSignal.any([signal, this.agentLifetimes.get(agent)!.signal, ...owner ? [this.agentLifetimes.get(owner)!.signal] : []]);
-    scopeLifetime(agent.ctx, "dsmm: retire exact Agent work", () => { void this.retireAgent(agent).catch(() => {}); });
-    agent.ctx.effect(() => async () => {
+    scopeLifetime(scope, "dsmm: retire exact Agent work", () => { void this.retireAgent(agent).catch(() => {}); });
+    scope.effect(() => async () => {
       try { await this.retireAgent(agent); }
       finally {
-        this.live.delete(agent); this.candidates.delete(agent); this.admissionRoutes.delete(agent); this.admissionRouteFailures.delete(agent); this.agents.delete(agent);
+        this.scopes.delete(agent); this.live.delete(agent); this.candidates.delete(agent); this.admissionRoutes.delete(agent); this.admissionRouteFailures.delete(agent); this.agents.delete(agent);
         this.profiles.release(agent as DshAgent); this.policy.release(agent as DshAgent);
       }
     });
@@ -914,6 +949,7 @@ export class NativeAdmission {
       if (!this.isReady || this.ctx.agents.get(agent.id) !== agent || this.ctx.get("sessions")?.get(agent.id) !== agent.session
         || scopeOf(agent.ctx) !== agent || original(agent.ctx.get("agents")!) !== original(this.ctx.agents)
         || this.dependencies(agent).some((value, index) => value !== dependencies[index]) || scopeParentOf(agent) !== presetScope || preset !== agent.ctx.get("agentPresets")?.composedPreset(agent.ctx)
+        || isRoot && !nativeRoots(this.ctx.agents).includes(agent)
         || owner && (this.assert(owner) !== ownerAdmission || (root === undefined ? !nativeIsOwnedBy(this.ctx.agents, agent.id, owner) : nativeTreeRoot(this.ctx.agents, agent) !== owner))
         || pending && parent && (this.assert(parent) !== parentAdmission || !nativeIsOwnedBy(this.ctx.agents, agent.id, parent))) throw new SubagentError("Activation owner changed", "UNAUTHORIZED");
     };
@@ -1001,10 +1037,7 @@ export class NativeAdmission {
     }
     this.candidates.set(agent, admission);
     this.agents.add(agent);
-    // These registrations belong to the Agent, not the plugin owner. Revocation remains effective after unload.
-    agent.ctx.on("agent/pre-step", async (frame, next) => { if (frame.agent === agent) await this.ensure(agent); return next(); }, { prepend: true });
-    agent.ctx.on("agent/request", async (frame, next) => { if (frame.agent === agent) await this.ensure(agent); return next(); }, { prepend: true });
-    this.guardTools(agent);
+    this.guardTools(agent, scope);
     try {
       if (pending) this.policy.bindChild(agent as DshAgent, parent! as DshAgent, admission, pending.invocation, pending.maxDepth, pending.toolFilter);
       else if (ceiling) this.policy.bindContinuedChild(agent as DshAgent, owner! as DshAgent, admission, continuation,
@@ -1020,14 +1053,22 @@ export class NativeAdmission {
           provider: descriptor.provider, ...(pending ? { role: pending.invocation.target, level: pending.invocation.effectiveLevel } : { role: null, level: null }),
           profileId: admission.profile?.id ?? null, ...this.policy.delegationCeiling(agent as DshAgent) });
       }
-      await this.install(agent, this.getter(agent));
+      await this.install(agent, this.getter(agent), scope);
       check();
       await this.profiles.revalidateActivation(admission);
       check();
       if (pending) this.check(pending);
       if (continuationProvider && this.ctx.get("subagents")!.getProvider(continuationProvider.name) !== continuationProvider) throw new SubagentError("Role provider changed", "UNAUTHORIZED");
       // Occupancy precedes the installed guards' async policy and approval work.
-      agent.ctx.on("tools/pre-execute", async (exec, next) => { if (exec.agent === agent) { this.trackExecution(exec); await this.ensure(agent); const denial = this.policy.preToolDenial(agent as DshAgent, exec.name, undefined, exec); if (denial) return { kind: "deny" as const, reason: denial }; } return next(); }, { prepend: true });
+      scope.on("tools/pre-execute", async (exec, next) => {
+        if (exec.agent === agent) {
+          captureResidentTool(agent, this, exec.token);
+          this.trackExecution(exec); await this.ensure(agent);
+          const denial = this.policy.preToolDenial(agent as DshAgent, exec.name, undefined, exec);
+          if (denial) return { kind: "deny" as const, reason: denial };
+        }
+        return next();
+      }, { prepend: true });
       const routeCandidate = await this.admissionModelSelection?.(agent, {
         settings: admission.settings, epoch: admission.epoch, admission, signal, assertCurrent: check,
       });
@@ -1041,8 +1082,14 @@ export class NativeAdmission {
       const published = this.profiles.admission(agent as DshAgent);
       this.live.set(agent, Object.freeze({ admission: published, preset, scopeParent: scopeParentOf(agent), parent, owner, creatorId: agent.session.header.parentSession,
         invocation: pending?.invocation ?? continuation, dependencies, provider: pending?.provider ?? continuationProvider }));
+      publishResidentAgent(agent, this);
       if (pending) { this.bindObservedChild(pending.observation, agent, published); this.pending.delete(agent.id); }
-    } catch (error) { this.admissionRoutes.delete(agent); this.admissionRouteFailures.delete(agent); this.policy.release(agent as DshAgent); throw error; }
+    } catch (error) {
+      this.failedInstallations.add(agent);
+      this.admissionRoutes.delete(agent); this.admissionRouteFailures.delete(agent); this.policy.release(agent as DshAgent);
+      await scope.fiber.dispose();
+      throw error;
+    }
     finally { this.candidates.delete(agent); }
   }
 }

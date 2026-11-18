@@ -10,7 +10,7 @@ import { isDeepStrictEqual } from "node:util";
 import { createDsmmPiAiProviderOwner } from "./native-pi-ai-wire.js";
 import type { DsmmLlmGeneration, DsmmLlmCallConfig } from "./host-llm.js";
 import { snapshotDsmmCall } from "./host-llm.js";
-import { DsmmMissingProviderError, modelRouteToCall } from "./role-llm.js";
+import { DsmmMissingProviderError, isMissingProviderError, modelRouteToCall } from "./role-llm.js";
 import type { DsmmLlmRouteResolver } from "./role-llm.js";
 import { normalizeModelRouteJson } from "./route-json.js";
 
@@ -31,6 +31,7 @@ interface Registration {
 
 /** Captures public registering-fiber provenance; the native runtime remains the sole registry. */
 export class LivePiAiOwner implements DsmmLlmRouteResolver {
+  readonly isMissingProviderError = isMissingProviderError;
   private readonly registrations = new Map<string, Registration>();
   constructor(_ctx: Context, private readonly native: LlmRuntime) {}
 

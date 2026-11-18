@@ -6,12 +6,15 @@ import type { ModelRouteJson } from "./route-json.js";
 /** Host-owned metadata admission; never a completion or a request authorization. */
 export interface DsmmLlmRouteResolver {
   resolveRoute(route: ModelRouteJson, signal?: AbortSignal): Promise<ModelRouteJson>;
+  isMissingProviderError?(error: unknown): boolean;
 }
 
 /** Only a public provider-directory lookup can establish this absence. */
 export class DsmmMissingProviderError extends LlmError {
   constructor() { super("The provider route has no registered adapter", "NO_ADAPTER"); }
 }
+
+export const isMissingProviderError = (error: unknown): boolean => error instanceof DsmmMissingProviderError;
 
 declare module "@deepseek-ai/cordis" { interface Context { dsmmLlmRoutes: DsmmLlmRouteResolver } }
 

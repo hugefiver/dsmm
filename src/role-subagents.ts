@@ -1,4 +1,4 @@
-import { getTraceable, symbols } from "@deepseek-ai/cordis";
+import { symbols } from "@deepseek-ai/cordis";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import type { Context } from "@deepseek-ai/cordis";
@@ -16,7 +16,7 @@ import { DsmmRolePolicy, roleToolName } from "./role-policy.js";
 import { roleProviderName } from "./role-providers.js";
 import { capturedRoleInvocation, invocationAgentOptions, invocationView, resolveRoleInvocation } from "./role-invocation.js";
 import { childOwnedSessionEvents } from "./session-scope.js";
-import { agentForScope, nativeAgentContext, scopeParentOf } from "./native-scope.js";
+import { agentScopeService, nativeAgentContext, scopeParentOf } from "./native-scope.js";
 import type { DsmmSettings, DsmmSettingsGetter, DsmmInvocationOptions, DsmmModelRoute } from "./settings.js";
 import type { DeepworkModeController } from "./state.js";
 import { roleRouteRuntimeState } from "./role-routing.js";
@@ -29,9 +29,7 @@ import { startNativeActivation, supportsNativeNames } from "./native-subagents.j
 
 // Conditional Team tools stay in their native layer: copying a definition would discard its `when` registration.
 const hostControls = ["send_message", "interrupt_agent", "list_agents", "wait_agent", "exit_plan_mode", "ask_user_question", "todo_write", "job_output", "job_list", "job_kill"];
-// Agent-owned policy realms survive a bundle reinstall; do not register another
-// delegation/tools layer on the same retained live Agent.
-const admittedRealms = new WeakMap<DshAgent, () => void>();
+const admittedRealms = new WeakMap<Context, () => void>();
 const callableDefinitions = new WeakMap<ToolDefinition, { entry: DsmmCallableEntry; providers: ReadonlyMap<DsmmRoleId, object | undefined> }>();
 
 /** Keep native controls on the frozen startup substrate, not desired-save reconciliation. */
@@ -157,9 +155,9 @@ export function admittedCallableRoleInventory(agent: DshAgent, settings: DsmmSet
   });
 }
 
-function registerRoleTool(agent: DshAgent, agentCtx: Context, tools: ToolRuntime, entry: DsmmCallableEntry, getSettings: DsmmSettingsGetter, policy: DsmmRolePolicy, admission: NativeAdmission): () => void {
+function registerRoleTool(agent: DshAgent, ctx: Context, tools: ToolRuntime, entry: DsmmCallableEntry, getSettings: DsmmSettingsGetter, policy: DsmmRolePolicy, admission: NativeAdmission): () => void {
   const settings = getSettings(agent);
-  const subagents = agentCtx.get("subagents");
+  const subagents = ctx.get("subagents");
   if (subagents === undefined) throw new Error("DSMM role tools require native subagents");
   const named = supportsNativeNames(subagents);
   const forcedBackground = settings.subagents.forceBackground;
@@ -231,7 +229,7 @@ function registerRoleTool(agent: DshAgent, agentCtx: Context, tools: ToolRuntime
          if (pending.signal.aborted) { cancel(); await cancellation; pending.signal.throwIfAborted(); }
 
          try {
-            const child = agentCtx.agents.get(activation.childId);
+            const child = ctx.get("agents")!.get(activation.childId);
             if (child === undefined) throw new SubagentError("Native role activation has no live child", "UNAUTHORIZED");
             await admission.ensure(child);
           } catch (error) {
@@ -263,27 +261,25 @@ function registerRoleTool(agent: DshAgent, agentCtx: Context, tools: ToolRuntime
 }
 
 /** Published name retained; all native/headless Agents consume one admitted policy. */
-export async function registerHeadlessRoleTools(ctx: DshContext, controller: DeepworkModeController, getSettings: DsmmSettingsGetter, policy: DsmmRolePolicy, admission: NativeAdmission, onlyAgent: DshAgent): Promise<void> {
-  const refresh = admittedRealms.get(onlyAgent);
+export function registerHeadlessRoleTools(ctx: Context, controller: DeepworkModeController, getSettings: DsmmSettingsGetter, policy: DsmmRolePolicy, admission: NativeAdmission, agent: DshAgent): void {
+  const refresh = admittedRealms.get(ctx);
   if (refresh) { refresh(); return; }
+  if (!getSettings(agent).modules.deepwork.enabled) return;
+  policy.admit(agent);
   type State = { tools?: ToolRuntime; parentScope?: object; owned: Array<() => void>; restriction?: () => void; guard?: () => void; signature?: string; providers: Array<object | undefined>; hostDefinitions: Array<ToolDefinition | undefined>; promptRealm?: object; guidance?: () => void };
-  const states = new WeakMap<DshAgent, State>();
-  const reconcile = (agent: DshAgent): void => {
-    const state = states.get(agent);
-    if (state === undefined) return;
-    const agentCtx = nativeAgentContext(agent);
-    const raw = agentCtx.get("agentPresets")?.serviceFor({ ctx: agentCtx }, "tools");
-    const tools = raw === undefined ? agentCtx.get("tools") : getTraceable(agentCtx, raw) as ToolRuntime;
+  const state: State = { owned: [], hostDefinitions: [], providers: [] };
+  const reconcile = (): void => {
+    const tools = agentScopeService(ctx, "tools");
     if (tools === undefined) throw new Error("DSMM role tools require native guard/restrict services");
     const settings = getSettings(agent), identity = policy.identity(agent), targets = policy.targets(agent);
-    const prompt = agentCtx.get("agentPresets")?.serviceFor(agent as Agent, "systemPrompt") ?? agentCtx.get("systemPrompt")!;
+    const prompt = agentScopeService(ctx, "systemPrompt")!;
     const promptRealm: object = Reflect.get(prompt, symbols.original) ?? prompt;
     if (state.promptRealm !== promptRealm) {
       state.guidance?.();
-      state.guidance = getTraceable(agentCtx, prompt).section({ name: "dsmm:delegation", order: 49, text(context) {
-        if (context.scope !== agent && agentForScope(ctx, context.scope) !== agent) return "";
-        const identity = policy.identity(agent), tools = states.get(agent)?.tools, settings = getSettings(agent);
-        const teams = (agentCtx as DshContext).get?.<{ isEnabled(caller: Agent): boolean }>("agentTeams");
+      state.guidance = prompt.section({ name: "dsmm:delegation", order: 49, text(context) {
+        if (context.scope !== agent) return "";
+        const identity = policy.identity(agent), tools = state.tools, settings = getSettings(agent);
+        const teams = (ctx as DshContext).get?.<{ isEnabled(caller: Agent): boolean }>("agentTeams");
         const toolSet = (context as typeof context & { toolSet?: { view(scope: object): ReadonlyMap<string, unknown> } }).toolSet;
         const teamGuidance = teams?.isEnabled(agent as Agent) && toolSet !== undefined
           ? buildDsmmTeamGuidance([...toolSet.view(agent).keys()]) : "";
@@ -293,14 +289,14 @@ export async function registerHeadlessRoleTools(ctx: DshContext, controller: Dee
           delegation: tools === undefined ? [] : admittedCallableRoleInventory(agent, settings, policy, tools),
           ...(captured === undefined ? {} : { invocation: roleInvocationObservation(captured, DSMM_ROLES.find(role => role.id === captured.target)!.name, "continuable", getSettings, agent, { childId: agent.id }) }),
           runtimeAdmission: getSettings.subagentRuntime?.(), capabilities: { continuable: true, nativeChildDelivery: true,
-            nativeTree: typeof (agentCtx.get("subagents") as unknown as { rootOf?: unknown } | undefined)?.rootOf === "function",
-            ...(agentCtx.get("dsmmChildren") === undefined ? {} : { nativeBrowserPrompt: { surface: "conversation.dsmm-children" } }) } });
+            nativeTree: typeof (ctx.get("subagents") as unknown as { rootOf?: unknown } | undefined)?.rootOf === "function",
+            ...(ctx.get("dsmmChildren") === undefined ? {} : { nativeBrowserPrompt: { surface: "conversation.dsmm-children" } }) } });
         return [delegationGuidance, teamGuidance].filter(Boolean).join("\n\n");
       } });
       state.promptRealm = promptRealm;
     }
-    const subagents = agentCtx.get("subagents");
-    const host = ctx.get?.<ToolRuntime>("tools");
+    const subagents = ctx.get("subagents");
+    const host = ctx.get("tools");
     const names = [...hostControls, ...host?.schemas().map((row) => row.name).filter((name) => name.startsWith(`mcp__${settings.lsp.serverName}__`)) ?? []];
     const definitions = names.map((name) => host?.get(name));
     const providers = targets.map(role => {
@@ -328,35 +324,21 @@ export async function registerHeadlessRoleTools(ctx: DshContext, controller: Dee
       if (definition !== undefined && tools.get(definition.name, agent) === undefined && policy.toolDenial(agent, definition.name) === undefined) state.owned.push(tools.register(definition));
     }
     const inventory = callableRoleInventory(settings, targets.filter(role => subagents?.getProvider(roleProviderName(role))?.capabilities.depthLimit === true));
-     for (const entry of inventory) state.owned.push(registerRoleTool(agent, agentCtx, tools, entry, getSettings, policy, admission));
+    for (const entry of inventory) state.owned.push(registerRoleTool(agent, ctx, tools, entry, getSettings, policy, admission));
     policy.captureTools(agent, tools, [...inventory.map(entry => entry.name), ...names], !sameRealm || !sameParent);
     state.signature = signature;
     state.providers = providers;
     state.hostDefinitions = definitions;
     state.parentScope = parentScope;
   };
-  const onCreated = ({ agent }: { agent: DshAgent }): void => {
-    if (states.has(agent) || admittedRealms.has(agent)) return;
-    if (!getSettings(agent).modules.deepwork.enabled) return;
-    const agentCtx = nativeAgentContext(agent);
-    policy.admit(agent);
-    states.set(agent, { owned: [], hostDefinitions: [], providers: [] });
-    const retire = () => {
-      stopIdentity();
-      const state = states.get(agent);
-      state?.restriction?.(); state?.guard?.(); state?.guidance?.();
-      for (const dispose of state?.owned ?? []) dispose();
-      states.delete(agent); admittedRealms.delete(agent);
-      admission.lifetime.signal.removeEventListener("abort", retire);
-    };
-    admission.lifetime.signal.addEventListener("abort", retire, { once: true });
-    agentCtx.effect(() => retire);
-    try { reconcile(agent); }
-    catch (error) { retire(); throw error; }
-    admittedRealms.set(agent, () => reconcile(agent));
-  };
-  // Native assembly collects sections before its waterfall. Admission/mode/preset
-  // changes must update the Agent layer before that collection begins.
-  const stopIdentity = controller.watch(agent => { if (agent === onlyAgent) reconcile(agent); });
-  onCreated({ agent: onlyAgent });
+  // Native assembly collects sections before its waterfall. Update the Agent layer before collection.
+  const stopIdentity = controller.watch(changed => { if (changed === agent) reconcile(); });
+  const retire = ctx.effect(() => () => {
+    stopIdentity();
+    state.restriction?.(); state.guard?.(); state.guidance?.();
+    for (const dispose of state.owned) dispose();
+    admittedRealms.delete(ctx);
+  });
+  try { reconcile(); admittedRealms.set(ctx, reconcile); }
+  catch (error) { retire(); throw error; }
 }

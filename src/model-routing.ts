@@ -1,6 +1,6 @@
 import { LlmError } from "@deepseek-ai/dsh-llm";
 import type { AgentRequestFrame, DshLlmCallConfig, DshAgent, DshContext, DshLlmRuntime, DshModelSelection } from "./dsh-types.js";
-import { DsmmAwareLlmRuntime } from "./host-llm.js";
+import { isDsmmAwareLlmRuntime } from "./host-llm.js";
 import { applyModelRoute, clearRoleRouteLock, currentRolePolicyState, currentRoleRouteLock, effectiveRoleFallbackRoutes, establishRolePolicy, hostModelSelection, latestModelSelectionSeq, latestNativeModelSelection, liveRolePolicyIdentity, nativeModelSelectionWasAccepted, orderedModelRoutes, persistedRoleRoute, pinRoleRoute, restoreRolePolicyAndLock, roleRouteLock, selectInitialModelRoute, selectInitialModelRouteChoice, selectModelRouteForNextStep, sameExactModelRoute, sameModelRoute, takeAdmittedRecoveryRoute } from "./role-routing.js";
 import type { NativeModelSelectionIntent } from "./role-routing.js";
 import { childOwnedSessionEvents, sessionEvents } from "./session-scope.js";
@@ -33,7 +33,7 @@ export function registerModelRouting(ctx: DshContext, controller: DeepworkModeCo
     const assembledSelections = new WeakMap<DshAgent, { signal: AbortSignal; intent?: NativeModelSelectionIntent }>();
     let dispose: unknown, disposeAgent: unknown, disposeAssembly: unknown, disposeFence: unknown;
     try {
-      const owned = agent !== undefined && readyCtx.get?.("llm") instanceof DsmmAwareLlmRuntime;
+      const owned = agent !== undefined && isDsmmAwareLlmRuntime(readyCtx.get?.("llm"));
       let recovery: RequestPreparation | undefined;
       registerRuntimeRecovery(readyCtx, controller, getSettings, prepare => { recovery = prepare; });
       disposeAssembly = readyCtx.on("system-prompt/assemble", async (_assembly, context: { agent?: DshAgent; signal?: AbortSignal }, next) => {

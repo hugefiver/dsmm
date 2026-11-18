@@ -8,6 +8,7 @@ import { isDeepStrictEqual } from "node:util";
 import { copyRouteJson } from "./route-json.js";
 import { modelRouteFromCall } from "./role-llm.js";
 import { classifyDsmmAgent } from "./runtime-integration.js";
+import { assertResidentRootCurrent } from "./resident-root.js";
 import { latestNativeModelSelection } from "./role-routing.js";
 import type { DshAgent } from "./dsh-types.js";
 import { capturedRoleInvocation } from "./role-invocation.js";
@@ -113,8 +114,16 @@ interface NativeClassification {
   readonly config: DsmmLlmCallConfig;
 }
 
+const requestOwnerRuntime = Symbol.for("@dsmm/dsmm/request-owner-runtime");
+
+/** The marker selects the request preparation hook; admission still checks the exact owner. */
+export function isDsmmAwareLlmRuntime(value: unknown): boolean {
+  return value instanceof LlmRuntime && Reflect.get(value, requestOwnerRuntime) === true;
+}
+
 /** Native execution service; an optional stock collaborator supports explicit isolated hosts. */
 export class DsmmAwareLlmRuntime extends LlmRuntime {
+  readonly [requestOwnerRuntime] = true;
   private readonly calls = new WeakMap<LlmCallConfig, CapturedCall>();
   private readonly admitted = new WeakSet<LlmCallConfig>();
   private readonly preparedRequests = new WeakSet<GenerateOptions>();
@@ -212,6 +221,7 @@ export class DsmmAwareLlmRuntime extends LlmRuntime {
       && (this.stock !== undefined || this.ownsScope(native.frame))
       && (fallback ? isDeepStrictEqual(config, native.config) : proposal === native.config);
     if (requiresDsmmCallAdmission(config, classifier, classified ? undefined : agent)) throw new LlmError("Enhanced requests require their exact Host proposal", "INVALID_PREPARED_CALL");
+    if (agent !== undefined) assertResidentRootCurrent(agent, this.ctx.get("dsmmNativeAdmission"));
     return config;
   }
 

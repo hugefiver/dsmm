@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { copyFile, cp, mkdir, symlink } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { createRequire, registerHooks } from "node:module";
 import { after } from "node:test";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { Context } from "@deepseek-ai/cordis";
 import { AgentRegistry, installModelSelection } from "@deepseek-ai/dsh-agent";
 import type { Agent, AgentHandle, CreateAgentOptions, ModelSelectionRef } from "@deepseek-ai/dsh-agent";
@@ -23,7 +24,6 @@ import { JobRegistry } from "@deepseek-ai/dsh-jobs";
 import type { ToolDefinition, ToolExecutionInput, ToolExecutionResult } from "@deepseek-ai/dsh-tools";
 import { AgentPresetRegistry } from "@deepseek-ai/dsh-agent-preset-registry";
 import DsmmPlugin from "../lib/index.js";
-import { apply } from "../lib/index.js";
 import type { DsmmPluginConfig } from "../src/settings.ts";
 import type { DshContext } from "../lib/dsh-types.js";
 import type { DsmmRoleId } from "../lib/roles.js";
@@ -136,11 +136,22 @@ export async function nativeFixturePlugin(name: string, peer?: string) {
   return import(pathToFileURL(resolver.resolve(name)).href);
 }
 
+async function copyCompiledCore(dir: string): Promise<typeof import("../lib/index.js")> {
+  await mkdir(dir);
+  await cp(new URL("../lib/", import.meta.url), join(dir, "lib"), { recursive: true });
+  await copyFile(new URL("../package.json", import.meta.url), join(dir, "package.json"));
+  for (const name of ["node_modules", "prompts", "skills", "locale", "agent-presets"]) {
+    await symlink(fileURLToPath(new URL(`../${name}/`, import.meta.url)), join(dir, name), "junction");
+  }
+  return import(pathToFileURL(join(dir, "lib", "index.js")).href);
+}
+
 export async function nativeRoutingFixture(config: DsmmPluginConfig = {}, options: { headless?: boolean; spawn?: boolean; profileDir?: string; home?: string; nativePresets?: boolean; isolatedPrompt?: boolean; persistence?: boolean;
   withoutSubagents?: boolean;
   harnessIdentity?: string;
   persistenceRoot?: string;
   dsmmLlm?: boolean;
+  compiledCore?: boolean;
   controller?: boolean;
   reopenProfile?: boolean;
   adapter?: RoutingFixtureAdapter;
@@ -176,12 +187,14 @@ export async function nativeRoutingFixture(config: DsmmPluginConfig = {}, option
     rmSync(fixtureDir, { recursive: true, force: true });
   };
   try {
+    const compiled = options.compiledCore ? await copyCompiledCore(join(fixtureDir, "installed-core")) : undefined;
+    const core = compiled?.default ?? DsmmPlugin;
     const permissionHost = options.nativePermissionSettings ? await import("./permission-host-fixture.ts") : undefined;
     const adapter = options.adapter ?? new RoutingFixtureAdapter();
     const managedRuntime = options.managedRuntime ?? options.spawn !== false;
     const fibers = [
       ctx.plugin(AgentRegistry), ctx.plugin(SessionStore), ctx.plugin(SessionProjectionRegistry),
-      ctx.plugin(options.dsmmLlm ? DsmmNativeLlmRuntime : LlmRuntime), ctx.plugin(SystemPrompt, { includeHarnessIdentity: options.harnessIdentity === undefined }), ctx.plugin(ToolRuntime, "setExecutor" in ToolRuntime.prototype ? {} : { mode: "native" }),
+      ctx.plugin(options.dsmmLlm ? compiled?.DsmmNativeLlmRuntime ?? DsmmNativeLlmRuntime : LlmRuntime), ctx.plugin(SystemPrompt, { includeHarnessIdentity: options.harnessIdentity === undefined }), ctx.plugin(ToolRuntime, "setExecutor" in ToolRuntime.prototype ? {} : { mode: "native" }),
       ...options.withoutSubagents ? [] : [ctx.plugin(SubagentRuntime, options.nativeSubagents ?? {})], ctx.plugin(SkillRegistry, {})
     ];
     await Promise.all(fibers.map((fiber) => fiber.await()));
@@ -288,7 +301,7 @@ export async function nativeRoutingFixture(config: DsmmPluginConfig = {}, option
       loader.builtins.group = { default: Group };
       loader.builtins["parity-presets"] = { default: AgentPresetRegistry };
       loader.builtins["parity-persona"] = require("@deepseek-ai/dsh-persona");
-      loader.builtins["parity-dsmm"] = { default: DsmmPlugin };
+      loader.builtins["parity-dsmm"] = { default: core };
       if (!options.deferPresets) await mountPresets();
     }
     const loopFiber = ctx.plugin(AgentLoop, {});
@@ -359,26 +372,42 @@ export async function nativeRoutingFixture(config: DsmmPluginConfig = {}, option
     }
     const dsmmEntryId = options.nativePermissionSettings || loader === undefined ? undefined : await loader.create({ name: "cordis:parity-dsmm", config });
     await loader?.await();
-    const dsmmFiber = permissionHost ? await permissionHost.mountPermissionHostCore(ctx, DsmmPlugin) : dsmmEntryId === undefined ? ctx.plugin({
+    const dsmmFiber = permissionHost ? await permissionHost.mountPermissionHostCore(ctx, core) : dsmmEntryId === undefined ? ctx.plugin({
       name: "dsmm-native-routing-fixture",
-      inject: [...DsmmPlugin.inject],
-      apply(ready: Context) { return apply(ready as unknown as DshContext, config); }
+      inject: [...core.inject],
+      apply(ready: Context) { return core.apply(ready as unknown as DshContext, config); }
     }) : loader!.resolve(dsmmEntryId).fiber!;
-    await dsmmFiber.await();
-    for (const runtime of ctx.registry.values()) {
-      if (runtime.callback.name !== "installProfiles") continue;
-      for (const fiber of runtime.fibers) {
-        let parent = fiber.parent.fiber;
-        while (parent.uid !== 0 && parent.uid !== dsmmFiber.uid) parent = parent.parent.fiber;
-        if (parent.uid === dsmmFiber.uid) await fiber.await();
+    const awaitCore = async (owner: typeof dsmmFiber) => {
+      await owner.await();
+      for (const runtime of ctx.registry.values()) {
+        if (runtime.callback.name !== "installProfiles") continue;
+        for (const fiber of runtime.fibers) {
+          let parent = fiber.parent.fiber;
+          while (parent.uid !== 0 && parent.uid !== owner.uid) parent = parent.parent.fiber;
+          if (parent.uid === owner.uid) await fiber.await();
+        }
       }
-    }
+    };
+    await awaitCore(dsmmFiber);
     if (options.controller) {
       const { installFixtureController } = await import("./native-controller-fixture.ts");
       await installFixtureController(ctx);
     }
     return {
       ctx, host, adapter, agents, subagents, dsmmFiber, spawnFiber, tools, profileDir, home, dsmmEntryId, mountPresets,
+      async mountSuccessorCore(next?: DsmmPluginConfig): Promise<void> {
+        const entry = ctx.loader.resolve(permissionHost ? "include:permission-core" : dsmmEntryId!);
+        assert.equal(ctx.get("dsmmNativeAdmission"), undefined, "retire the previous Core before replacement");
+        const successor = (await copyCompiledCore(join(fixtureDir, "successor-core"))).default;
+        ctx.loader.builtins[entry.options.name.slice("cordis:".length)] = { default: permissionHost ? { ...successor,
+          apply(scope: Context, config: DsmmPluginConfig) { return successor.apply(scope.extend({ baseUrl: fixtureBaseUrl }) as unknown as DshContext, config); }
+        } : successor };
+        await entry.update({ disabled: false, ...(next === undefined ? {} : { config: withPresetRoot(next) }) });
+        await ctx.loader.await();
+        assert.ok(entry.fiber);
+        await awaitCore(entry.fiber);
+        if (permissionHost) await permissionHost.waitForPermissionHost(ctx);
+      },
       async reloadDeployment(next: DsmmPluginConfig): Promise<void> {
         assert.ok(loader && dsmmEntryId);
         await loader.update(dsmmEntryId, { config: withPresetRoot(next) }); await loader.await();

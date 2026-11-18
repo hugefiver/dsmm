@@ -157,9 +157,10 @@ export function nativeModelSelectionWasAccepted(agent: DshAgent, intent: NativeM
 }
 
 /** Only native, machine-routable absence authorizes initial candidate admission. */
-export function isUnavailableRouteFailure(error: unknown, nativeRequestFailure = false): boolean {
+export function isUnavailableRouteFailure(error: unknown, nativeRequestFailure = false, resolver?: DsmmLlmRouteResolver): boolean {
   return isRecord(error) && (error.status === undefined || error.status === 503)
-    && (error instanceof DsmmMissingProviderError || (error.code === "UNKNOWN_MODEL" && (nativeRequestFailure || error instanceof LlmError)));
+    && (error.code === "NO_ADAPTER" && (error instanceof DsmmMissingProviderError || resolver?.isMissingProviderError?.(error) === true)
+      || error.code === "UNKNOWN_MODEL" && (nativeRequestFailure || error instanceof LlmError));
 }
 
 export function orderedModelRoutes(candidates: readonly DsmmModelRoute[]): DsmmModelRoute[] {
@@ -199,7 +200,7 @@ export async function selectInitialModelRouteChoice(llm: DshLlmRuntime, candidat
     } catch (error) {
       assertCurrent?.();
       signal?.throwIfAborted();
-      if (!isUnavailableRouteFailure(error)) throw error;
+      if (!isUnavailableRouteFailure(error, false, resolver)) throw error;
       unavailable = error;
     }
   }

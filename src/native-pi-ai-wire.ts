@@ -13,7 +13,7 @@ import { LlmError, ReasoningEffortId, assertUsableApiKey, attributionHeaders, fr
 import type { GenerateOptions, PreparedAdapterCall, LlmAdapter } from "@deepseek-ai/dsh-llm";
 import type { DsmmEffortSource, DsmmLlmCallConfig, DsmmLlmGeneration } from "./host-llm.js";
 import { singleUsePreparedStream, snapshotDsmmCall } from "./host-llm.js";
-import { DsmmMissingProviderError, modelRouteToCall } from "./role-llm.js";
+import { DsmmMissingProviderError, isMissingProviderError, modelRouteToCall } from "./role-llm.js";
 import type { DsmmLlmRouteResolver } from "./role-llm.js";
 import { normalizeModelRouteJson } from "./route-json.js";
 import type { ModelRouteJson } from "./route-json.js";
@@ -241,7 +241,7 @@ export function createDsmmPiAiProviderOwner(ctx: Context, options: DsmmPiAiOwner
   }
   const models = createModels(options.auth);
   for (const profile of profiles.values()) models.setProvider(profile.piProvider!);
-  const owner: DsmmPiAiProviderOwner = Object.freeze({ stockAdapter, providers,
+  const owner: DsmmPiAiProviderOwner = Object.freeze({ stockAdapter, providers, isMissingProviderError,
     requiresRaw: (config: DsmmLlmCallConfig) => config.customParameters !== undefined || config.stop !== undefined && profiles.has(config.provider),
     supportsNativeStop: (provider: string) => !profiles.has(provider),
     async resolveRoute(input: ModelRouteJson, signal?: AbortSignal) {

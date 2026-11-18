@@ -7,6 +7,7 @@ import { hasShellGuardConstraint, registerSafetyGuards } from "./guards.js";
 import { registerDeepworkPrompt } from "./mode.js";
 import { registerAgentSkills } from "./preset-skills.js";
 import { prepareAdmissionModelRoute, registerModelRouting } from "./model-routing.js";
+import { bindCoreLlmAdmission } from "./role-llm-runtime.js";
 import { registerHeadlessRoleTools, registerNativeSubagentControls } from "./role-subagents.js";
 import { registerRolePresets } from "./preset-registry.js";
 import { registerRoleProviders } from "./role-providers.js";
@@ -126,7 +127,7 @@ export async function apply(input: DshContext, config: Config = {}, startupOptio
       }
     };
     assertCurrent();
-    return Object.freeze({ agent: frame.agent, admission: captured, capture: captured, epoch: captured.epoch, signal, assertCurrent });
+    return bindCoreLlmAdmission(frame, { agent: frame.agent, admission: captured, capture: captured, epoch: captured.epoch, signal, assertCurrent });
   } });
   const nativeAdmission = admission;
   if (startup.settings.modules.deepwork.enabled) {
@@ -143,25 +144,22 @@ export async function apply(input: DshContext, config: Config = {}, startupOptio
   }
   if (startup.settings.modules.deepwork.enabled) await registerLspRuntime(ctx, startup.settings.lsp, getSettings);
   lifetime.signal.throwIfAborted();
-  const installed = new WeakSet<Agent>();
-  admission.activate(async (agent, candidate) => {
+  const installed = new WeakSet<Context>();
+  admission.activate(async (agent, candidate, scope) => {
     candidate.subagentRuntime = () => runtimeAdmissionView(ctx);
-    const scope = agent.ctx as DshContext;
-    registerAgentPromptScope(ctx, controller, candidate, policy, agent as DshAgent, nativeAdmission.lifetime.signal);
+    registerAgentPromptScope(scope, controller, candidate, policy, agent as DshAgent);
     if (startup.settings.modules.deepwork.enabled) {
-      registerAgentSkills(scope, controller, candidate, agent as DshAgent, admission.lifetime.signal, () => !nativeAdmission.isSelecting(agent));
-      registerDeepworkPrompt(scope, controller, candidate, { section: startup.profile.section ?? startup.global.section }, agent as DshAgent, admission.lifetime.signal);
+      registerAgentSkills(scope, controller, candidate, agent as DshAgent, () => !nativeAdmission.isSelecting(agent));
+      registerDeepworkPrompt(scope, controller, candidate, { section: startup.profile.section ?? startup.global.section }, agent as DshAgent);
     }
-    if (installed.has(agent)) {
-      if (startup.settings.modules.deepwork.enabled && ctx.get("subagents") !== undefined) await registerHeadlessRoleTools(scope, controller, candidate, policy, nativeAdmission, agent as DshAgent);
-      return;
+    if (!installed.has(scope)) {
+      registerModelRouting(scope as DshContext, controller, candidate, agent as DshAgent);
+      registerSafetyGuards(scope as DshContext, controller, candidate, policy, commandApprovals);
+      installed.add(scope);
     }
-    registerModelRouting(scope, controller, candidate, agent as DshAgent);
-    registerSafetyGuards(scope, controller, candidate, policy, commandApprovals);
-    if (startup.settings.modules.deepwork.enabled) {
-      if (ctx.get("subagents") !== undefined) await registerHeadlessRoleTools(scope, controller, candidate, policy, nativeAdmission, agent as DshAgent);
+    if (startup.settings.modules.deepwork.enabled && scope.get("subagents") !== undefined) {
+      registerHeadlessRoleTools(scope, controller, candidate, policy, nativeAdmission, agent as DshAgent);
     }
-    installed.add(agent);
   });
   registerDsmmTuiAdapter(ctx, { controller, getSettings, profiles, deployment });
   ctx.inject(["typert"], scope => { registerConfigRpc(scope, deployment, startup.settings, () => profiles, startup.sources, mountedPermission); new DsmmProfilesHost(scope, profiles); registerRoleControlRpc(scope, nativeAdmission); });
@@ -178,5 +176,6 @@ export async function apply(input: DshContext, config: Config = {}, startupOptio
     const owner = ctx.fiber.ctx;
     const detach = ctx.on("internal/status", fiber => { if (fiber.ctx !== owner || fiber.state !== 2) return; detach(); if (!lifetime.signal.aborted) installPermissions(); }, { global: true });
   }
+  await admission.restoreResidentRoots();
 }
 export default { name, inject, Config, apply };

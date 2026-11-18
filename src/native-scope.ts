@@ -1,6 +1,6 @@
-import { Context } from "@deepseek-ai/cordis";
+import { Context, getTraceable, symbols } from "@deepseek-ai/cordis";
 import { createRequire } from "node:module";
-import type { DshAgent, DshContext, DshSystemPromptContext } from "./dsh-types.js";
+import type { DshAgent, DshSystemPromptContext } from "./dsh-types.js";
 
 type NativeScopeKey = NonNullable<DshSystemPromptContext["scope"]>;
 interface NativeScopeApi {
@@ -21,8 +21,8 @@ export function nativeAgentContext(agent: DshAgent): Context {
   return agent.ctx;
 }
 
-/** A scope key is opaque; resolve identity against live Agents, not its fields. */
-export function agentForScope(ctx: DshContext, key: object | undefined): DshAgent | undefined {
-  if (key === undefined) return undefined;
-  return ctx.get?.<{ list(): DshAgent[] }>("agents")?.list().find((agent) => agent === key);
+/** Select the retained preset's implementation, but register effects on the caller's Agent layer. */
+export function agentScopeService<K extends "systemPrompt" | "skills" | "tools">(ctx: Context, name: K): Context[K] | undefined {
+  const preset = ctx.get("agentPresets")?.serviceFor({ ctx }, name);
+  return preset === undefined ? ctx.get(name) : getTraceable(ctx, (Reflect.get(preset, symbols.original) as Context[K] | undefined) ?? preset);
 }
