@@ -1,6 +1,6 @@
 # DSMM compatibility and upgrade boundaries
 
-**DSMM supports DSH `>=0.2.1-rc.2 <0.2.2-0 || >=0.2.2-rc.1 <0.3.0` and Node.js 22 or later.** Install DSMM into a DSH profile. Its DSH, Cordis, Schemastery and Pi SDK packages are host-provided peers: installing DSMM does not install them into the profile. The CLI's profile resolver supplies modules from the running DSH installation. Optional peer metadata controls package installation; a feature still requires its corresponding host modules when used. Development dependencies remain in the standalone checkout.
+**DSMM supports DSH `>=0.2.1-rc.2 <0.2.2-0 || >=0.2.2-rc.1 <0.3.0` and Node.js 22 or later.** Install DSMM into a DSH profile. The CLI's profile resolver supplies DSH, Cordis, Schemastery and Pi SDK modules from the running DSH installation. The release tarball declares no host SDK dependencies or peers, so package managers neither install them for DSMM nor keep the previous version's SDKs to satisfy DSMM peer references. A linked development checkout retains its host peer declarations.
 
 After upgrading a profile, let its package manager update the lockfile and restart DSH. An explicitly installed or independently required profile-local DSH package can still shadow the host; review its owner before removing it. Do not force-enable an incompatible provider or change the native HTTP selection to work around a version mismatch.
 

@@ -6,7 +6,7 @@
 
 DSMM 包必须具备以下依赖和发布入口，才能使用此插件：
 
-- `@deepseek-ai/dsh-web-fetch-http`、`@deepseek-ai/dsh-web`、`@deepseek-ai/dsh-http-proxy` 和 Cordis 均由运行中的 DSH 提供。DSMM 的可选 peer 声明不会把这些库安装到 profile；只有显式加载此入口才需要宿主的 HTTP provider 实现。
+- `@deepseek-ai/dsh-web-fetch-http`、`@deepseek-ai/dsh-web`、`@deepseek-ai/dsh-http-proxy` 和 Cordis 均由运行中的 DSH 提供。DSMM 发布包不将这些宿主库声明为依赖或 peer；只有显式加载此入口才需要宿主的 HTTP provider 实现。
 - `ipaddr.js` 是 DSMM 自有的地址处理依赖。DSMM 和原生 HTTP provider 使用宿主的同一份 `dsh-http-proxy`，从而读取相同的进程路由。
 - 包 export `./web-fetch-fakeip`，types 指向 `./lib/web-fetch-fakeip.d.ts`，default 指向 `./lib/web-fetch-fakeip.js`。构建也需包含其内部 `web-fetch-address-policy.js`。包的 `files` 应包含本说明和来源许可证。
 
