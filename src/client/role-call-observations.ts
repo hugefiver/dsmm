@@ -1,6 +1,6 @@
 import type { RemoteStream, RemoteStreamOptions } from "@deepseek-ai/dsh-api-gateway/client";
 import type { HostObservable } from "@deepseek-ai/dsh-client-ui-slots";
-import { remoteErrorOf } from "@deepseek-ai/dsh-typert-protocol";
+import { isRemoteFailure } from "@deepseek-ai/dsh-api-gateway/client";
 import { parseRoleControlErrorInfo } from "../role-control-remote.js";
 import type { RoleCallObservation, RoleCallObservationFrame, RoleControlErrorInfo } from "../role-control-types.js";
 
@@ -15,7 +15,7 @@ class ObservationProtocolError extends Error {
 
 function observationIssue(error: unknown): RoleCallObservationIssue {
   if (error instanceof ObservationProtocolError) return { kind: "protocol", code: error.code };
-  const remote = remoteErrorOf(error);
+  const remote = isRemoteFailure(error) ? error : undefined;
   if (remote?.code === "dsmm-children/refused") {
     try { return { kind: "domain", ...parseRoleControlErrorInfo(remote.details) }; }
     catch { return { kind: "protocol", code: "invalid-error" }; }

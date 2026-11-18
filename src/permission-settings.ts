@@ -1,4 +1,3 @@
-import z from "@deepseek-ai/schemastery";
 import { parsePermissionRules, permissionRuleRow } from "./permission-rules.js";
 import type { PermissionRule } from "./permission-rules.js";
 import { PermissionRefusal } from "./permission-errors.js";
@@ -79,22 +78,25 @@ export function parseNativeCommands(input: unknown = {}): NativeCommandsSettings
   });
   return Object.freeze({ enabled: row.enabled as boolean | undefined ?? false, entries: Object.freeze(entries) });
 }
-export const nativeCommandMatchSchema = z.object({ tool: z.union(["bash", "pwsh"]).required(), workingDirectory: z.string().required(), commandPattern: z.string().required() }).required();
-export const nativeCommandEntrySchema = z.object({
-  id: z.string().required(), mode: z.union(["ask", "allow"]).required(), match: nativeCommandMatchSchema, sandboxMode: z.union(["workspace-write", "danger-full-access"]).required(),
-}).required();
-const nativeCommands = z.object({ enabled: z.boolean().default(false), entries: z.array(z.union([z.string(), nativeCommandEntrySchema])).default([]) });
 const webDefault = Object.freeze({ enabled: true, rule: "inherit" as const });
 export const DEFAULT_PERMISSION_CONTROL: PermissionControlSettings = Object.freeze({ enabled: true, outsideReads: "inherit", webSearch: webDefault, webFetch: webDefault, rules: Object.freeze([]), nativeCommands: parseNativeCommands() });
-const action = () => z.union(["inherit", "allow", "ask", "deny"]).default("inherit");
-const web = () => z.object({ enabled: z.boolean().default(true), rule: action() }).default({});
-export const permissionControlSchema: z<PermissionControlSettings> = z.transform(z.object({ enabled: z.boolean().default(true), outsideReads: action(), webSearch: web(), webFetch: web(),
-  nativeCommands, rules: z.array(z.any()).default([]) }), input => Object.freeze({ ...input, webSearch: Object.freeze(input.webSearch), webFetch: Object.freeze(input.webFetch), rules: parsePermissionRules(input.rules), nativeCommands: parseNativeCommands(input.nativeCommands) }), true) as z<PermissionControlSettings>;
-
+function enabled(value: unknown): boolean {
+  if (value == null) return true;
+  if (typeof value === "boolean") return value;
+  throw new PermissionRefusal("validation");
+}
+function action(value: unknown): PermissionRuleAction {
+  if (value == null) return "inherit";
+  if (value === "inherit" || value === "allow" || value === "ask" || value === "deny") return value;
+  throw new PermissionRefusal("validation");
+}
+function webPolicy(input: unknown): PermissionWebPolicy {
+  if (input === undefined) return webDefault;
+  const row = permissionRuleRow(input, [], ["enabled", "rule"]);
+  return Object.freeze({ enabled: enabled(row.enabled), rule: action(row.rule) });
+}
 export function resolvePermissionControl(input: PermissionControlSchemaInput = {}): PermissionControlSettings {
-  permissionRuleRow(input, [], ["enabled", "outsideReads", "webSearch", "webFetch", "rules", "nativeCommands"]);
-  if (Object.hasOwn(input, "nativeCommands")) parseNativeCommands(input.nativeCommands);
-  for (const web of [input.webSearch, input.webFetch]) if (web !== undefined) permissionRuleRow(web, [], ["enabled", "rule"]);
-  const parsed = permissionControlSchema(input as PermissionControlSettings);
-  return Object.freeze({ ...parsed, webSearch: Object.freeze(parsed.webSearch), webFetch: Object.freeze(parsed.webFetch), rules: parsePermissionRules(parsed.rules) });
+  const row = permissionRuleRow(input, [], ["enabled", "outsideReads", "webSearch", "webFetch", "rules", "nativeCommands"]);
+  return Object.freeze({ enabled: enabled(row.enabled), outsideReads: action(row.outsideReads), webSearch: webPolicy(row.webSearch),
+    webFetch: webPolicy(row.webFetch), rules: parsePermissionRules(row.rules ?? []), nativeCommands: parseNativeCommands(row.nativeCommands) });
 }

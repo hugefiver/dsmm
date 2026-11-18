@@ -14,7 +14,8 @@ import { DSMM_LOCALES } from "./profile-locale.js";
 import type { DsmmLocale } from "./profile-locale.js";
 import { normalizeModelRouteJson, validateModelRouteFieldName } from "./route-json.js";
 import type { ModelRouteJson } from "./route-json.js";
-import { DEFAULT_PERMISSION_CONTROL, nativeCommandEntrySchema, nativeCommandMatchSchema, permissionControlSchema, resolvePermissionControl } from "./permission-settings.js";
+import { DEFAULT_PERMISSION_CONTROL, resolvePermissionControl } from "./permission-settings.js";
+import { nativeCommandEntrySchema, nativeCommandMatchSchema, permissionControlSchema } from "./permission-schema.js";
 import type { PermissionControlSchemaInput, PermissionControlSettings } from "./permission-settings.js";
 
 export { DSMM_LOCALES } from "./profile-locale.js";

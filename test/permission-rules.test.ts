@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { remoteErrorOf } from "@deepseek-ai/dsh-typert-protocol";
-import { resolvePermissionControl, permissionControlSchema } from "../src/permission-settings.ts";
+import { resolvePermissionControl } from "../src/permission-settings.ts";
+import { permissionControlSchema } from "../src/permission-schema.ts";
 import { applyPermissionRulesSave, importPermissionRules, operatorPermissionRulesSource, parsePermissionRulesSave, permissionRevision, PermissionRulesRuntimeSync } from "../src/permission-rules.ts";
 import { parsePermissionRulesResult } from "../src/permission-remote.ts";
 import type { PermissionRuleSnapshot, PermissionRulesBackend } from "../src/permission-rules.ts";

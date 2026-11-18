@@ -1,6 +1,8 @@
 # DSMM compatibility and upgrade boundaries
 
-**DSMM 0.3.28 supports DSH `>=0.2.1-rc.2 <0.2.2-0 || >=0.2.2-rc.1 <0.3.0`** and Node.js 22 or later. The dual branch admits the 0.2.2 RC series (from `0.2.2-rc.1` on) while keeping every supported 0.2.1 release in range; `0.2.2-alpha.*` is deliberately excluded. Official DSH rc.3+ gives `engines.dsh` precedence over peer ranges (peers are ignored when `engines.dsh` is present) and evaluates ranges with prereleases included; strict npm semantics additionally need the explicit second branch, so the declaration is accurate under both readings. The `<0.3.0` upper bound lets future `0.3.0-rc.x` pass the Host gate under its includePrerelease reading; strict consumers exclude it. DSH dependencies, peerDependencies and devDependencies use the same non-exact range as `engines.dsh`, so a Host profile resolves them to its in-range version instead of being shadowed by a pinned `0.2.1-rc.2` copy; the lockfile keeps `0.2.1-rc.2` as the development baseline; versions outside the declared Host range aren't supported.
+**DSMM supports DSH `>=0.2.1-rc.2 <0.2.2-0 || >=0.2.2-rc.1 <0.3.0` and Node.js 22 or later.** Install DSMM into a DSH profile. Its DSH, Cordis, Schemastery and Pi SDK packages are host-provided peers: installing DSMM does not install them into the profile. The CLI's profile resolver supplies modules from the running DSH installation. Optional peer metadata controls package installation; a feature still requires its corresponding host modules when used. Development dependencies remain in the standalone checkout.
+
+After upgrading a profile, let its package manager update the lockfile and restart DSH. An explicitly installed or independently required profile-local DSH package can still shadow the host; review its owner before removing it. Do not force-enable an incompatible provider or change the native HTTP selection to work around a version mismatch.
 
 ## Supported integration
 

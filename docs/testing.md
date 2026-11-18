@@ -70,6 +70,8 @@ when `agent.model.select` is unavailable. The resolver-free Fake-IP case skips o
 a resolver-capable Host; the existing address-policy/transport tests cover that
 implementation.
 
+To test an installed tarball, use a disposable DSH home whose profile contains the base, headless and DSMM bundles. Install the tarball into that profile with normal peer resolution, separately from the Host installation. With `DSMM_TEST_DSH_ENTRY` set to the Host CLI entry, run `node test/installed-profile-web-probe.mjs <isolated-home> <profile-name>`. This checks native `http` through `web_fetch`, the selected Fake-IP provider's loopback refusal, and the modules resolved by the installed plugin. It uses a local model fixture and fetches public npm metadata without credentials.
+
 Missing anchors produce explicit skips. A skipped integration case is unavailable
 coverage, not a pass, and must be reported as such. The wrapper files remain the
 entry points for their `.mjs` fixtures so the underlying Host, CLI, approval and

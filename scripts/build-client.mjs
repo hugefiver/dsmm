@@ -7,7 +7,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const result = await build({
   absWorkingDir: root, entryPoints: ["src/client/index.ts"], outfile: "lib/client.js",
   bundle: true, platform: "browser", format: "cjs", target: "es2022", charset: "utf8", write: false,
-  external: ["react", "react/jsx-runtime", "@deepseek-ai/dsh-client-ui-primitives"],
+  external: ["react", "react/jsx-runtime", "@deepseek-ai/dsh-client-ui-primitives", "@deepseek-ai/dsh-api-gateway/client"],
   banner: { js: 'window.__ModuleLoader__.load({ id: "@dsmm/dsmm", factory: (require) => { const module = { exports: {} }; const exports = module.exports;' },
   footer: { js: "return module.exports; } });" },
   logLevel: "info",

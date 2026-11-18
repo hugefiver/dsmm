@@ -1,8 +1,6 @@
 import { findNodeAtLocation, parseTree } from "jsonc-parser";
 import type { Node, ParseError } from "jsonc-parser";
 import { DSMM_RATE_LIMIT_BOUNDS } from "./routing-policy.js";
-import { permissionControlSchema } from "./permission-settings.js";
-import type Schema from "@deepseek-ai/schemastery";
 
 export const PROFILE_DIAGNOSTIC_REASONS = {
   "invalid-jsonc": "Use one valid document with supported JSON syntax.",
@@ -28,12 +26,6 @@ export interface ProfileDiagnostic {
 }
 export const DEPRECATED_DSMM_FIELDS = ["deepseekV4ProMaxReasoningPresets", "deepseekFlashMaxReasoningPresets", "deepseekV4ProCalibration", "deepseekV4ProDefaultReasoningEffort", "deepseekFlashCalibration", "deepseekFlashDefaultReasoningEffort"] as const;
 type FieldShape = { [key: string]: FieldShape } | readonly [FieldShape] | "roles" | "role-routing" | "skills" | null;
-function schemaFieldShape(schema: Schema): FieldShape {
-  if (schema.type === "transform") return schemaFieldShape(schema.inner!);
-  if (schema.type === "object") return Object.fromEntries(Object.entries(schema.dict ?? {}).map(([key, child]) => [key, schemaFieldShape(child)]));
-  if (schema.type === "array") return [schemaFieldShape(schema.inner!)];
-  return null;
-}
 // Closed wire grammar: dynamic role/skill names are declared identifiers, not arbitrary object keys.
 const roleId = /^dsmm-(?:orchestrator|planner|plan-critic|builder|reviewer|oracle|oracle-2nd|creative|code-search|doc-search|clarifier|media-reader|frontend|hard-reasoning|research|quick|coding|normal-task|complex|deep|documenting|cross-cutting)$/u;
 const skillId = /^(?:brainstorming|writing-plans|requesting-code-review|receiving-code-review|subagent-driven-development|dispatching-parallel-agents|avoid-ai-slop|remove-ai-slops|debugging|frontend|git-master|ast-grep|coding-agent-sessions|init-deep|using-git-worktrees|report-fidelity)$/u;
@@ -41,7 +33,7 @@ const route: FieldShape = { provider: null, model: null, reasoningEffort: null }
 const rateLimit: FieldShape = Object.fromEntries(Object.keys(DSMM_RATE_LIMIT_BOUNDS).map(key => [key, null]));
 const roleRouting: FieldShape = { primary: route, fallbackRoutes: [route], strategy: null, rateLimit, levels: { low: route, high: route, max: route } };
 const configFields: Record<string, FieldShape> = {
-  permissionControl: schemaFieldShape(permissionControlSchema),
+  permissionControl: { enabled: null, outsideReads: null, webSearch: { enabled: null, rule: null }, webFetch: { enabled: null, rule: null }, rules: [null], nativeCommands: { enabled: null, entries: [null] } },
   modelParameters: { passthrough: null },
   rootModelPolicy: null,
   locale: null, modeName: null, section: null, defaultActive: null, promptOrder: null,
