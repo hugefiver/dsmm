@@ -138,9 +138,9 @@ export async function nativeFixturePlugin(name: string, peer?: string) {
 
 async function copyCompiledCore(dir: string): Promise<typeof import("../lib/index.js")> {
   await mkdir(dir);
-  await cp(new URL("../lib/", import.meta.url), join(dir, "lib"), { recursive: true });
   await copyFile(new URL("../package.json", import.meta.url), join(dir, "package.json"));
-  for (const name of ["node_modules", "prompts", "skills", "locale", "agent-presets"]) {
+  await cp(new URL("../lib/", import.meta.url), join(dir, "lib"), { recursive: true });
+  for (const name of ["prompts", "skills", "locale", "agent-presets"]) {
     await symlink(fileURLToPath(new URL(`../${name}/`, import.meta.url)), join(dir, name), "junction");
   }
   return import(pathToFileURL(join(dir, "lib", "index.js")).href);
@@ -180,14 +180,25 @@ export async function nativeRoutingFixture(config: DsmmPluginConfig = {}, option
     presets: { ...input.presets, root: input.presets?.root ?? join(fixtureDir, "agent-presets") }
   });
   config = withPresetRoot(config);
+  let copiedCoreRoot: string | undefined;
+  const loadCoreCopy = (name: string) => {
+    if (copiedCoreRoot === undefined) {
+      // Independent Core modules must resolve the same physical SDK as their Host.
+      copiedCoreRoot = mkdtempSync(fileURLToPath(new URL("../.native-routing-core-", import.meta.url)));
+      writeFileSync(join(copiedCoreRoot, ".run-owner"), owner, { flag: "wx" });
+    }
+    return copyCompiledCore(join(copiedCoreRoot, name));
+  };
   const removeOwnedFixture = (): void => {
-    if (!existsSync(fixtureDir)) return;
-    assert.equal(lstatSync(fixtureDir).isSymbolicLink(), false, "fixture root must not be linked");
-    assert.equal(readFileSync(marker, "utf8"), owner, "fixture root owner changed");
-    rmSync(fixtureDir, { recursive: true, force: true });
+    for (const dir of [copiedCoreRoot, fixtureDir]) {
+      if (dir === undefined || !existsSync(dir)) continue;
+      assert.equal(lstatSync(dir).isSymbolicLink(), false, "fixture root must not be linked");
+      assert.equal(readFileSync(join(dir, ".run-owner"), "utf8"), owner, "fixture root owner changed");
+      rmSync(dir, { recursive: true, force: true });
+    }
   };
   try {
-    const compiled = options.compiledCore ? await copyCompiledCore(join(fixtureDir, "installed-core")) : undefined;
+    const compiled = options.compiledCore ? await loadCoreCopy("installed-core") : undefined;
     const core = compiled?.default ?? DsmmPlugin;
     const permissionHost = options.nativePermissionSettings ? await import("./permission-host-fixture.ts") : undefined;
     const adapter = options.adapter ?? new RoutingFixtureAdapter();
@@ -395,18 +406,27 @@ export async function nativeRoutingFixture(config: DsmmPluginConfig = {}, option
     }
     return {
       ctx, host, adapter, agents, subagents, dsmmFiber, spawnFiber, tools, profileDir, home, dsmmEntryId, mountPresets,
-      async mountSuccessorCore(next?: DsmmPluginConfig): Promise<void> {
+      async mountSuccessorCore(next?: DsmmPluginConfig, recreateAs?: string): Promise<string> {
         const entry = ctx.loader.resolve(permissionHost ? "include:permission-core" : dsmmEntryId!);
         assert.equal(ctx.get("dsmmNativeAdmission"), undefined, "retire the previous Core before replacement");
-        const successor = (await copyCompiledCore(join(fixtureDir, "successor-core"))).default;
-        ctx.loader.builtins[entry.options.name.slice("cordis:".length)] = { default: permissionHost ? { ...successor,
+        const successor = (await loadCoreCopy("successor-core")).default;
+        const name = recreateAs ?? entry.options.name;
+        ctx.loader.builtins[name.slice("cordis:".length)] = { default: permissionHost ? { ...successor,
           apply(scope: Context, config: DsmmPluginConfig) { return successor.apply(scope.extend({ baseUrl: fixtureBaseUrl }) as unknown as DshContext, config); }
         } : successor };
-        await entry.update({ disabled: false, ...(next === undefined ? {} : { config: withPresetRoot(next) }) });
+        let replacement = entry;
+        if (recreateAs === undefined) {
+          await entry.update({ disabled: false, ...(next === undefined ? {} : { config: withPresetRoot(next) }) });
+        } else {
+          const id = await ctx.loader.create({ name, config: next === undefined ? entry.options.config : withPresetRoot(next) });
+          ctx.loader.remove(entry.id);
+          replacement = ctx.loader.resolve(id);
+        }
         await ctx.loader.await();
-        assert.ok(entry.fiber);
-        await awaitCore(entry.fiber);
+        assert.ok(replacement.fiber);
+        await awaitCore(replacement.fiber);
         if (permissionHost) await permissionHost.waitForPermissionHost(ctx);
+        return replacement.id;
       },
       async reloadDeployment(next: DsmmPluginConfig): Promise<void> {
         assert.ok(loader && dsmmEntryId);
@@ -506,8 +526,8 @@ export async function nativeRoutingFixture(config: DsmmPluginConfig = {}, option
       }
     };
   } catch (error) {
-    await ctx.fiber.dispose();
-    removeOwnedFixture();
+    try { await ctx.fiber.dispose(); }
+    finally { removeOwnedFixture(); }
     throw error;
   }
 }

@@ -194,6 +194,22 @@ test("native lazy argument reads update requested labels and preserve dispatched
     useRoleCalls: <T,>(selector: (value: typeof foreignCallState) => T) => selector(foreignCallState), phase: "start", block: startWithDesc } as Parameters<typeof module.exports.RoleToolView>[0]);
   assert.equal(foreignTree.props["data-identity"], "requested", "rootCallId and neighboring calls cannot substitute for callId");
 
+  const settledCallA = { ...observedCall, callId: "call-a", phase: "settled", stopReason: "completed" } as const;
+  const activeCallB = { ...observedCall, callId: "call-b", phase: "active" } as const;
+  const concurrentState = { ...observedState, calls: new Map([["call-a", settledCallA], ["call-b", activeCallB]]) };
+  const concurrentTreeA = module.exports.RoleToolView({ ...common, callId: "call-a",
+    useRoleCalls: <T,>(selector: (value: typeof concurrentState) => T) => selector(concurrentState), phase: "start",
+    block: { ...startWithDesc, callId: "call-a" } } as Parameters<typeof module.exports.RoleToolView>[0]);
+  const concurrentTreeB = module.exports.RoleToolView({ ...common, callId: "call-b",
+    useRoleCalls: <T,>(selector: (value: typeof concurrentState) => T) => selector(concurrentState), phase: "start",
+    block: { ...startWithDesc, callId: "call-b" } } as Parameters<typeof module.exports.RoleToolView>[0]);
+  assert.equal(concurrentTreeA.props["data-state"], "result");
+  assert.equal(concurrentTreeA.props["data-phase"], "settled");
+  assert.equal(concurrentTreeA.props.children[0].props.running, false);
+  assert.equal(concurrentTreeB.props["data-state"], "running");
+  assert.equal(concurrentTreeB.props["data-phase"], "active");
+  assert.equal(concurrentTreeB.props.children[0].props.running, true);
+
   const registrations: Array<{ options: { key: string; inject(sessionId: string): { hooks: { roleCalls: object } } }; component: unknown }> = [];
   const sharedSource = { getSnapshot: () => observedState, subscribe: () => () => {} };
   module.exports.registerRoleToolViews({ effect() {}, locale: { register() {} }, slots: {

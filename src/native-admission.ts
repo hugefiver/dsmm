@@ -244,6 +244,8 @@ export class NativeAdmission {
     }, { global: true, prepend: true });
     ctx.on("tools/pre-execute", async (exec, next) => {
       if (exec.agent) {
+        const publication = !this.live.has(exec.agent) && this.awaitingPublication.get(exec.agent);
+        if (publication) await publication.promise;
         captureResidentTool(exec.agent, this, exec.token);
         this.trackExecution(exec);
         await this.guardExecution(exec.agent);
@@ -569,8 +571,9 @@ export class NativeAdmission {
   /** Exact process-local capture, retained after retirement so stale objects never become native. */
   owns(agent: Agent): boolean { return this.agentLifetimes.has(agent); }
   async guardExecution(agent: Agent): Promise<"native" | "dsmm"> {
+    const publication = this.awaitingPublication.get(agent);
+    if (publication) await publication.promise;
     assertResidentRootCurrent(agent, this);
-    await this.awaitingPublication.get(agent)?.promise;
     if (!this.owns(agent)) {
       const registry = agent.ctx.get("agents");
       if (registry && original(registry) === original(this.ctx.agents) && scopeOf(agent.ctx) === agent && registry.get(agent.id) !== agent
@@ -928,7 +931,7 @@ export class NativeAdmission {
     if (restoring && !isRoot) throw new SubagentError("Resident root ownership changed", "UNAUTHORIZED");
     if (owner) this.assert(owner);
     if (restoring) guardResidentRealm(agent);
-    else markResidentAgent(agent, this, isRoot);
+    else markResidentAgent(agent, this, isRoot, this.awaitingPublication.get(agent)?.promise);
     const scope = agent.ctx.plugin(function dsmmAgentGeneration() {}).ctx;
     this.scopes.set(agent, scope);
     this.agentLifetimes.set(agent, new AbortController());
@@ -1055,13 +1058,11 @@ export class NativeAdmission {
       }
       await this.install(agent, this.getter(agent), scope);
       check();
-      await this.profiles.revalidateActivation(admission);
-      check();
-      if (pending) this.check(pending);
-      if (continuationProvider && this.ctx.get("subagents")!.getProvider(continuationProvider.name) !== continuationProvider) throw new SubagentError("Role provider changed", "UNAUTHORIZED");
       // Occupancy precedes the installed guards' async policy and approval work.
       scope.on("tools/pre-execute", async (exec, next) => {
         if (exec.agent === agent) {
+          const publication = !this.live.has(agent) && this.awaitingPublication.get(agent);
+          if (publication) await publication.promise;
           captureResidentTool(agent, this, exec.token);
           this.trackExecution(exec); await this.ensure(agent);
           const denial = this.policy.preToolDenial(agent as DshAgent, exec.name, undefined, exec);
@@ -1069,6 +1070,10 @@ export class NativeAdmission {
         }
         return next();
       }, { prepend: true });
+      await this.profiles.revalidateActivation(admission);
+      check();
+      if (pending) this.check(pending);
+      if (continuationProvider && this.ctx.get("subagents")!.getProvider(continuationProvider.name) !== continuationProvider) throw new SubagentError("Role provider changed", "UNAUTHORIZED");
       const routeCandidate = await this.admissionModelSelection?.(agent, {
         settings: admission.settings, epoch: admission.epoch, admission, signal, assertCurrent: check,
       });

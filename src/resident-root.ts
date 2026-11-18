@@ -14,7 +14,8 @@ interface ResidentBinding {
   readonly session: Agent["session"];
   readonly presets?: object;
   readonly profile?: object;
-  readonly deploymentKey?: string;
+  deploymentKey?: string;
+  loaderEntry?: { readonly name: string; readonly profileDir: string } | null;
   readonly home?: string;
   preset?: string;
   scopeParent?: object;
@@ -58,7 +59,7 @@ function claim(record: ResidentBinding, owner: NativeAdmission): void {
   record.detachOwner = () => owner.lifetime.signal.removeEventListener("abort", revoke);
 }
 
-export function markResidentAgent(agent: Agent, owner: NativeAdmission, root: boolean): void {
+export function markResidentAgent(agent: Agent, owner: NativeAdmission, root: boolean, publication?: Promise<void>): void {
   if (records.has(agent)) deny();
   const deployment = owner.ctx.get("dsmmDeploymentConfig");
   const record: ResidentBinding = { version: 1, root, registry: original(owner.ctx.agents)!, sessions: original(owner.ctx.get("sessions"))!,
@@ -71,10 +72,27 @@ export function markResidentAgent(agent: Agent, owner: NativeAdmission, root: bo
     record.detachOwner?.(); record.detachOwner = undefined;
     record.active = false; record.disposed = true; record.owner = undefined; record.afterDrain = undefined;
   });
-  agent.ctx.on("agent/pre-step", async (frame, next) => { if (frame.agent === agent) await current(record).ensure(agent); return next(); }, { prepend: true });
-  agent.ctx.on("agent/request", async (frame, next) => { if (frame.agent === agent) await current(record).ensure(agent); return next(); }, { prepend: true });
+  agent.ctx.on("agent/pre-step", async (frame, next) => {
+    if (frame.agent === agent) {
+      if (!record.published && publication) await publication;
+      await current(record).ensure(agent);
+    }
+    return next();
+  }, { prepend: true });
+  agent.ctx.on("agent/request", async (frame, next) => {
+    if (frame.agent === agent) {
+      if (!record.published && publication) await publication;
+      await current(record).ensure(agent);
+    }
+    return next();
+  }, { prepend: true });
   agent.ctx.on("tools/pre-execute", async (exec, next) => {
-    if (exec.agent === agent) { const owner = current(record); record.tokens.add(exec.token); await owner.ensure(agent); }
+    if (exec.agent === agent) {
+      if (!record.published && publication) await publication;
+      const owner = current(record);
+      record.tokens.add(exec.token);
+      await owner.ensure(agent);
+    }
     return next();
   }, { prepend: true });
   agent.ctx.on("tools/execute", async (exec, next) => {
@@ -109,9 +127,28 @@ export function guardResidentRealm(agent: Agent): void {
   record.tools.add(realm);
 }
 
+function loaderEntry(owner: NativeAdmission): ResidentBinding["loaderEntry"] {
+  const entry = owner.ctx.fiber.entry, profileDir = owner.ctx.get("profileContext")?.dir;
+  return entry && profileDir ? { name: entry.options.name, profileDir } : null;
+}
+
+function sameDeployment(record: ResidentBinding, owner: NativeAdmission): boolean {
+  const deployment = owner.ctx.get("dsmmDeploymentConfig");
+  if (!deployment || record.home !== deployment.home) return false;
+  const entry = loaderEntry(owner);
+  if (record.loaderEntry && entry) {
+    // Reinstalling a plugin mints a new Loader entry ID within the same physical profile.
+    return record.loaderEntry.name === entry.name && record.loaderEntry.profileDir === entry.profileDir;
+  }
+  if (record.loaderEntry === undefined && record.profile && entry) return true;
+  return record.deploymentKey === deployment.hostProfileKey && (record.loaderEntry === undefined || record.loaderEntry === entry);
+}
+
 export function publishResidentAgent(agent: Agent, owner: NativeAdmission): void {
   const record = records.get(agent)!;
   if (record.disposed || original(record.owner) !== original(owner) || !owner.isReady) deny();
+  record.loaderEntry = loaderEntry(owner);
+  record.deploymentKey = owner.ctx.get("dsmmDeploymentConfig")?.hostProfileKey;
   record.scopeParent = scopeParentOf(agent);
   record.preset = agent.ctx.get("agentPresets")?.composedPreset(agent.ctx);
   record.published = record.active = true;
@@ -121,7 +158,7 @@ export function restoreResidentRoot(agent: Agent, owner: NativeAdmission, instal
   const record = records.get(agent);
   if (!record || record.version !== 1 || !record.root || record.disposed || !record.published || record.owner) return;
   const valid = () => record.profile === original(owner.ctx.get("profileContext")) && record.registry === original(owner.ctx.agents) && record.registry === original(agent.ctx.get("agents"))
-    && record.deploymentKey === owner.ctx.get("dsmmDeploymentConfig")?.hostProfileKey && record.home === owner.ctx.get("dsmmDeploymentConfig")?.home
+    && sameDeployment(record, owner)
     && record.sessions === original(owner.ctx.get("sessions")) && record.session === agent.session && owner.ctx.get("sessions")?.get(agent.id) === record.session
     && record.presets === original(agent.ctx.get("agentPresets")) && record.preset === agent.ctx.get("agentPresets")?.composedPreset(agent.ctx)
     && record.scopeParent === scopeParentOf(agent) && scopeOf(agent.ctx) === agent && owner.ctx.agents.get(agent.id) === agent;

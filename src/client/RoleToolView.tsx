@@ -67,18 +67,19 @@ export function RoleToolView(props: Props) {
   const comparison = actual?.routeComparison;
   const target = actual?.role ?? requested.target;
 
-  const action = props.phase === "preparing" ? t("calling") : t("call");
+  const observedStop = actual?.phase === "settled" ? actual.stopReason : undefined;
+  const state = result?.error?.code === "interrupted" || observedStop === "aborted" ? "stopped"
+    : failed || observedStop !== undefined && observedStop !== "completed" ? "error"
+    : result !== undefined && actual?.delivery === "parent" && actual.phase !== "settled" ? "background"
+    : actual?.phase === "settled" || result !== undefined ? "result"
+    : props.phase === "preparing" ? "preparing" : "running";
+  const isOngoing = state === "running" || state === "preparing";
+
+  const action = state === "preparing" ? t("calling") : t("call");
   const targetLabel = target === undefined ? t("unknownTarget") : roleToolDisplay(target);
   const rawDesc = requested.description?.trim();
   const singleLineDesc = rawDesc ? rawDesc.replace(/\s+/gu, " ") : undefined;
   const title = `${action} ${targetLabel}`;
-
-  const observedStop = actual?.phase === "settled" ? actual.stopReason : undefined;
-  const state = result?.error?.code === "interrupted" || observedStop === "aborted" ? "stopped"
-    : failed || observedStop !== undefined && observedStop !== "completed" ? "error"
-    : result === undefined ? props.phase === "preparing" ? "preparing" : "running"
-    : actual?.delivery === "parent" && actual.phase !== "settled" ? "background" : "result";
-  const isOngoing = state === "running" || props.phase === "preparing";
   const code = (value: string) => <CodeBlock code={value} copyLabel={t("copy")} copiedLabel={t("copied")} />;
 
   const [viewMode, setViewMode] = useState<"table" | "json">("table");
@@ -105,7 +106,7 @@ export function RoleToolView(props: Props) {
     </span>
   </> : undefined;
 
-  const stateDotState = state === "error" ? "error" : state === "stopped" ? "warning" : result === undefined ? "ongoing" : state === "background" ? "idle" : "done";
+  const stateDotState = state === "error" ? "error" : state === "stopped" ? "warning" : state === "background" ? "idle" : state === "result" ? "done" : "ongoing";
 
   return <div className="dsmm-role-tool" data-dsmm-role-tool={props.toolName} data-identity={actual === undefined ? "requested" : "actual"}
     data-state={state} data-delivery={actual?.delivery} data-phase={actual?.phase} data-expanded={expanded ? "true" : "false"}>

@@ -124,6 +124,55 @@ for (const dsmmLlm of [false, true]) test(`compiled Core replacement keeps physi
   } finally { await f.dispose(); }
 });
 
+for (const { label, legacy, change } of [
+  { label: "admits the same resident root for the same plugin", legacy: false, change: "none" },
+  { label: "admits the same resident root from a v1 record without loaderEntry", legacy: true, change: "none" },
+  { label: "rejects a changed plugin name", legacy: false, change: "plugin" },
+  { label: "rejects an equal but distinct profileContext for a v1 record", legacy: true, change: "profile" },
+] as const) test(`a fresh Loader entry ${label}`, async () => {
+  const f = await nativeRoutingFixture({ defaultActive: false, lsp: { enabled: false }, permissionControl: { enabled: false } },
+    { nativePresets: true, compiledCore: true, spawn: false });
+  try {
+    const root = await f.create({ agentPreset: "standard" });
+    const session = root.session;
+    const old = f.ctx.dsmmNativeAdmission;
+    assert.ok(f.dsmmEntryId);
+    const entry = f.ctx.loader.resolve(f.dsmmEntryId);
+    const profile = f.ctx.get("profileContext");
+    assert.ok(profile);
+    await runFixtureTurn(root);
+    assert.deepEqual(f.adapter.calls.map(call => call.sessionId), [root.id]);
+
+    const records: WeakMap<object, { version: number; loaderEntry?: { name: string; profileDir: string } }> =
+      Reflect.get(globalThis, Symbol.for("@dsmm/dsmm/resident-roots"));
+    const record = records.get(root);
+    assert.ok(record);
+    assert.equal(record.version, 1);
+    assert.deepEqual(record.loaderEntry, { name: entry.options.name, profileDir: profile.dir });
+    if (legacy) delete record.loaderEntry;
+
+    await f.dsmmFiber.dispose();
+    if (change === "profile") {
+      f.ctx.set("profileContext", { ...profile });
+      assert.deepEqual(f.ctx.get("profileContext"), profile);
+      assert.notEqual(f.ctx.get("profileContext"), profile);
+    }
+    const name = change === "plugin" ? "cordis:parity-renamed-dsmm" : entry.options.name;
+    const successorId = await f.mountSuccessorCore(undefined, name);
+    assert.notEqual(successorId, entry.id);
+    assert.equal(f.ctx.loader.resolve(successorId).options.name, name);
+    assert.equal(f.agents.get(root.id), root);
+    assert.equal(root.session, session);
+
+    await runFixtureTurn(root);
+    assert.deepEqual(f.adapter.calls.map(call => call.sessionId), change === "none" ? [root.id, root.id] : [root.id]);
+    const successor = f.ctx.dsmmNativeAdmission;
+    if (change === "none") assert.ok(successor.assert(root));
+    else assert.throws(() => successor.assert(root), { code: "UNAUTHORIZED" });
+    await assert.rejects(old.guardExecution(root));
+  } finally { await f.dispose(); }
+});
+
 test("foreign native provider names and serialized descriptors cannot grant DSMM role authority", async () => {
   let unregister = () => {};
   const f = await nativeRoutingFixture({}, {
