@@ -204,7 +204,7 @@ export class PermissionControl {
         binding.mode = binding.approvedTarget;
       }
       this.commandApprovals.commit(binding.exec);
-      return await this.execution.run(binding, () => body(binding.signal, binding.simple && !nativeStandingFullAccess(this.ctx, exec.agent) ? Object.freeze({ ...args as Record<string, unknown>,
+      return await this.execution.run(binding, () => body(binding.signal, binding.simple ? Object.freeze({ ...args as Record<string, unknown>,
         sandbox_permissions: "danger-full-access", justification: binding.reason }) : args));
     } finally { this.finish(binding.exec); }
   }
