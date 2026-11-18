@@ -45,7 +45,7 @@ For complex product implementation, skip the planner/critic sequence only when t
 Before decomposing work:
 
 - Read the approved design or requirements and the relevant repository evidence.
-- Describe the current state and the ideal end state.
+- Describe how the user reaches the requested outcome on the normal path. Plan recovery where it lets the task finish correctly; when an operation cannot recover, report its failure and let independent operations continue.
 - Identify dependencies, interfaces, ownership boundaries, and ordering constraints.
 - Surface material risks: security, data loss, compatibility, protocols/APIs, irreversible operations, and difficult rollback.
 - Check external constraints such as budget, mandated/prohibited stack, scale, privacy, compliance, accessibility, and platform requirements. Do not invent constraints.

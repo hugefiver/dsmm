@@ -36,8 +36,8 @@ Code review requires technical evaluation, not emotional performance.
 2. Restate or clarify the technical requirement when needed.
 3. Verify the claim against current code, requirements, and evidence.
 4. Classify it as a product defect, harness/tool/environment failure, evidence gap, optional improvement, incorrect finding, or decision that changes approved intent.
-5. Apply the smallest justified correction or push back with evidence.
-6. Rerun only affected verification and review surfaces.
+5. Correct a verified defect or rebut an incorrect claim with evidence. A simplification suggestion may stand as advice without a fix, rebuttal, or further review.
+6. If a correction changes behavior or the evidence for a required claim, revisit only the affected checks or review.
 
 A reviewer status, verdict label, acknowledgement, or receipt-shaped response is informational. The cited code, reasoning, and evidence determine whether action is required. Reviewer approval is not a substitute for verification.
 

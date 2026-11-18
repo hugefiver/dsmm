@@ -80,7 +80,7 @@ Use a clarifier or ask the user only when missing information would change the d
 
 Present alternatives only when there is a real decision with meaningful trade-offs. Give as many viable approaches as the decision warrants, including one when the evidence supports a single clear path. Explain the recommendation using project evidence, constraints, reversibility, risk, and cost.
 
-Do not manufacture alternatives, architecture, or refactoring to make the process appear thorough. Follow established patterns and apply YAGNI.
+Start with what the user needs to accomplish in normal use. Choose a familiar design that delivers that outcome. Where the business contract tolerates temporary inconsistency, allow independent operations to proceed and reconcile their results instead of serializing the whole workflow. Match safeguards to the system's actual exposure and the consequences of failure; reserve high-assurance designs for an explicit requirement or a credible risk that ordinary controls do not cover.
 
 ## Outcome-Oriented Design
 

@@ -87,7 +87,7 @@ Read the reviewer's analysis, cited code, and evidence. A status label, acknowle
 
 - Fix validated Critical or Important product defects before relying on the result.
 - Supply missing required evidence when the implementation may be sound but proof is insufficient.
-- Record or defer Minor suggestions according to scope and value.
+- Treat a simpler design or optional hardening as non-blocking advice. For a proposed safeguard to block delivery, identify the unmet requirement or the concrete risk to the supported use case.
 - Push back with requirements, code, or evidence when a finding is wrong.
 - Preserve real security, data-loss, protocol/API, compatibility, release, and irreversible-operation safeguards.
 
