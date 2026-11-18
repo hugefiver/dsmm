@@ -208,6 +208,25 @@ test("simple stock concurrent exact tokens do not lend full access approval to a
   } finally { await f.dispose(); }
 });
 
+test("standing full access forwards simple shell calls without synthesizing or replacing native request fields", async () => {
+  const f = await permissionFixture(2000, { sandboxMode: "danger-full-access", settings: { nativeCommands: commands } });
+  try {
+    const seen: unknown[] = [];
+    f.ctx.tools.register({ name: "powershell", description: "Inspect native arguments", parameters: { type: "object", additionalProperties: true },
+      output: { schema: { type: "string" }, render: () => [] }, execute: async args => { seen.push(args); return "owned"; } });
+    const explicit = { sandbox_permissions: "workspace-write", justification: "caller supplied" };
+    for (const extra of [{}, explicit]) {
+      const result = await f.execute("go test", extra, undefined, undefined, f.root, "powershell");
+      assert.equal(result.isError, false, JSON.stringify(result));
+    }
+    const [ordinary, requested] = seen as Record<string, unknown>[];
+    assert.equal(Object.hasOwn(ordinary, "sandbox_permissions"), false);
+    assert.equal(Object.hasOwn(ordinary, "justification"), false);
+    assert.equal(requested.sandbox_permissions, explicit.sandbox_permissions);
+    assert.equal(requested.justification, explicit.justification);
+  } finally { await f.dispose(); }
+});
+
 test("simple stock aliases use actual definitions and command-cmd-script precedence without trusting kind or unknown names", async () => {
   const f = await permissionFixture(2000, { settings: { nativeCommands: commands } });
   try {
