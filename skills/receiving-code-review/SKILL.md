@@ -41,6 +41,8 @@ Code review requires technical evaluation, not emotional performance.
 
 A reviewer status, verdict label, acknowledgement, or receipt-shaped response is informational. The cited code, reasoning, and evidence determine whether action is required. Reviewer approval is not a substitute for verification.
 
+When feedback says state might have changed, look for the actual internal transition, external actor, or database writer. Without such evidence, do not add a pre-write reread of confirmed state or a costly integrity scan. Keep transactions short; do not hold database, table, or row locks through long-running application work to satisfy a speculative review finding.
+
 ## Clarification and Escalation
 
 Clarify an item before implementing it when ambiguity would materially change the correction. Independent clear items may proceed while clarification is pending if doing so cannot create rework or violate shared assumptions.

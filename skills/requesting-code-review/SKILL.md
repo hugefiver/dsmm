@@ -51,7 +51,7 @@ Provide the reviewer, in whatever order is clearest:
 - the current working-tree diff or committed range, including newly created files;
 - relevant verification evidence and any intentionally unverified item;
 - current global constraints and permissions;
-- focused dependency/interface or risk context needed to evaluate the change.
+- focused dependency/interface or risk context needed to evaluate the change. For a state race, name the actual writer and conflicting operation. Do not ask reviewers to assume internal, external, or database changes, to re-read confirmed state before writeback, or to require a broad integrity scan. Check that long-running application work sits outside database locks.
 
 Use the actual current diff or range rather than a prose-only summary. If output is large or sensitive, provide a safe reviewable artifact or focused slices plus a complete file manifest, without omitting changes material to the criteria.
 

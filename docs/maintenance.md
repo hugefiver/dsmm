@@ -133,6 +133,8 @@ calculations, quotations and translation meaning, without mandatory ledgers or
 large-workflow requirements for simple questions. These local adaptations preserve
 DSH ownership of tasks, lifecycle, permissions and persistence.
 
+Planner, plan-critic and reviewer guidance treats a confirmed state as usable until there is evidence of a change. The design and review skills keep database transactions short: no locks across long-running application work, precautionary rereads before writeback or broad integrity scans. GPT-family guidance protects the normal path from speculative defenses in both ordinary Deepwork and admitted role prompts.
+
 Test guidance chooses checks by observable requirements, credible regressions,
 and existing owner coverage, without test-only production interfaces. Report
 fidelity compares extracted or converted numbers with originals, retains

@@ -30,7 +30,7 @@ function generalModelCalibration(model: string): string {
   switch (recognized?.identifier) {
     case "gpt":
     case "codex":
-      return "Lead with the result and its supporting evidence. Reuse checks that still cover the claim; qualify only what remains uncertain.";
+      return "Lead with the result and its supporting evidence. Reuse checks that still cover the claim; qualify only what remains uncertain. Do not write defensive code or design for imaginary failures. Never penalize the 90% normal path for a case the contract makes impossible. Trust internal guarantees; enforce required checks at real boundaries.";
     case "gemini":
       return recognized.gemini4OrLater
         ? "Ground claims about files and runtime behavior in what you observed. Distinguish a proposed change from an applied one, and a successful build from evidence that the requested behavior works."

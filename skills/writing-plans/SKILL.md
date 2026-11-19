@@ -46,7 +46,7 @@ Before decomposing work:
 
 - Read the approved design or requirements and the relevant repository evidence.
 - Describe how the user reaches the requested outcome on the normal path. Plan recovery where it lets the task finish correctly; when an operation cannot recover, report its failure and let independent operations continue.
-- Identify dependencies, interfaces, ownership boundaries, and ordering constraints.
+- Identify dependencies, interfaces, ownership boundaries, and ordering constraints. Do not assume internal, external, or database state changed without evidence. Keep transactions short; put long-running application work outside database, table, and row locks. Reuse confirmed state at writeback without a second read or broad integrity scan. If an identified writer can break a required invariant, specify the atomic write that protects it.
 - Surface material risks: security, data loss, compatibility, protocols/APIs, irreversible operations, and difficult rollback.
 - Check external constraints such as budget, mandated/prohibited stack, scale, privacy, compliance, accessibility, and platform requirements. Do not invent constraints.
 
