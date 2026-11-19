@@ -3,6 +3,9 @@
       name: '@dsmm/dsmm'
       inject: [profileContext, agents]
       config: {}
+    - id: dsmm-lsp
+      name: '@dsmm/dsmm/lsp'
+      disabled: true
 - id: fs-observation-policy
   name: '@deepseek-ai/dsh-fs-observation-policy'
   disabled: false

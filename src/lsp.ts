@@ -1,3 +1,10 @@
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
+import type { Context } from "@deepseek-ai/cordis";
+import type { ToolDefinition } from "@deepseek-ai/dsh-tools";
+import type { DshAgent } from "./dsh-types.js";
+import type { DsmmSettingsGetter } from "./settings.js";
+
 export const DSMM_LSP_SERVER_NAME = "dsmm_lsp";
 export const DSMM_LSP_TOOL_NAMES = [
   "status",
@@ -17,45 +24,98 @@ export interface DsmmLspRuntimeState {
   diagnostic?: "host-anchor-unavailable" | "native-package-unavailable" | "native-tools-unavailable";
   tools: readonly string[];
 }
-declare module "@deepseek-ai/cordis" { interface Context { dsmmLspState: () => DsmmLspRuntimeState } }
+declare module "@deepseek-ai/cordis" { interface Context {
+  dsmmLspState: () => DsmmLspRuntimeState;
+  dsmmLspEntry: (scope: Context) => Promise<void>;
+  dsmmProjectLsp: (install: (definition: ToolDefinition) => (() => void) | undefined) => () => void;
+} }
 
-/** Optional native package resolution is anchored by the trusted host, not home guesses or CLI paths. */
-export async function registerLspRuntime(ctx: Context, settings: DsmmLspSettings, getSettings?: import("./settings.js").DsmmSettingsGetter): Promise<void> {
-  let state: DsmmLspRuntimeState = { state: "disabled", tools: [] };
-  ctx.provide("dsmmLspState", () => state);
-  if (!settings.enabled) return;
-  const anchor = (ctx.get("profileContext") as { installAnchor?: string } | undefined)?.installAnchor;
-  const unavailable = (diagnostic: DsmmLspRuntimeState["diagnostic"]): void => {
-    state = { state: "unavailable", tools: [], diagnostic };
-    if (settings.failOnStartupError) throw new Error(`DSMM LSP startup unavailable: ${diagnostic}`);
-  };
-  if (anchor === undefined) { unavailable("host-anchor-unavailable"); return; }
-  let plugin;
-  try {
-    const modulePath = createRequire(anchor).resolve("@deepseek-ai/dsh-mcp-client");
-    plugin = await import(pathToFileURL(modulePath).href);
-  } catch { unavailable("native-package-unavailable"); return; }
-  if (typeof plugin.apply !== "function") { unavailable("native-package-unavailable"); return; }
-  const before = new Map(ctx.get("tools")?.schemas().map((row) => [row.name, ctx.get("tools")!.get(row.name)]) ?? []);
-  try { await ctx.plugin(plugin, toDshMcpClientConfig(settings)).await(); }
-  catch { unavailable("native-tools-unavailable"); return; }
-  const tools = ctx.get("tools");
-  const names = tools?.schemas().map((tool) => tool.name).filter((name) => name.startsWith(`mcp__${settings.serverName}__`)) ?? [];
-  if (names.length === 0) { unavailable("native-tools-unavailable"); return; }
-  if (getSettings !== undefined) {
-    const owned = new Map(names.filter((name) => tools!.get(name) !== before.get(name)).map((name) => [name, tools!.get(name)]));
-    const dispose = tools!.guard((execution) => execution.agent !== undefined
-      && owned.has(execution.name) && owned.get(execution.name) === tools!.get(execution.name, execution.agent)
-      && !getSettings(execution.agent as unknown as import("./dsh-types.js").DshAgent).modules.deepwork.enabled
-      ? "Deepwork LSP is not admitted in this Agent" : undefined);
-    ctx.effect(() => dispose);
-  }
-  state = { state: "ready", tools: names };
-  ctx.on("tools/change", () => {
-    const names = tools!.schemas().map((tool) => tool.name).filter((name) => name.startsWith(`mcp__${settings.serverName}__`));
-    state = names.length === 0 ? { state: "unavailable", diagnostic: "native-tools-unavailable", tools: [] } : { state: "ready", tools: names };
+export async function configureLspLifecycle(core: Context, getSettings: DsmmSettingsGetter): Promise<void> {
+  const startup = getSettings();
+  const group = core.fiber.entry?.parent;
+  // Loader publishes the whole group's configuration before starting any child,
+  // including disabled entries that never acquire a fiber.
+  const row = group?.data.find(entry => entry.name === "@dsmm/dsmm/lsp");
+  if (!row && !startup.modules.deepwork.enabled) return;
+  let current: (() => DsmmLspRuntimeState) | undefined;
+  let diagnostic: NonNullable<DsmmLspRuntimeState["diagnostic"]> = "native-tools-unavailable";
+  core.provide("dsmmLspState", (): DsmmLspRuntimeState => current?.() ?? (
+    startup.modules.deepwork.enabled && row && group?.tree.store[row.id]?.disabled === false
+      ? { state: "unavailable", diagnostic, tools: [] } : { state: "disabled", tools: [] }));
+
+  const owned = new Map<string, ToolDefinition>();
+  const observers = new Set<(definition: ToolDefinition, added: boolean) => void>();
+  core.provide("dsmmProjectLsp", install => {
+    const copies = new Map<ToolDefinition, () => void>();
+    const update = (definition: ToolDefinition, added: boolean) => {
+      if (!added) { copies.get(definition)?.(); copies.delete(definition); return; }
+      const dispose = install(definition);
+      if (dispose) copies.set(definition, dispose);
+    };
+    const stop = () => { observers.delete(update); for (const dispose of copies.values()) dispose(); copies.clear(); };
+    try {
+      for (const definition of owned.values()) update(definition, true);
+      observers.add(update);
+      return stop;
+    } catch (error) { stop(); throw error; }
   });
-  ctx.effect(() => () => { state = { state: "unavailable", diagnostic: "native-tools-unavailable", tools: [] }; });
+  const withdraw = (definition: ToolDefinition) => {
+    if (owned.get(definition.name) !== definition) return;
+    owned.delete(definition.name);
+    for (const update of observers) update(definition, false);
+  };
+  const mount = async (ctx: Context) => {
+    if (!startup.modules.deepwork.enabled) return;
+    if (current) throw new Error("DSMM LSP already has an active entry");
+    const settings = startup.lsp;
+    const tools = ctx.get("tools");
+    diagnostic = "native-tools-unavailable";
+    const status = (): DsmmLspRuntimeState => {
+      const names = [...owned].filter(([name, definition]) => tools?.get(name) === definition).map(([name]) => name);
+      return names.length ? { state: "ready", tools: names } : { state: "unavailable", diagnostic, tools: [] };
+    };
+    ctx.effect(() => { current = status; return () => {
+      if (current !== status) return;
+      current = undefined;
+      for (const definition of owned.values()) withdraw(definition);
+    }; });
+    const unavailable = (reason: typeof diagnostic) => {
+      diagnostic = reason;
+      if (settings.failOnStartupError) throw new Error(`DSMM LSP startup unavailable: ${reason}`);
+    };
+    const anchor = (ctx.get("profileContext") as { installAnchor?: string } | undefined)?.installAnchor;
+    if (anchor === undefined) return unavailable("host-anchor-unavailable");
+    let plugin;
+    try {
+      const modulePath = createRequire(anchor).resolve("@deepseek-ai/dsh-mcp-client");
+      plugin = await import(pathToFileURL(modulePath).href);
+    } catch { return unavailable("native-package-unavailable"); }
+    if (typeof plugin.apply !== "function") return unavailable("native-package-unavailable");
+    if (!tools) return unavailable("native-tools-unavailable");
+    tools.guard(exec => exec.agent !== undefined && owned.has(exec.name) && owned.get(exec.name) === tools.get(exec.name, exec.agent)
+      && !getSettings(exec.agent as unknown as DshAgent).modules.deepwork.enabled ? "Deepwork LSP is not admitted in this Agent" : undefined);
+    // Observe only this client's registrations, including reconnects. The Host
+    // registry still performs registration and its disposer owns withdrawal.
+    const client = { ...plugin, async apply(scope: Context, config: unknown) {
+      const registry = scope.tools;
+      const register = (definition: ToolDefinition) => {
+        const dispose = registry.register(definition);
+        owned.set(definition.name, definition);
+        const release = () => { withdraw(definition); dispose(); };
+        try { for (const update of observers) update(definition, true); }
+        catch (error) { release(); throw error; }
+        return release;
+      };
+      await plugin.apply(scope.extend({ tools: new Proxy(registry, {
+        get: (target, key) => key === "register" ? register : Reflect.get(target, key),
+      }) }), config);
+    } };
+    try { await ctx.plugin(client, toDshMcpClientConfig(settings)).await(); }
+    catch { return unavailable("native-tools-unavailable"); }
+    if (status().state !== "ready") unavailable("native-tools-unavailable");
+  };
+  if (row) core.provide("dsmmLspEntry", mount);
+  else if (startup.lsp.enabled) await mount(core);
 }
 
 export interface DsmmLspSettings {
@@ -228,6 +288,3 @@ function isPlainYamlScalar(value: string): boolean {
   if (/^[+-]?(?:\d+|\d*\.\d+)(?:e[+-]?\d+)?$/iu.test(value)) return false;
   return !value.startsWith("---") && !value.startsWith("...");
 }
-import { createRequire } from "node:module";
-import { pathToFileURL } from "node:url";
-import type { Context } from "@deepseek-ai/cordis";

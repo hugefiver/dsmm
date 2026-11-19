@@ -266,7 +266,7 @@ export function registerHeadlessRoleTools(ctx: Context, controller: DeepworkMode
   if (refresh) { refresh(); return; }
   if (!getSettings(agent).modules.deepwork.enabled) return;
   policy.admit(agent);
-  type State = { tools?: ToolRuntime; parentScope?: object; owned: Array<() => void>; restriction?: () => void; guard?: () => void; signature?: string; providers: Array<object | undefined>; hostDefinitions: Array<ToolDefinition | undefined>; promptRealm?: object; guidance?: () => void };
+  type State = { tools?: ToolRuntime; parentScope?: object; stopLsp?: () => void; owned: Array<() => void>; restriction?: () => void; guard?: () => void; signature?: string; providers: Array<object | undefined>; hostDefinitions: Array<ToolDefinition | undefined>; promptRealm?: object; guidance?: () => void };
   const state: State = { owned: [], hostDefinitions: [], providers: [] };
   const reconcile = (): void => {
     const tools = agentScopeService(ctx, "tools");
@@ -297,8 +297,7 @@ export function registerHeadlessRoleTools(ctx: Context, controller: DeepworkMode
     }
     const subagents = ctx.get("subagents");
     const host = ctx.get("tools");
-    const names = [...hostControls, ...host?.schemas().map((row) => row.name).filter((name) => name.startsWith(`mcp__${settings.lsp.serverName}__`)) ?? []];
-    const definitions = names.map((name) => host?.get(name));
+    const definitions = hostControls.map(name => host?.get(name));
     const providers = targets.map(role => {
       const provider = subagents?.getProvider(roleProviderName(role));
       return provider === undefined ? undefined : Reflect.get(provider, symbols.original) ?? provider;
@@ -310,6 +309,7 @@ export function registerHeadlessRoleTools(ctx: Context, controller: DeepworkMode
     const sameParent = state.parentScope === parentScope;
     if (sameRealm && sameParent && sameProviders && signature === state.signature && definitions.length === state.hostDefinitions.length && definitions.every((definition, i) => definition === state.hostDefinitions[i])) return;
     state.signature = undefined;
+    state.stopLsp?.();
     for (const dispose of state.owned.splice(0)) dispose();
     state.restriction?.(); state.guard?.();
     state.tools = tools;
@@ -325,7 +325,22 @@ export function registerHeadlessRoleTools(ctx: Context, controller: DeepworkMode
     }
     const inventory = callableRoleInventory(settings, targets.filter(role => subagents?.getProvider(roleProviderName(role))?.capabilities.depthLimit === true));
     for (const entry of inventory) state.owned.push(registerRoleTool(agent, ctx, tools, entry, getSettings, policy, admission));
-    policy.captureTools(agent, tools, [...inventory.map(entry => entry.name), ...names], !sameRealm || !sameParent);
+    policy.captureTools(agent, tools, [...inventory.map(entry => entry.name), ...hostControls], !sameRealm || !sameParent);
+    const hostRealm = host && (Reflect.get(host, symbols.original) ?? host) === (Reflect.get(tools, symbols.original) ?? tools);
+    state.stopLsp = ctx.get("dsmmProjectLsp")?.(definition => {
+      if (!getSettings(agent).modules.deepwork.enabled) return;
+      const { name } = definition, visible = tools.get(name, agent);
+      if (visible && visible !== definition) return;
+      if (policy.toolDenial(agent, name) !== undefined) {
+        return visible && tools.get(name, parentScope) === visible ? tools.restrict({ deny: [name] }) : undefined;
+      }
+      // A masked inherited registration stays masked. Only a missing tool in an
+      // independent registry needs an Agent-layer copy.
+      if (!visible && (hostRealm || tools.get(name, parentScope))) return;
+      const dispose = visible ? undefined : tools.register(definition);
+      policy.captureTools(agent, tools, [name]);
+      return dispose;
+    });
     state.signature = signature;
     state.providers = providers;
     state.hostDefinitions = definitions;
@@ -334,7 +349,7 @@ export function registerHeadlessRoleTools(ctx: Context, controller: DeepworkMode
   // Native assembly collects sections before its waterfall. Update the Agent layer before collection.
   const stopIdentity = controller.watch(changed => { if (changed === agent) reconcile(); });
   const retire = ctx.effect(() => () => {
-    stopIdentity();
+    stopIdentity(); state.stopLsp?.();
     state.restriction?.(); state.guard?.(); state.guidance?.();
     for (const dispose of state.owned) dispose();
     admittedRealms.delete(ctx);

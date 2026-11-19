@@ -28,7 +28,7 @@ import { CommandApprovals } from "./command-approval.js";
 import { registerRoleControlRpc } from "./role-control-rpc.js";
 import { nativeStandingFullAccess } from "./permission-native-access.js";
 import { DsmmProfileError } from "./profiles.js";
-import { registerLspRuntime } from "./lsp.js";
+import { configureLspLifecycle } from "./lsp.js";
 import { registerAgentPromptScope } from "./agent-prompt-scope.js";
 
 export const name = "dsmm";
@@ -142,7 +142,7 @@ export async function apply(input: DshContext, config: Config = {}, startupOptio
     });
     if (ctx.get("agentPresets") !== undefined) await presets.await();
   }
-  if (startup.settings.modules.deepwork.enabled) await registerLspRuntime(ctx, startup.settings.lsp, getSettings);
+  await configureLspLifecycle(ctx, getSettings);
   lifetime.signal.throwIfAborted();
   const installed = new WeakSet<Context>();
   admission.activate(async (agent, candidate, scope) => {

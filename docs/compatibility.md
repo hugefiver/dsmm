@@ -10,7 +10,7 @@ Official AgentRegistry, SubagentRuntime and JSONL namespace plugins own executio
 
 Native Web surfaces are Plugins bundle configuration, Settings Profiles, the compact Conversation menu and delegation call views. CLI/headless use native deployment and tools; headless doesn't select Agent presets. TUI and Desktop retain their own carriers and exposed UI capabilities; Web controls aren't necessarily exposed in TUI.
 
-`preset-skills` is internal Agent-scoped installation, not a public Loader plugin. DSMM-managed external LSP defaults to disabled. With the Deepwork module and `lsp.enabled` enabled at startup, it uses the trusted Host install anchor to mount the native MCP client; saving a changed configuration does not remount the running bridge. Native DSH LSP and independently configured MCP remain separate. See [LSP boundary](lsp.md).
+`preset-skills` is internal Agent-scoped installation, not a public Loader plugin. The optional `dsmm-lsp` Plugins entry defaults to disabled. On upgrade, enable it once to reuse a previously enabled bridge's connection settings. Only legacy compositions without the entry use `lsp.enabled` at startup. Native DSH LSP and independently configured MCP remain separate. See [LSP boundary](lsp.md).
 
 ### Conversation process summaries
 

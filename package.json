@@ -1,6 +1,6 @@
 {
   "name": "@dsmm/dsmm",
-  "version": "0.3.33",
+  "version": "0.3.34",
   "description": "Native Deepwork roles, routing, profiles, and permission controls for DeepSeek Harness.",
   "author": "Hugefiver",
   "license": "LicenseRef-AAAPL",
@@ -24,6 +24,10 @@
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
   "exports": {
+    "./lsp": {
+      "types": "./lib/lsp-entry.d.ts",
+      "default": "./lib/lsp-entry.js"
+    },
     "./managed-settings": {
       "types": "./lib/managed-settings.d.ts",
       "default": "./lib/managed-settings.js"
