@@ -62,10 +62,9 @@ serially.
 | `frontend` | Real browser deployment/profile/editable-choice flows and native role/native delegation cards, including the actual Gateway-to-DOM observation path. Browser cases require both `DSMM_TEST_DSH_ENTRY` and `DSMM_TEST_PLAYWRIGHT_ENTRY`; `DSMM_TEST_BROWSER_EXECUTABLE` selects an existing browser. |
 | `delivery` | Actual package/frontend materialization and full native/ordinary module delivery. Native cases require an explicit DSH anchor. |
 
-For the focused Host boundary suite, set `DSMM_TEST_DSH_ENTRY` to the installed
-Host's package entry and run `pnpm run test:integration -- host-boundaries` after
-building DSMM. Repeat with the other supported Host anchor for compatibility
-coverage. Fixed-selection-only child and fault-injection cases explicitly skip
+For final acceptance, build the current DSMM changes and exercise the affected behavior on the exact DSH version named as the [current Host acceptance target](roadmap.md#version-policy). Confirm the version of the Host being exercised and report it with the result. If that Host is unavailable or a required case skips, report target acceptance as pending. Run compatibility regression against older Hosts once per change of the declared adaptation target. At all other times, run the affected checks only on the current target.
+
+For the focused Host boundary suite, set `DSMM_TEST_DSH_ENTRY` to that installation's package entry and run `pnpm run test:integration -- host-boundaries`. Fixed-selection-only child and fault-injection cases explicitly skip
 when `agent.model.select` is unavailable. The resolver-free Fake-IP case skips on
 a resolver-capable Host; the existing address-policy/transport tests cover that
 implementation.

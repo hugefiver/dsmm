@@ -35,6 +35,8 @@ pnpm run check:roles
 pnpm pack --pack-destination <approved-output-directory>
 ```
 
+Use the exact DSH version declared under [Roadmap → Version policy](docs/roadmap.md#version-policy) for final Host acceptance. Run compatibility regression against older Hosts once when the declared adaptation target changes. For all other changes, test only the current target. If it is unavailable, report acceptance as pending.
+
 During development and final acceptance, run only the module suites covering the
 change and any affected interfaces. Add the relevant explicit integration group
 when a Host, browser or package-delivery boundary changes. `pnpm test`, CI and the
