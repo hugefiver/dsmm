@@ -9,8 +9,8 @@ export function nativeActivationIdentity(meta: unknown): NativeActivationIdentit
   if (meta === null || typeof meta !== "object" || Array.isArray(meta)) return undefined;
   const value = meta as Record<string, unknown>;
   if (value.kind !== "activation") return undefined;
-  if (typeof value.name === "string" && value.name.trim() !== "") return { kind: "name", value: value.name };
   if (typeof value.subagentId === "string" && value.subagentId.trim() !== "") return { kind: "id", value: value.subagentId };
+  if (typeof value.name === "string" && value.name.trim() !== "") return { kind: "name", value: value.name };
   return undefined;
 }
 

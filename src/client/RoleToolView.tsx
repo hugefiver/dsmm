@@ -1,17 +1,13 @@
 import type { Context } from "@deepseek-ai/cordis";
 import type {} from "@deepseek-ai/dsh-client-locale/client";
 import type {} from "@deepseek-ai/dsh-client-ui-renderer/client";
-import type { ToolCallViewProps } from "@deepseek-ai/dsh-client-ui-tool/client";
-import type { HostObservable, InjectFace, PropsLocale } from "@deepseek-ai/dsh-client-ui-slots";
 import { useState } from "react";
 import { Button, CodeBlock, DisclosureRow, IconAgentPresetOutlineRegular, SegmentedControl, StateDot, TextShimmer } from "@deepseek-ai/dsh-client-ui-primitives";
 import { actualRoleTool, observedRoleTool, preparingRoleTool, requestedRoleTool, roleToolDisplay, roleToolKeys, technicalJsonData, technicalTableRows } from "./RoleToolView-data.js";
 import { ROLE_TOOL_NS, roleToolEn, roleToolZh } from "./RoleToolView-locales.js";
 import { registerNativeToolViews } from "./NativeToolView.js";
-import type { RoleCallObservationController, RoleCallObservationState } from "./role-call-observations.js";
-
-type ObservationInject = { hooks: { roleCalls: HostObservable<RoleCallObservationState> } };
-type Props = ToolCallViewProps & PropsLocale<typeof ROLE_TOOL_NS> & InjectFace<ObservationInject>;
+import { childConversationAction, childConversationInjection, useCardObservation, type ChildConversationCardProps } from "./child-conversation.js";
+import type { RoleCallObservationController } from "./role-call-observations.js";
 const styles = `
 .dsmm-role-tool{min-width:0;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);font-size:14px;line-height:22px}
 .dsmm-role-tool .dsmm-role-heading{color:var(--dsw-alias-label-primary);height:auto;min-height:32px}
@@ -43,13 +39,13 @@ const styles = `
 .dsmm-role-tool :is(button,[role=button],summary):focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:2px}
 `;
 
-export function RoleToolView(props: Props) {
+export function RoleToolView(props: ChildConversationCardProps) {
   const { expanded, toggle } = props.useDisclosure();
   const partial = props.phase === "preparing" ? preparingRoleTool(props.toolName, props.block.args) : undefined;
   const { t } = props;
   const raw = props.phase === "preparing" ? partial!.preview : props.phase === "start" ? props.block.argsRaw : props.block.call?.argsRaw ?? "";
   const requested = partial?.requested ?? requestedRoleTool(props.toolName, raw);
-  const observation = props.useRoleCalls(state => state.calls.get(props.callId));
+  const observation = useCardObservation(props);
   const observationStatus = props.useRoleCalls(state => state.status);
   const observationIssue = props.useRoleCalls(state => state.issue);
   const result = props.phase === "result" ? props.block : undefined;
@@ -66,6 +62,11 @@ export function RoleToolView(props: Props) {
   const actual = persisted?.phase === "settled" ? persisted : observed ?? inactivePersisted;
   const comparison = actual?.routeComparison;
   const target = actual?.role ?? requested.target;
+
+  const receipt = persisted?.phase === "reserved" ? undefined : persisted;
+  const observedChildId = observed?.phase === "reserved" ? undefined : observed?.childId;
+  const openChild = childConversationAction(props.useChildWorkspace(workspace => workspace), props.sessionId, props.useProjection("subagentCatalog"),
+    receipt?.childId, observedChildId, receipt?.childId === undefined ? "unknown" : receipt.mode);
 
   const observedStop = actual?.phase === "settled" ? actual.stopReason : undefined;
   const state = result?.error?.code === "interrupted" || observedStop === "aborted" ? "stopped"
@@ -180,7 +181,7 @@ export function RoleToolView(props: Props) {
     <div className="dsmm-role-actions">
       <StateDot state={stateDotState} />
       <p className="dsmm-role-status" role="status">{t(state)}</p>
-      {props.inspect !== undefined && <Button variant="ghost" size="sm" onClick={props.inspect}>{t("inspect")}</Button>}
+      {openChild !== undefined && <Button variant="ghost" size="sm" onClick={openChild}>{t("openConversation")}</Button>}
     </div>
   </div>;
 }
@@ -192,10 +193,10 @@ export function registerRoleToolViews(ctx: Context, observations: RoleCallObserv
     const style = document.createElement("style"); style.dataset.dsmmRoleToolStyles = ""; style.textContent = styles;
     document.head.append(style); return () => style.remove();
   }, "dsmm: role tool styles");
+  const inject = childConversationInjection(ctx, observations);
   ctx.slots.inject("tool.call.toolview", () => {
-    const disposers = [...Object.keys(roleToolKeys), "dsmm_role", "dsmm_category"].map(key => ctx.slots.register({ name: "tool.call.toolview", key, locale: ROLE_TOOL_NS,
-      inject: sessionId => ({ hooks: { roleCalls: observations.source(sessionId) } }) }, RoleToolView));
-    disposers.push(registerNativeToolViews(ctx, observations));
+    const disposers = [...Object.keys(roleToolKeys), "dsmm_role", "dsmm_category"].map(key => ctx.slots.register({ name: "tool.call.toolview", key, locale: ROLE_TOOL_NS, inject }, RoleToolView));
+    disposers.push(registerNativeToolViews(ctx, inject));
     return () => { for (const dispose of disposers.reverse()) dispose(); };
   });
 }

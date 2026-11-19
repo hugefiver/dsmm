@@ -8,6 +8,8 @@ import { build } from "esbuild";
 import { createElement, isValidElement } from "react";
 import type { ReactNode } from "react";
 import type { ToolCallViewProps } from "@deepseek-ai/dsh-client-ui-tool/client";
+import type { SessionTarget } from "@deepseek-ai/dsh-api-session-controller/client";
+import type { RoleCallObservation } from "../src/role-control-types.ts";
 import { roleToolEn, roleToolZh } from "../src/client/RoleToolView-locales.ts";
 
 test("native lazy argument reads update requested labels and preserve dispatched, result and replay detail", async () => {
@@ -41,10 +43,17 @@ test("native lazy argument reads update requested labels and preserve dispatched
     return typeof tree.type === "function" ? text((tree.type as (props: unknown) => unknown)(tree.props)) : text(tree.props.children);
   };
   const args = new PartialArguments(); let inspect = 0;
-  const emptyObservation = { sessionId: "root", status: "live" as const, calls: new Map() };
-  const common = { toolName: "dsmm_role", callId: "stream-call", useDisclosure: () => ({ expanded: true, setExpanded() {}, toggle() {} }),
+  const opened: SessionTarget[] = [];
+  const workspace = { openSession: (target: SessionTarget) => { opened.push(target); } };
+  const emptyObservation = { sessionId: "root", status: "live" as const, calls: new Map<string, RoleCallObservation>() };
+  const common = { toolName: "dsmm_role", callId: "stream-call", sessionId: "root", useDisclosure: () => ({ expanded: true, setExpanded() {}, toggle() {} }),
     useRoleCalls: <T,>(selector: (state: typeof emptyObservation) => T) => selector(emptyObservation),
+    useChildWorkspace: <T,>(selector: (value: typeof workspace) => T) => selector(workspace), useProjection: () => undefined,
     inspect: () => { inspect++; }, t: (key: keyof typeof roleToolEn) => roleToolEn[key] };
+  const action = (row: { props: { children: unknown[] } }, label: string) => row.props.children.find(
+    (node): node is React.ReactElement<{ children: string; onClick(): void }> =>
+      isValidElement<{ children: string; onClick(): void }>(node) && node.props.children === label);
+  const openRole = (tree: ReturnType<typeof module.exports.RoleToolView>) => action(tree.props.children[1], roleToolEn.openConversation);
   const render = (stage: ToolCallViewProps["phase"], block: object) => module.exports.RoleToolView({ ...common, phase: stage, block } as Parameters<typeof module.exports.RoleToolView>[0]);
   const block = { phase: "preparing", name: "dsmm_role", callId: common.callId, args, subCalls: [] };
   const heading = (tree: ReturnType<typeof module.exports.RoleToolView>): string => tree.props.children[0].props.title;
@@ -93,15 +102,32 @@ test("native lazy argument reads update requested labels and preserve dispatched
     assert.match(rendered, /args\.role/u);
     assert.match(rendered, /meta\.routeSource/u);
     assert.match(rendered, /primary/u);
-    const inspectBtn = tree.props.children[1].props.children.find((c: any) => c?.props?.children === roleToolEn.inspect);
-    assert.ok(inspectBtn); inspectBtn.props.onClick();
+    assert.equal(openRole(tree), undefined);
   }
-  assert.equal(inspect, 2);
+  assert.equal(openRole(startTree), undefined);
+  assert.equal(openRole(render("result", { ...result, meta: { childId: "forged", mode: "continuable" } })), undefined);
+  const confirmed = { ...result, meta: { ...result.meta, childId: "role-child", jobId: "role-job" } };
+  openRole(render("result", confirmed))?.props.onClick();
+  assert.deepEqual(opened, [{ parentSessionId: "root", childSessionId: "role-child", mode: "one-shot" }]);
+  assert.equal(inspect, 0);
+  assert.equal(openRole(render("result", { ...confirmed, isError: true })), undefined);
+  assert.equal(openRole(render("result", { ...confirmed, meta: { ...confirmed.meta, phase: "reserved" } })), undefined);
+  assert.equal(openRole(render("result", { ...result, meta: { ...result.meta, jobId: "role-job" } })), undefined);
+  assert.equal(openRole(module.exports.RoleToolView({ ...common, useChildWorkspace: () => undefined,
+    phase: "result", block: confirmed } as Parameters<typeof module.exports.RoleToolView>[0])), undefined);
   const nativeView = () => createElement("native-original");
   const nativeT = (key: string) => key;
+  const renderNative = (record: object, overrides: object = {}) => module.exports.NativeToolView({
+    ...common, toolName: "subagent", nativeView, nativeT, phase: "result", block: record, ...overrides,
+  } as Parameters<typeof module.exports.NativeToolView>[0]);
+  const openNative = (tree: ReturnType<typeof renderNative>) => {
+    const card = tree.props.children[1];
+    return card ? action(card.props.children[1], roleToolEn.openConversation) : undefined;
+  };
   for (const record of [result, { ...result, isError: true, error: { code: "interrupted" } },
     { ...result, meta: { kind: "activation", name: "native-worker" } }]) {
-    const native = module.exports.NativeToolView({ ...common, toolName: "subagent", nativeView, nativeT, phase: "result", block: record } as Parameters<typeof module.exports.NativeToolView>[0]);
+    const native = renderNative(record);
+    assert.equal(openNative(native), undefined);
     const original = native.props.children[0];
     assert.equal(original.type, nativeView);
     assert.equal(original.props.block, record, "the native presenter receives the entire original result including non-text output");
@@ -160,6 +186,35 @@ test("native lazy argument reads update requested labels and preserve dispatched
   assert.match(text(observedTree), /Initial: fixture\/initial · max/u);
   assert.match(text(observedTree), /Actual: fixture\/fallback · effort not reported/u);
   assert.doesNotMatch(text(observedTree), /Actual: fixture\/fallback · off/u);
+  openRole(observedTree)?.props.onClick();
+  assert.deepEqual(opened.at(-1), { parentSessionId: "root", childSessionId: "child", mode: "unknown" });
+  const withRoleObservation = (call: RoleCallObservation, record = confirmed) => module.exports.RoleToolView({ ...common,
+    useRoleCalls: (select: (state: typeof emptyObservation) => unknown) => select({ ...emptyObservation, calls: new Map([[common.callId, call]]) }),
+    phase: "result", block: record } as Parameters<typeof module.exports.RoleToolView>[0]);
+  assert.equal(openRole(withRoleObservation(observedCall)), undefined, "conflicting ids do not navigate");
+  assert.equal(openRole(withRoleObservation({ ...observedCall, parentSessionId: "other-parent" }, result)), undefined);
+  assert.equal(openRole(withRoleObservation({ ...observedCall, callId: "other-call" }, result)), undefined);
+  assert.equal(openRole(withRoleObservation({ ...observedCall, phase: "reserved" }, result)), undefined);
+
+  const nativeReceipt = { ...result, meta: { kind: "activation", subagentId: "native-child" } };
+  const local = (mode: "one-shot" | "continuable" | "external" | "unknown") => () => [{ id: "native-child", mode, label: "native-worker" }];
+  assert.equal(openNative(renderNative(nativeReceipt)), undefined, "the native receipt needs local catalog membership");
+  assert.equal(openNative(renderNative(nativeReceipt, { useProjection: local("external") })), undefined);
+  assert.equal(openNative(renderNative({ ...nativeReceipt, meta: { kind: "activation", name: "native-worker" } }, { useProjection: local("one-shot") })), undefined);
+  openNative(renderNative(nativeReceipt, { toolName: "subagent_fork", useProjection: local("unknown") }))?.props.onClick();
+  assert.deepEqual(opened.at(-1), { parentSessionId: "root", childSessionId: "native-child", mode: "unknown" });
+  const nativeObservation = { ...observedCall, kind: "native", toolName: "subagent", nativeName: "native-worker", childId: "native-child",
+    initialRoute: { status: "unknown", reason: "missing-invocation-capture" } } as const;
+  const withNativeObservation = (call: RoleCallObservation) => ({
+    useProjection: local("one-shot"),
+    useRoleCalls: (select: (state: typeof emptyObservation) => unknown) => select({ ...emptyObservation, calls: new Map([[common.callId, call]]) }),
+  });
+  const nativeResultWithoutMeta = { ...result, meta: undefined };
+  openNative(renderNative(nativeResultWithoutMeta, withNativeObservation(nativeObservation)))?.props.onClick();
+  assert.deepEqual(opened.at(-1), { parentSessionId: "root", childSessionId: "native-child", mode: "one-shot" });
+  assert.equal(openNative(renderNative({ ...nativeResultWithoutMeta, isError: true }, withNativeObservation(nativeObservation))), undefined);
+  assert.equal(openNative(renderNative(nativeReceipt, withNativeObservation({ ...nativeObservation, childId: "different-child" }))),
+    undefined, "a same-call native observation cannot contradict the activation receipt");
   const invalidatedCall = { ...observedCall, actualRoute: { status: "unknown", reason: "not-observed" } } as const;
   const invalidatedState = { ...observedState, status: "unavailable" as const, calls: new Map([[common.callId, invalidatedCall]]) };
   const invalidatedTree = module.exports.RoleToolView({ ...common,
@@ -212,7 +267,7 @@ test("native lazy argument reads update requested labels and preserve dispatched
 
   const registrations: Array<{ options: { key: string; inject(sessionId: string): { hooks: { roleCalls: object } } }; component: unknown }> = [];
   const sharedSource = { getSnapshot: () => observedState, subscribe: () => () => {} };
-  module.exports.registerRoleToolViews({ effect() {}, locale: { register() {} }, slots: {
+  module.exports.registerRoleToolViews({ effect() {}, inject() {}, locale: { register() {} }, slots: {
     inject(_name: string, install: () => void) { install(); },
     entries() { return []; }, subscribe() { return () => {}; },
     register(options: { key: string; inject(sessionId: string): { hooks: { roleCalls: object } } }, component: unknown) {

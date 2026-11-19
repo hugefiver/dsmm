@@ -12,21 +12,30 @@ import { THEME_CLIENT_IDS } from "../scripts/profile-ui-harness-server.mjs";
 const available = process.env.DSMM_TEST_DSH_ENTRY && process.env.DSMM_TEST_PLAYWRIGHT_ENTRY;
 const nativeIds = ["@deepseek-ai/dsh-client-modules", "@deepseek-ai/dsh-client-connection", "@deepseek-ai/dsh-client-locale", "@deepseek-ai/dsh-client-ui-renderer", "@deepseek-ai/dsh-typert-registry", "@deepseek-ai/dsh-api-gateway", "@deepseek-ai/dsh-client-ui-tool", "@deepseek-ai/dsh-client-file-upload", "@deepseek-ai/dsh-api-session-controller", ...THEME_CLIENT_IDS];
 
-// The installed ToolCallTree and Slot renderer are unchanged. Only their session
-// source and transcript records are fixture data; no Host or provider is started.
+// The installed ToolCallTree and Slot renderer are unchanged; the composition
+// supplies the session, projection, and workspace navigation boundaries.
 const composition = `window.__ModuleLoader__.load({id:${JSON.stringify(COMPOSITION_ID)},factory(require){
   const React=require('react');
   const {installConnection}=require('@deepseek-ai/dsh-client-connection/client');
   const {LocaleRuntime}=require('@deepseek-ai/dsh-client-locale/client');
-  const {PartialArguments,en,zh}=require('dsmm-test-arguments');
+  const {PartialArguments}=require('dsmm-test-arguments');
+  const en={'detail.field.task':'Task','row.inspect':'Inspect'},zh={'detail.field.task':'任务内容','row.inspect':'查看'};
   const source=value=>{const listeners=new Set();return {getSnapshot:()=>value,subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn)},set:next=>{value=next;listeners.forEach(fn=>fn())}}};
   return {inject:['slots'],apply(ctx){
     installConnection(ctx,{interactions:'answer',transport:{rpc:window.__dsmmOwnedCarrier,ownsHost:true}});
     const locale=new LocaleRuntime(ctx,undefined,{languages:['en','zh'],preference:'en'});
     ctx.provide('locale',locale);ctx.slots.installLocale(locale);
     locale.register('conversation',{en,zh});
-    const binding=source({key:'owned-role-tool-session',ctx,hooks:{},keyedHooks:{},props:{sessionId:'owned-role-tool-session'}});
+    const catalogs=new Map();
+    const catalogOf=sessionId=>{
+      if(!catalogs.has(sessionId))catalogs.set(sessionId,source(undefined));
+      return catalogs.get(sessionId);
+    };
+    const sessionBinding=sessionId=>({key:sessionId,ctx,hooks:{},keyedHooks:{projection:key=>key==='subagentCatalog'?catalogOf(sessionId):undefined},props:{sessionId}});
+    const binding=source(sessionBinding('owned-role-tool-session'));
     ctx.slots.installScope('session',{current:binding,bindingSource:()=>binding,renderArea:(_binding,props)=>props.children});
+    const selected=source({childSessionId:'independent-selection'});
+    const opened=[];
     let preparingArgs=new PartialArguments();
     const transcript=source({phase:'preparing',name:'dsmm_role',callId:'role-call',args:preparingArgs,subCalls:[]});
     let inspectIds=[];
@@ -35,10 +44,11 @@ const composition = `window.__ModuleLoader__.load({id:${JSON.stringify(COMPOSITI
     function useDisclosure(){const [expanded,setExpanded]=React.useState(false);return {expanded,setExpanded,toggle:()=>setExpanded(value=>!value)}}
     function Surface({renderSlot}){
       const root=React.useSyncExternalStore(transcript.subscribe,transcript.getSnapshot);
+      const target=React.useSyncExternalStore(selected.subscribe,selected.getSnapshot);
       return React.createElement('main',{style:{padding:'24px',minWidth:0}},renderSlot('conversation.chat.node',{
          node:{kind:'tool-call',key:'owned-tool-node',data:{root}},cwd:'/workspace',
         openFile:()=>{},loadImage:async()=>undefined,inspectCall:id=>inspectIds.push(id),useDisclosure
-      },{entryKey:'tool-call'}));
+      },{entryKey:'tool-call'}),React.createElement('output',{'aria-label':'Selected conversation'},target.childSessionId));
     }
     ctx.slots.register({name:'root',children:{'conversation.chat.node':{kind:'keyed',scope:'session'}}},Surface);
     window.__dsmmUiContext=ctx;
@@ -57,7 +67,10 @@ const composition = `window.__ModuleLoader__.load({id:${JSON.stringify(COMPOSITI
       inspectIds:()=>inspectIds,
       locale(value){locale.setLocale(value)},
       slots:()=>ctx.slots.snapshot(),
-      session(sessionId){binding.set({key:sessionId,ctx,hooks:{},keyedHooks:{},props:{sessionId}})},
+      session(sessionId){binding.set(sessionBinding(sessionId))},
+      catalog(sessionId,rows){catalogOf(sessionId).set(rows)},
+      enableNavigation(){ctx.provide('uiWorkspace',{openSession(target){opened.push(target);selected.set(target)}})},
+      opened:()=>opened,
     };
     document.body.style.overflow='auto';document.getElementById('root').style.height='auto';
   }};
@@ -85,7 +98,7 @@ async function serve(sdk, bundle, argumentsBundle) {
   bundles.set("/bundles/composition.js", Buffer.from(composition));
   rows.push({ id: COMPOSITION_ID, url: "/bundles/composition.js", inject: ["@deepseek-ai/dsh-client-ui-renderer", "dsmm-test-arguments"], external: ["@deepseek-ai/dsh-client-connection/client", "@deepseek-ai/dsh-client-locale/client"] });
   bundles.set("/bundles/adapter.js", Buffer.from(bundle));
-  rows.push({ id: "@dsmm/dsmm", url: "/bundles/adapter.js", inject: ["@deepseek-ai/dsh-client-ui-tool", COMPOSITION_ID] });
+  rows.push({ id: "@dsmm/dsmm", url: "/bundles/adapter.js", inject: ["@deepseek-ai/dsh-client-ui-tool", COMPOSITION_ID], external: ["@deepseek-ai/dsh-api-gateway/client"] });
   const graph = createBootGraph(rows, "role-tool-owned-source");
   const bootstrap = `${bootstrapFacade()}
     const createModules=window.__ModuleLoader__.create;
@@ -162,16 +175,16 @@ test("role adapter preserves the native ToolCall owner through pending, result a
         };
         ctx.effect(()=>()=>{unbind();controller.dispose();delete window.__roleObservation});
       }
-    `, loader: "tsx", resolveDir: join(owned, "src/client") }, bundle: true, write: false, platform: "browser", format: "cjs", target: "es2022", jsx: "automatic", external: ["react", "react/jsx-runtime", "@deepseek-ai/dsh-client-ui-primitives"],
+    `, loader: "tsx", resolveDir: join(owned, "src/client") }, bundle: true, write: false, platform: "browser", format: "cjs", target: "es2022", jsx: "automatic", external: ["react", "react/jsx-runtime", "@deepseek-ai/dsh-client-ui-primitives", "@deepseek-ai/dsh-api-gateway/client"],
       nodePaths,
       banner: { js: 'window.__ModuleLoader__.load({id:"@dsmm/dsmm",factory:(require)=>{const module={exports:{}};const exports=module.exports;' }, footer: { js: "return module.exports;}});" } });
     // Bundle the browser-safe helper separately to exercise its real shared schema.
     const dataOutput = await build({ entryPoints: [join(owned, "src/client/RoleToolView-data.ts")], bundle: true, write: false, platform: "browser", format: "esm", nodePaths });
     await writeFile(join(owned, "data.mjs"), dataOutput.outputFiles[0].text, "utf8");
     const data = await import(pathToFileURL(join(owned, "data.mjs")).href);
-    const argumentsBundle = await build({ stdin: { contents: `export {PartialArguments} from ${JSON.stringify(sdk.resolve('@deepseek-ai/dsh-util-values'))}; export {en,zh} from ${JSON.stringify(sdk.resolve('@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'))};`, loader:'ts', resolveDir:owned }, bundle: true, write: false, platform: 'browser', format: 'cjs', target: 'es2022',
+    const argumentsBundle = await build({ stdin: { contents: `export {PartialArguments} from ${JSON.stringify(sdk.resolve('@deepseek-ai/dsh-util-values'))};`, loader:'ts', resolveDir:owned }, bundle: true, write: false, platform: 'browser', format: 'cjs', target: 'es2022',
       banner: { js: 'window.__ModuleLoader__.load({id:"dsmm-test-arguments",factory:(require)=>{const module={exports:{}};const exports=module.exports;' }, footer: { js: 'return module.exports;}});' } });
-    const meta = { role: "dsmm-reviewer", label: "real invocation", level: "high", routeSource: "primary", mode: "one-shot", route: { provider: "fixture", model: "model-a", reasoningEffort: "exact" } };
+    const meta = { role: "dsmm-reviewer", label: "real invocation", level: "high", routeSource: "primary", mode: "one-shot", childId: "review-child", route: { provider: "fixture", model: "model-a", reasoningEffort: "exact" } };
     assert.equal(data.actualRoleTool("dsmm_role", meta, false)?.role, "dsmm-reviewer");
     for (const invalid of [{ ...meta, label: "x".repeat(121) }, { invocation: meta }, { ...meta, level: "invalid" }, { ...meta, role: "dsmm-orchestrator" }]) assert.equal(data.actualRoleTool("dsmm_role", invalid, false), undefined);
     assert.equal(data.actualRoleTool("dsmm_role", meta, true), undefined);
@@ -212,6 +225,16 @@ test("role adapter preserves the native ToolCall owner through pending, result a
     const evidence = process.env.DSMM_ROLE_TOOL_EVIDENCE_DIR;
     if(evidence)await mkdir(evidence,{recursive:true});
     const card = page.locator('[data-dsmm-role-tool="dsmm_role"]');
+    const navigationButton = card => card.getByRole('button', {name:'Open child conversation',exact:true});
+    const navigate = async (card, childSessionId, mode, parentSessionId = 'owned-role-tool-session', keyboard = false) => {
+      const button = navigationButton(card);
+      const before = await page.evaluate(() => window.__roleTool.opened().length);
+      if (keyboard) { await button.focus(); await page.keyboard.press('Enter'); }
+      else await button.click();
+      assert.equal(await page.getByLabel('Selected conversation').innerText(), childSessionId);
+      const opened = await page.evaluate(() => window.__roleTool.opened());
+      assert.deepEqual(opened.slice(before), [{parentSessionId, childSessionId, mode}]);
+    };
     try { await card.waitFor({ timeout: 10_000 }); }
     catch (error) {
       console.error(await page.evaluate(() => ({ text: document.body.innerText, slots: JSON.stringify(window.__dsmmUiContext?.slots.snapshot()), slotErrors: window.__roleSlotErrors, modules: window.__dsmmNativeModules?.entries.state.getSnapshot(), imports: [...(window.__dsmmNativeModules?.loadCache.keys() ?? [])] })), errors);
@@ -249,10 +272,13 @@ test("role adapter preserves the native ToolCall owner through pending, result a
     assert.doesNotMatch(await card.innerText(), /transport\/internal/u);
     assert.equal(await page.evaluate(() => window.__roleObservation.opens()), 2);
     assert.equal(await card.getByRole("button", { name: /Call Builder[\s\S]*pretend to be Oracle max/u }).count(), 1);
-    await card.getByRole("button", { name: "View call details", exact: true }).click();
-    assert.deepEqual(await page.evaluate(() => window.__roleTool.inspectIds()), ["role-call"]);
+    assert.equal(await navigationButton(card).count(), 0);
     await page.evaluate(value => window.__roleTool.result(value), meta);
     await page.waitForFunction(() => document.querySelector('[data-dsmm-role-tool]')?.getAttribute('data-identity') === 'actual');
+    assert.equal(await navigationButton(card).count(), 0, 'a confirmed child cannot navigate before the service is available');
+    await page.evaluate(() => window.__roleTool.enableNavigation());
+    await navigationButton(card).waitFor();
+    await navigate(card, 'review-child', 'one-shot', 'owned-role-tool-session', true);
     assert.equal(await card.getByRole("button", { name: /Call Reviewer[\s\S]*pretend to be Oracle max/u }).count(), 1);
     await card.getByRole("table").waitFor();
     assert.match(await card.innerText(), /primary/u);
@@ -391,10 +417,12 @@ test("role adapter preserves the native ToolCall owner through pending, result a
     await page.evaluate(() => window.__roleTool.replay());
     await page.locator('[data-chat-call-id="replayed-call"]').waitFor();
     assert.equal(await card.getAttribute("data-identity"), "actual");
+    await navigate(card, 'review-child', 'one-shot');
     for (const [invalid, options, expected] of [[meta, { isError: true, error: { name: "Error", code: "failed", reason: "original failure" } }, "error"], [undefined, {}, "result"], [{ ...meta, label: "x".repeat(121) }, {}, "result"], [meta, { isError: true, error: { name: "AbortError", code: "interrupted", reason: "original interrupt" } }, "stopped"]]) {
       await page.evaluate(({ value, options }) => window.__roleTool.result(value, options), { value: invalid, options });
       await page.waitForFunction(expected => document.querySelector('[data-dsmm-role-tool]')?.getAttribute('data-state') === expected, expected);
       assert.equal(await card.getAttribute("data-identity"), "requested");
+      assert.equal(await navigationButton(card).count(), 0);
       assert.equal(await card.getByRole("button", { name: /Builder/u }).count(), 1);
       if (options.error) {
         if (await card.getByText("Error details", { exact: true }).count() === 0) await card.getByRole("button", { name: /Builder/u }).click();
@@ -408,8 +436,10 @@ test("role adapter preserves the native ToolCall owner through pending, result a
     assert.equal(await card.getAttribute("data-state"), "background");
     assert.match(await card.innerText(), /Background/u);
     await page.evaluate(() => { window.__roleTool.partial('{"category":"dsmm-creative","description":"claims planner"}'); window.__roleTool.result({ role:'dsmm-creative',label:'creative',level:'normal',routeSource:'inherited',mode:'continuable',childId:'owned-child' },{name:'dsmm_category'}); });
-    await page.locator('[data-dsmm-role-tool="dsmm_category"]').waitFor();
-    assert.equal(await page.locator('[data-dsmm-role-tool]').getByRole("button", { name: /Creative/u }).count(), 1);
+    const categoryCard = page.locator('[data-dsmm-role-tool="dsmm_category"]');
+    await categoryCard.waitFor();
+    await navigate(categoryCard, 'owned-child', 'continuable');
+    assert.equal(await categoryCard.getByRole("button", { name: /Creative/u }).count(), 1);
     await page.evaluate(() => { window.__roleTool.partial('{"category":"dsmm-coding"}'); window.__roleTool.result({ role:'dsmm-coding',label:'coding',level:'normal',routeSource:'inherited',mode:'one-shot' },{name:'dsmm_category'}); });
     const coding = page.locator('[data-dsmm-role-tool="dsmm_category"]').getByRole("button", { name: "Call Coding", exact: true });
     await coding.waitFor();
@@ -427,11 +457,9 @@ test("role adapter preserves the native ToolCall owner through pending, result a
     assert.equal(await page.locator('[data-chat-call-id="owned-subcall"] [data-dsmm-role-tool="dsmm_planner"]').getAttribute("data-identity"), "requested");
     await page.locator('[data-chat-call-id="owned-subcall"]').getByRole("button", { name: "Call Planner", exact: true }).waitFor();
     if (evidence) await page.screenshot({ path: join(evidence, "native-role-tool-ptc-subcall.png"), fullPage: true });
-    const nativeToolNames = await page.evaluate(() => window.__dsmmUiContext.slots.entriesOfSlot('tool.call.toolview').map(entry=>entry.options.key).filter(key=>key==='subagent'||key==='subagent_fork'));
-    assert.ok(nativeToolNames.includes('subagent'));
     const nativeLabels = await page.evaluate(() => window.__roleTool.nativeLabels);
-    for (const toolName of nativeToolNames) {
-      await page.evaluate(name => { window.__roleTool.partial(JSON.stringify({description:'ordinary native task',prompt:'native original prompt',role:'dsmm-oracle',level:'max'})); window.__roleTool.start(name); }, toolName);
+    for (const toolName of ['subagent', 'subagent_fork']) {
+      await page.evaluate(name => { window.__roleTool.catalog('owned-role-tool-session', undefined); window.__roleTool.partial(JSON.stringify({description:'ordinary native task',prompt:'native original prompt',role:'dsmm-oracle',level:'max'})); window.__roleTool.start(name); }, toolName);
       assert.equal(await page.locator('[data-dsmm-native-tool]').count(), 0, 'before an exact receipt only the native presentation renders');
       const nativeRow = page.locator('[data-chat-call-id="role-call"]');
       assert.ok((await nativeRow.innerText()).length > 0);
@@ -458,6 +486,11 @@ test("role adapter preserves the native ToolCall owner through pending, result a
       await page.waitForFunction(() => document.querySelector('[data-dsmm-native-tool]')?.getAttribute('data-state') === 'running');
       assert.match(await nativeCard.innerText(), /fixture\/native-model · effort not reported/u);
       assert.match(await nativeCard.innerText(), /native-child/u);
+      assert.equal(await navigationButton(nativeCard).count(), 0, 'the observation alone does not prove a local native child');
+      await page.evaluate(() => window.__roleTool.catalog('owned-role-tool-session', [{id:'native-child',mode:'external'}]));
+      assert.equal(await navigationButton(nativeCard).count(), 0);
+      await page.evaluate(() => window.__roleTool.catalog('owned-role-tool-session', [{id:'native-child',mode:'unknown'}]));
+      await navigate(nativeCard, 'native-child', 'unknown');
       for (const width of [375,768,1280]) {
         await page.setViewportSize({width,height:900});
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `native ${toolName} reflow ${width}`);
@@ -481,6 +514,12 @@ test("role adapter preserves the native ToolCall owner through pending, result a
       await page.evaluate(() => window.__roleTool.replay());
       await page.locator('[data-chat-call-id="replayed-call"]').waitFor();
       assert.equal(await nativeCard.getAttribute('data-state'),'accepted','replay without lifecycle evidence retains the receipt only');
+      assert.equal(await navigationButton(nativeCard).count(), 0, 'a named receipt cannot navigate without same-call correlation');
+      await page.evaluate(name => {
+        window.__roleTool.result({kind:'activation',subagentId:'native-child'}, {name});
+        window.__roleTool.replay();
+      }, toolName);
+      await navigate(nativeCard, 'native-child', 'unknown');
       for(const code of ['failed','interrupted']) {
         await page.evaluate(({name,code})=>window.__roleTool.result(undefined,{name,isError:true,error:{name:'Error',code,reason:'native original failure'}}),{name:toolName,code});
         assert.equal(await page.locator('[data-dsmm-native-tool]').count(),0,'failed native calls keep their original presenter');
@@ -523,15 +562,21 @@ test("role adapter preserves the native ToolCall owner through pending, result a
     const receipt = await executeFixtureTool(parent.ctx.tools,{agent:parent,name:toolName,callId:ToolCallId('role-call'),arguments:nativeArgs,signal:new AbortController().signal});
     assert.equal(receipt.isError,false);
     await entered.promise;
-    assert.equal(receipt.meta?.kind,'activation','the native presenter requires a public activation receipt');
-    assert.equal(typeof receipt.meta?.name,'string','this integration exercises the named native Host');
+    const activation = receipt.value ?? receipt.meta;
+    assert.equal(activation?.kind,'activation');
+    assert.ok(typeof activation.subagentId === 'string' || typeof activation.name === 'string');
     await page.evaluate(({value,toolName})=>window.__roleTool.result(value.meta,{name:toolName,content:value.content}),{value:receipt,toolName});
     const realCard = page.locator(`[data-dsmm-native-tool="${toolName}"]`);
     try { await page.waitForFunction(()=>document.querySelector('[data-dsmm-native-tool]')?.getAttribute('data-state')==='running'); assert.equal(await realCard.getAttribute('data-state'),'running'); }
     catch(error) { console.error({nativeRequests,receipt,dom:await page.locator('body').innerText(),slotErrors:await page.evaluate(()=>window.__roleSlotErrors),source:await page.evaluate(id=>window.__roleObservation.snapshot(id),parent.id),oldSource:await page.evaluate(()=>window.__roleObservation.snapshot('owned-role-tool-session'))});throw error; }
     const realToggle = realCard.getByRole('button').first();
     if(await realToggle.getAttribute('aria-expanded')!=='true')await realToggle.click();
-    const childId = await nativeBackend.subagents.resolveName(parent,receipt.meta.name,new AbortController().signal);
+    const childId = activation.subagentId ?? await nativeBackend.subagents.resolveName(parent,activation.name,new AbortController().signal);
+    const catalog = await nativeBackend.subagents.listChildren(parent.id, new AbortController().signal);
+    const childEntry = catalog.find(entry => entry.id === childId);
+    assert.ok(childEntry);
+    await page.evaluate(({parentId,catalog}) => window.__roleTool.catalog(parentId,catalog), {parentId:parent.id,catalog});
+    await navigate(realCard, childId, childEntry.mode, parent.id);
     const child = nativeBackend.agents.get(childId);
     const inheritedEventCount = child.session.inheritedEventCount;
     const childEvents = child.session.snapshotEvents();
@@ -551,7 +596,7 @@ test("role adapter preserves the native ToolCall owner through pending, result a
     assert.ok(ownHeader.seq>=inheritedEventCount);
     const observed = (await page.evaluate(id=>window.__roleObservation.snapshot(id),parent.id)).calls.find(([id])=>id==='role-call')[1];
     assert.equal(observed.provider,provider);
-    assert.equal(observed.nativeName,receipt.meta.name);
+    assert.equal(observed.nativeName,activation.name);
     assert.equal(observed.childId,childId);
     assert.equal(observed.actualRoute.source,'own-native-request-header');
     assert.equal(observed.actualRoute.route.provider,ownHeader.data.header.config.provider);
@@ -560,7 +605,11 @@ test("role adapter preserves the native ToolCall owner through pending, result a
     await realCard.getByText(new RegExp(`${ownHeader.data.header.config.provider}/${ownHeader.data.header.config.model}`,'u')).waitFor();
     assert.match(await realCard.innerText(),new RegExp(childId,'u'));
     await page.evaluate(()=>window.__roleObservation.disconnect());
-    await realCard.locator('[data-observation-status="unavailable"]').waitFor();
+    if (receipt.meta?.kind === 'activation') await realCard.locator('[data-observation-status="unavailable"]').waitFor();
+    else {
+      await realCard.waitFor({state:'hidden'});
+      await page.locator('[data-chat-call-id="role-call"]').waitFor();
+    }
     assert.equal(nativeBackend.agents.get(childId)?.status,'running','disposing the browser observer does not cancel native work');
     await page.evaluate(()=>window.__roleObservation.reconnect());
     await realCard.locator('[data-observation-status="live"]').waitFor();
