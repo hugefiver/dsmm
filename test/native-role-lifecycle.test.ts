@@ -110,6 +110,8 @@ test("native background activation returns accepted identity and survives caller
     f.adapter.beforeStream = async (options) => { entered(); await new Promise<void>((done) => options.signal!.addEventListener("abort", () => done(), { once: true })); };
     const result = await tools.execute({ agent: parent, name: "dsmm_category", callId: ToolCallId("native-background"), arguments: { category: "dsmm-coding", description: "Owned native background", prompt: "Return useful background result", run_in_background: true }, signal: caller.signal });
     assert.equal(result.isError, false, JSON.stringify(result)); await started;
+    const receipt = result.value as { subagentId: string; name?: string };
+    assert.deepEqual(result.content, [{ type: "text", text: `accepted subagent ${receipt.name ?? receipt.subagentId}` }]);
     const child = f.agents.list().find(agent => f.agents.isOwnedBy(agent.id, parent))!;
     assert.ok(child); assert.match(JSON.stringify(result.value), new RegExp(child.id));
     caller.abort(); assert.equal(f.adapter.calls[0].signal?.aborted, false);

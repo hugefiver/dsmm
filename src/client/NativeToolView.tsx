@@ -2,7 +2,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import type { ToolCallViewProps } from "@deepseek-ai/dsh-client-ui-tool/client";
 import type { PropsLocale, StoredEntry } from "@deepseek-ai/dsh-client-ui-slots";
 import type { ComponentType } from "react";
-import { Button, DisclosureRow, IconAgentPresetOutlineRegular, StateDot } from "@deepseek-ai/dsh-client-ui-primitives";
+import { DisclosureRow, IconAgentPresetOutlineRegular, StateDot } from "@deepseek-ai/dsh-client-ui-primitives";
 import { nativeActivationIdentity, observedNativeTool } from "./NativeToolView-data.js";
 import { childConversationAction, useCardObservation, type childConversationInjection, type ChildConversationCardProps } from "./child-conversation.js";
 import { ROLE_TOOL_NS } from "./RoleToolView-locales.js";
@@ -32,9 +32,10 @@ export function NativeToolView(props: Props) {
   const observedChildId = (receiptChildId === undefined ? actual : nativeCall)?.childId;
   const openChild = childConversationAction(useChildWorkspace(workspace => workspace), props.sessionId, props.useProjection("subagentCatalog"),
     receiptChildId, observedChildId);
+  const nativeTranslate: NativeProps["t"] = openChild === undefined ? nativeT : (key, params) => key === "row.inspect" ? t("openConversation") : nativeT(key, params);
 
   return <>
-    <NativeView {...nativeProps} t={nativeT} />
+    <NativeView {...nativeProps} inspect={openChild ?? nativeProps.inspect} t={nativeTranslate} />
     {identity !== undefined && <div className="dsmm-role-tool" data-dsmm-native-tool={props.toolName} data-state={state} data-identity="native">
       <DisclosureRow title={`${t("nativeAgent")} · ${identity.value}`} titleClassName="dsmm-role-summary" rowClassName="dsmm-role-heading"
         icon={<IconAgentPresetOutlineRegular size={14} className="dsmm-role-icon" />}
@@ -52,7 +53,6 @@ export function NativeToolView(props: Props) {
       <div className="dsmm-role-actions">
         <StateDot state={state === "error" ? "error" : state === "stopped" ? "warning" : state === "completed" ? "done" : state === "running" ? "ongoing" : "idle"} />
         <p className="dsmm-role-status" role="status">{t(state)}</p>
-        {openChild !== undefined && <Button variant="ghost" size="sm" onClick={openChild}>{t("openConversation")}</Button>}
       </div>
     </div>}
   </>;

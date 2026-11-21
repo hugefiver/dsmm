@@ -177,12 +177,9 @@ function registerRoleTool(agent: DshAgent, ctx: Context, tools: ToolRuntime, ent
       ] as const } } : {}),
       ...(background ? { run_in_background: { type: "boolean" as const } } : {}) },
     output: { schema: { type: "json" }, render(_args, value) {
-      const result = value as unknown as { kind: string; name?: string; subagentId?: string; invocation?: { role: string; level: string; route?: { provider: string; model: string; reasoningEffort?: string } }; output?: ContentBlock[] };
-      const invocation = result.invocation;
-      const route = invocation?.route;
-      const metadata = invocation === undefined ? "" : `${invocation.role} level=${invocation.level}${route === undefined ? "" : ` route=${route.provider}/${route.model}${route.reasoningEffort === undefined ? "" : ` effort=${route.reasoningEffort}`}`}`;
-      return result.kind === "foreground" ? [{ type: "text", text: result.name ? `${metadata}\nsubagent ${result.name}` : metadata }, ...result.output ?? []]
-        : [{ type: "text", text: `${metadata}\naccepted subagent ${result.name ?? result.subagentId}` }];
+      const result = value as unknown as { kind: string; name?: string; subagentId?: string; output?: ContentBlock[] };
+      return result.kind === "foreground" ? result.output ?? []
+        : [{ type: "text", text: `accepted subagent ${result.name ?? result.subagentId}` }];
     }, presentationMeta(_args, value) { return typeof value === "object" && value !== null && !Array.isArray(value) ? value.invocation ?? null : null; } },
     finalizeContent(exec, result) {
       const partial = incomplete.get(exec.token); incomplete.delete(exec.token);

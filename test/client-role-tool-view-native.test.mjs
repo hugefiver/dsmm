@@ -486,11 +486,11 @@ test("role adapter preserves the native ToolCall owner through pending, result a
       await page.waitForFunction(() => document.querySelector('[data-dsmm-native-tool]')?.getAttribute('data-state') === 'running');
       assert.match(await nativeCard.innerText(), /fixture\/native-model · effort not reported/u);
       assert.match(await nativeCard.innerText(), /native-child/u);
-      assert.equal(await navigationButton(nativeCard).count(), 0, 'the observation alone does not prove a local native child');
+      assert.equal(await navigationButton(nativeRow).count(), 0, 'the observation alone does not prove a local native child');
       await page.evaluate(() => window.__roleTool.catalog('owned-role-tool-session', [{id:'native-child',mode:'external'}]));
-      assert.equal(await navigationButton(nativeCard).count(), 0);
+      assert.equal(await navigationButton(nativeRow).count(), 0);
       await page.evaluate(() => window.__roleTool.catalog('owned-role-tool-session', [{id:'native-child',mode:'unknown'}]));
-      await navigate(nativeCard, 'native-child', 'unknown');
+      await navigate(nativeRow, 'native-child', 'unknown');
       for (const width of [375,768,1280]) {
         await page.setViewportSize({width,height:900});
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `native ${toolName} reflow ${width}`);
@@ -514,12 +514,12 @@ test("role adapter preserves the native ToolCall owner through pending, result a
       await page.evaluate(() => window.__roleTool.replay());
       await page.locator('[data-chat-call-id="replayed-call"]').waitFor();
       assert.equal(await nativeCard.getAttribute('data-state'),'accepted','replay without lifecycle evidence retains the receipt only');
-      assert.equal(await navigationButton(nativeCard).count(), 0, 'a named receipt cannot navigate without same-call correlation');
+      assert.equal(await navigationButton(nativeRow).count(), 0, 'a named receipt cannot navigate without same-call correlation');
       await page.evaluate(name => {
         window.__roleTool.result({kind:'activation',subagentId:'native-child'}, {name});
         window.__roleTool.replay();
       }, toolName);
-      await navigate(nativeCard, 'native-child', 'unknown');
+      await navigate(nativeRow, 'native-child', 'unknown');
       for(const code of ['failed','interrupted']) {
         await page.evaluate(({name,code})=>window.__roleTool.result(undefined,{name,isError:true,error:{name:'Error',code,reason:'native original failure'}}),{name:toolName,code});
         assert.equal(await page.locator('[data-dsmm-native-tool]').count(),0,'failed native calls keep their original presenter');

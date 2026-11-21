@@ -121,8 +121,9 @@ test("native lazy argument reads update requested labels and preserve dispatched
     ...common, toolName: "subagent", nativeView, nativeT, phase: "result", block: record, ...overrides,
   } as Parameters<typeof module.exports.NativeToolView>[0]);
   const openNative = (tree: ReturnType<typeof renderNative>) => {
-    const card = tree.props.children[1];
-    return card ? action(card.props.children[1], roleToolEn.openConversation) : undefined;
+    const original = tree.props.children[0];
+    return original.props.t("row.inspect") === roleToolEn.openConversation
+      ? { props: { onClick: original.props.inspect as () => void } } : undefined;
   };
   for (const record of [result, { ...result, isError: true, error: { code: "interrupted" } },
     { ...result, meta: { kind: "activation", name: "native-worker" } }]) {

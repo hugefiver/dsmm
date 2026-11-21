@@ -90,7 +90,7 @@ for (const toolTopology of ["per-role", "parameterized"] as const) {
         arguments: { description: "Preset route delivery", prompt: "Return a local result", ...(toolTopology === "parameterized" ? { role: "dsmm-reviewer" } : {}) },
         callId: ToolCallId(`preset-${toolTopology}`), signal: new AbortController().signal });
       assert.equal(result.isError, false);
-      assert.ok(result.content.some(block => block.type === "text" && block.text === "fixture complete"));
+      assert.deepEqual(result.content, [{ type: "text", text: "fixture complete" }]);
       assert.deepEqual(f.adapter.calls.map(({ provider, model, reasoningEffort }) => ({ provider, model, reasoningEffort })), [primary]);
       assert.deepEqual(headerRoutes(root), [], "delegation cannot rewrite the root model");
       const denied = await tools.execute({ agent: root, name: toolTopology === "per-role" ? "dsmm_oracle" : "dsmm_role",

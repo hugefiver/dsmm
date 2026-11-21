@@ -45,7 +45,7 @@ Search/Fetch retain the explicitly configured native provider. DSMM doesn't auto
 
 A read-only native Gateway stream connects admitted role/level and initial versus observed provider/model/effort to the exact parent session and tool call. Actual route evidence comes from the current child's own request header; missing or invalidated active evidence is unknown, and missing effort is not filled from the initial route. Settled observations remain frozen. Descendant-session observation uses verified live lineage without widening root/direct-child mutation controls.
 
-Role, category and native subagent cards offer **Open child conversation** when the local child can be identified. The button opens the child under the card's parent session; unresolved or external executions have no conversation action.
+Role, category and native subagent cards offer **Open child conversation** when the local child can be identified. The button opens the child under the card's parent session. Native subagent cards use their expanded-row action for this destination; unresolved or external executions retain native tool-call inspection instead.
 
 Repeated provider call IDs continue to execute normally. When the client cannot disambiguate a reused call ID, live observation for that key is removed; each final tool result retains its own child-bound metadata. Disconnects and observer disposal never transfer execution, cancel the child or create another completion owner.
 

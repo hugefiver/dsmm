@@ -411,7 +411,7 @@ Native child labels use `Coding: task description`, without technical IDs. Curre
 
 The collapsed title names the target agent, such as **调用 Coding** / **Call Coding**, rather than displaying only `dsmm_category`. A complete target field is enough to display its requested name while the remaining arguments stream. Incomplete or invalid target data stays unknown. Details distinguish requested and reported actual identity and retain technical tool/call IDs; errors and interruptions retain the requested target without claiming it executed.
 
-Use native disclosure, status and code-block primitives. Arguments, output, errors and metadata stay inspectable; nontext content is represented as JSON, without an image, audio or rich-media preview. Native disclosure and Inspect behavior remain available. A call without a usable native window returns to the native fallback rather than inventing a client binding. Presentation never changes routing, permission or approval.
+Use native disclosure, status and code-block primitives. Arguments, output, errors and metadata stay inspectable; nontext content is represented as JSON, without an image, audio or rich-media preview. Native disclosure remains available. When a native subagent card can identify a local child, its expanded-row action becomes **Open child conversation** and opens that child under the card's parent session; unresolved or external executions retain native tool-call inspection. A call without a usable native window returns to the native fallback rather than inventing a client binding. Presentation never changes routing, permission or approval.
 
 The host primitives above are dependencies, not package-owned implementations. Package-owned patterns below are implemented and reused at least twice.
 
