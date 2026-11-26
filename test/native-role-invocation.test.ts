@@ -223,3 +223,45 @@ test("native child messaging and interrupt preserve exact adjacency across role 
     await f.subagents.drainChildren(parent, [resumed.id]);
   } finally { release.release(); await f.dispose(); }
 });
+
+test("multi-step role subagent keeps system prompt and observed invocation stable across turns", { timeout: 15000 }, async () => {
+  const f = await nativeRoutingFixture({ defaultActive: true, subagents: { toolTopology: "parameterized" },
+    roleRouting: { "dsmm-planner": { primary: { provider: "fixture", model: "planner" } } } }, { nativePresets: true });
+  try {
+    const parent = await f.create({ agentPreset: "dsmm-orchestrator" });
+    let child: Agent | undefined;
+    f.ctx.on("agent/created", ({ agent }) => { if (f.agents.isOwnedBy(agent.id, parent)) child = agent; }, { global: true });
+    let step = 0, step2SawRequestHeader = false;
+    f.adapter.streamChunks = async function* () {
+      step++;
+      if (step === 1) {
+        const id = ToolCallId("planner-read-1"), args = JSON.stringify({ path: "README.md" });
+        yield { type: "block-start", index: 0, blockType: "tool-call" };
+        yield { type: "tool-call-delta", index: 0, id, name: "read", argumentsDelta: args };
+        yield { type: "block-end", index: 0, block: { type: "tool-call", id, name: "read", arguments: args } };
+        yield { type: "finish", reason: { kind: "tool-calls" } };
+      } else {
+        step2SawRequestHeader = child?.session.snapshotEvents().some(event => event.type === "request/header") === true;
+        yield { type: "block-start", index: 0, blockType: "text" };
+        yield { type: "text-delta", index: 0, text: "PLAN_COMPLETE" };
+        yield { type: "block-end", index: 0, block: { type: "text", text: "PLAN_COMPLETE" } };
+        yield { type: "finish", reason: { kind: "stop" } };
+      }
+    };
+    const result = await parent.ctx.tools.execute({ agent: parent, name: "dsmm_role", callId: ToolCallId(randomUUID()),
+      arguments: { role: "dsmm-planner", description: "Plan the change", prompt: "Read README.md and summarize" }, signal: new AbortController().signal });
+    assert.equal(result.isError, false, JSON.stringify(result));
+    assert.equal(f.adapter.calls.length, 2);
+    assert.equal(f.adapter.calls[0].sessionId, f.adapter.calls[1].sessionId);
+    assert.equal(step2SawRequestHeader, true, "step 2 should run after step 1 recorded request/header");
+    const systems = f.adapter.calls.map(call => call.messages.filter(message => message.role === "system"));
+    assert.deepEqual(systems[1], systems[0], "system prompt must not mutate after the first request/header");
+    const systemText = JSON.stringify(systems[0]);
+    const match = systemText.match(/<dsmm-observed-invocation>\\n([\s\S]*?)\\n<\/dsmm-observed-invocation>/u);
+    assert.ok(match, "child system prompt should contain <dsmm-observed-invocation>");
+    const observed = JSON.parse(JSON.parse(`"${match[1]}"`)) as { routeKind: string; view: { role: string; level: string } };
+    assert.equal(observed.routeKind, "initial");
+    assert.equal(observed.view.role, "dsmm-planner");
+    assert.equal(observed.view.level, "normal");
+  } finally { await f.dispose(); }
+});

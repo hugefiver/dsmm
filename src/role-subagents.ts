@@ -284,7 +284,8 @@ export function registerHeadlessRoleTools(ctx: Context, controller: DeepworkMode
         const captured = capturedRoleInvocation(agent);
         const delegationGuidance = buildDsmmDelegationGuidance(settings, { scope: identity.child ? "child" : "root", tools: tools?.schemas(agent) ?? [],
           delegation: tools === undefined ? [] : admittedCallableRoleInventory(agent, settings, policy, tools),
-          ...(captured === undefined ? {} : { invocation: roleInvocationObservation(captured, DSMM_ROLES.find(role => role.id === captured.target)!.name, "continuable", getSettings, agent, { childId: agent.id }) }),
+          // Pin prompt-facing invocation metadata to the captured initial observation so later turns do not flip routeKind or effort and invalidate prompt cache.
+          ...(captured === undefined ? {} : { invocation: { view: invocationView(captured, DSMM_ROLES.find(role => role.id === captured.target)!.name, "continuable", { childId: agent.id }), routeKind: "initial" } }),
           runtimeAdmission: getSettings.subagentRuntime?.(), capabilities: { continuable: true, nativeChildDelivery: true,
             nativeTree: typeof (ctx.get("subagents") as unknown as { rootOf?: unknown } | undefined)?.rootOf === "function",
             ...(ctx.get("dsmmChildren") === undefined ? {} : { nativeBrowserPrompt: { surface: "conversation.dsmm-children" } }) } });
