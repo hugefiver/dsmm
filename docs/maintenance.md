@@ -44,11 +44,11 @@ stale. Generated assets are package resources, not an alternate source of truth.
 Ordinary native presets use `prompts/source/deepwork/general.md` while Deepwork is
 active. A neutral opening replaces the harness identity and the stock model announcement
 is omitted. Custom persona instructions, model selection, effort and delegation stay in place. DSMM identity comes from an explicit DSMM preset or trusted invocation,
-not mode activation or `defaultActive`. The full `deepwork/default.md` workflow and
-role/model workflow calibrations apply only to admitted DSMM roles. Ordinary
-Agents receive general guidance, a behavior-only calibration for the current model,
-lazy skills and applicable model-parameter tuning; they acquire no planner/critic
-dispatch requirement or DSMM role tools. Both preset types select calibration using
+not mode activation or `defaultActive`. Ordinary Agents receive the short behavior-only
+summary for the current model, lazy skills and applicable model-parameter tuning; they do
+not receive the full role/model source files, planner/critic dispatch requirements or DSMM
+role tools. Admitted DSMM roles and categories instead assemble the complete selected base
+and additive sources under their role-first workflow. Both preset types select behavior using
 the current prompt assembly rather than the preceding request header.
 
 Model guidance is subordinate to the selected role and the current runtime's tools
@@ -58,25 +58,42 @@ the current runtime catalog. The six development workflow skills describe their 
 engineering stage in both discovery metadata and their frontmatter. Other tasks can
 use domain skills and native delegation without loading a development workflow.
 Model identifiers and families select resources in code; calibration text, headings
-and tags are model-neutral. Source filenames retain selector identities. Kimi
-K3 and earlier, and names without a determinate version, use `deepwork/kimi.md`.
+and tags are model-neutral. Source filenames retain selector identities. For admitted
+functional roles, the selected whole-model base precedes additive layers. Planner profiles
+use `deepwork/planner.md` as their base and still receive applicable additive guidance.
+A category keeps its authoritative category role first, then its own family layer and
+applicable additive source, without inheriting the planner base or an unrelated family base.
+
+Kimi K3 and earlier, and names without a determinate version, use `deepwork/kimi.md`.
 K3.1 and later numeric generations, including K3.2 and K4+, exclusively use
 `deepwork/kimi-k3-1.md`. Prompt-only K aliases such as `k3p1` leave reasoning-family
 classification unchanged. Existing `kimi-k27` names retain their K2.7 meaning
 and the old calibration. Selection preserves the first model identity and keeps
 structured provider metadata outside model matching. Gemini 4 and later, including Argon,
-receive the `gemini-4` additive layer. No injected self-identification
-or textual model guard is needed. Prompt selection does not change provider,
-effort, fallback chains or DSH model capabilities. Fable and Mythos from 5.2 onward select
-`deepwork/claude-fable-5-2.md` for admitted roles and categories. It directs the
-agent to finish actionable work in its assignment and diagnose a failure before retrying.
+receive the `gemini-4` additive layer. All Claude generations use the single `claude`
+additive source for every role and category. Grok and DeepSeek likewise add `grok` and
+`deepseek` without replacing the base. Grok prompt-only selection leaves its reasoning
+family unknown. No injected self-identification or textual model guard is needed. Prompt
+selection does not change provider, effort, fallback chains or DSH model capabilities.
 
-The K3.1+ scope-and-delivery calibration selectively adapts Senpi `2026.11.3-3`'s
+Current generalized calibration uses OMO `59b4ac1f67` and Senpi `2026.11.23` as
+reference sources under the local role-first, permission and workflow contracts. The K3.1+
+scope-and-delivery source retains its original Senpi `2026.11.3-3` attribution for
 `kimi-k3-1.ts` at published source `29eedcbe7c0cdf1c89eac7c94d4093b485925303`.
-Its source embeds the complete MIT copyright and permission notice, retained in
-the packaged resource. The additive guidance prioritizes current intent, bounded
-action, complete outcomes, evidence reuse, and truthful handoff under the local
-role and workflow contracts; it adds no effort lock or workflow gate.
+Its complete MIT copyright and permission notice remains embedded in the packaged resource.
+The additive guidance prioritizes latest-turn conflict handling, implementation ownership
+without duplicate or dead code, bounded action, complete outcomes, evidence reuse and
+truthful handoff; it adds no effort lock or workflow gate.
+
+The admitted `gpt` source is a compact whole-model/category calibration covering complete
+named-source reading, material questions, diagnosed recovery, event-driven progress,
+planner/critic ownership, operation-specific Git authorization, evidence reuse and
+reader-first delivery. `claude` applies completion, scope, ownership, delegation-cost and
+real-execution rules to every role. `grok` covers observable completion and defect-scoped
+visual work; `deepseek` covers grounded investigation, next-action reasoning and event
+handling. Gemini 4+ adds same-turn opening/tool action, safe idempotent transient retry and
+date-sensitive checks. GLM retains its existing discovery, planning, scope, evidence, Git
+and Host rules with only low-cost fact gathering and short act/inspect/verify cycles.
 
 Locale guidance is registered in the exact Agent scope independently of Deepwork
 mode, the Deepwork module and subagent tools. It uses that Agent's captured
@@ -126,12 +143,17 @@ Harness failures and unmet requirements remain explicit rather than being treate
 as product failures or successful completion.
 
 Frontend work follows brief → build → subtract → verify. Small edits preserve
-existing styles and required content; visual QA uses comparable real before/after
-states, separates defects from taste, and discloses missing evidence. Research
-reporting loads the native `report-fidelity` skill on demand for source support, units, derived
-calculations, quotations and translation meaning, without mandatory ledgers or
-large-workflow requirements for simple questions. These local adaptations preserve
-DSH ownership of tasks, lifecycle, permissions and persistence.
+existing styles and required content. The state-and-flow route writes a state table for
+unknown, failed, empty, loaded, saving and save-failed states, plus request-target binding,
+stale responses, cancellation, re-entry and keep/clear behavior. Visual QA uses comparable
+real before/after states, separates defects from taste and discloses missing evidence.
+Held, failed, switch, twice and re-entry checks follow real user paths and record confirmed
+interception, request counts and targets, persisted results, and keep/clear observations.
+Source-only findings are TRACED; unobserved conditions are UNVERIFIED. Cleanup covers only
+run-owned resources. Research reporting loads the native `report-fidelity` skill on demand
+for source support, units, derived calculations, quotations and translation meaning, without
+mandatory ledgers or large-workflow requirements for simple questions. These local adaptations
+preserve DSH ownership of tasks, lifecycle, permissions and persistence.
 
 Planner, plan-critic and reviewer guidance treats a confirmed state as usable until there is evidence of a change. The design and review skills keep database transactions short: no locks across long-running application work, precautionary rereads before writeback or broad integrity scans. GPT-family guidance protects the normal path from speculative defenses in both ordinary Deepwork and admitted role prompts.
 
@@ -192,7 +214,10 @@ The full `skills/frontend/` tree is maintained in this repository and shipped in
 the npm package. `scripts/frontend-recipe.mjs`, fixed upstream commits,
 `skills/frontend/.frontend-materialized.json`, and
 `skills/frontend/ATTRIBUTION.md` define its provenance and integrity boundary.
-Third-party licenses and notices remain with their resources.
+Third-party licenses and notices remain with their resources. The local
+`references/perfection/state-and-flow.md` and state/flow additions to `references/visual-qa.md`
+reference OMO `59b4ac1f67` in the attribution notice; they are not fixed-pin materialization
+inputs and require no new inventory entries.
 
 Ordinary build and `check:frontend` are offline. They require the complete local
 resource set and never download or replace files. `pnpm run sync:frontend` is the

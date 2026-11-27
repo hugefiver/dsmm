@@ -80,23 +80,41 @@ test("Gemini prompt selection inherits the additive from major 4 across wrapped 
   assert.deepEqual(promptModelVariants("builder", "gemini-4-provider/unrelated"), ["gemini", "gemini-4"]);
 });
 
-test("base role selection and additive deduplication retain GPT, Codex, Opus and SWE scope", () => {
+test("base role selection and additive deduplication retain final family scope", () => {
   assert.deepEqual(promptModelVariants("planner", "gpt-6.1-sol"), ["planner", "gpt"]);
   assert.deepEqual(promptModelVariants("builder", "gpt-6.1-sol"), ["gpt"]);
   assert.deepEqual(promptModelVariants("builder", "gpt-5.5-codex"), ["codex", "gpt"]);
-  assert.deepEqual(promptModelVariants("orchestrator", "us.anthropic.claude-opus-5-20260901"), ["claude-opus-5"]);
-  assert.deepEqual(promptModelVariants("reviewer", "claude-opus-5"), []);
-  assert.deepEqual(promptModelVariants("orchestrator", "claude-opus-50"), ["claude-opus-5"]);
+  for (const role of ["orchestrator", "reviewer", "builder"]) {
+    assert.deepEqual(promptModelVariants(role, "us.anthropic.claude-opus-5-20260901"), ["claude"], role);
+    assert.deepEqual(promptModelVariants(role, "claude-opus-50"), ["claude"], role);
+  }
+  assert.deepEqual(promptModelVariants("planner", "claude-opus-5"), ["planner", "claude"]);
+  assert.deepEqual(promptModelVariants("builder", "grok-4-gpt-6"), ["grok"]);
+  assert.deepEqual(promptModelVariants("builder", "deepseek-flash"), ["deepseek"]);
   assert.deepEqual(promptModelVariants("builder", "swe-2-fast"), ["swe-2"]);
   const planner = SOURCE_ROLE_CATALOG.find(row => row.sourceId === "planner")!;
   for (const [model, additives] of [["gpt-6.1-sol", ["gpt"]], ["gemini-3.1-pro", []], ["glm-5.2", []],
     ["kimi-k3.1", ["kimi-k3-1"]], ["gemini-4-argon", ["gemini-4"]], ["swe-2", ["swe-2"]],
-    ["us.anthropic.claude-fable-5-2-20261109", ["claude-fable-5-2"]], ["mythos-5.2@default", ["claude-fable-5-2"]],
-    ["claude-fable-5-20", ["claude-fable-5-2"]], ["mythos-6", ["claude-fable-5-2"]], ["claude-mythos-5-1", []],
-    ["claude-fable-5.2.3.4", []], ["mythos-6foo", []], ["claude-fable-5-2.3foo", []],
-    ["fable-5.1/mythos-6", []], ["claude-opus-5-claude-fable-5-2", []],
-    ["claude-opus-5", []], ["gpt-5.5-codex", ["gpt"]]] as const) {
+    ["us.anthropic.claude-fable-5-2-20261109", ["claude"]], ["mythos-5.2@default", ["claude"]],
+    ["claude-fable-5-20", ["claude"]], ["mythos-6", ["claude"]], ["claude-mythos-5-1", ["claude"]],
+    ["claude-fable-5.2.3.4", ["claude"]], ["mythos-6foo", ["claude"]], ["claude-fable-5-2.3foo", ["claude"]],
+    ["fable-5.1/mythos-6", ["claude"]], ["claude-opus-5-claude-fable-5-2", ["claude"]],
+    ["claude-opus-5", ["claude"]], ["grok-4", ["grok"]], ["deepseek-v4-pro", ["deepseek"]], ["gpt-5.5-codex", ["gpt"]]] as const) {
     assert.equal(roleModelCalibration(planner, model), ["planner", ...additives].map(variant => marker(`deepwork/${variant}.md`)).join("\n\n---\n\n"), model);
+  }
+});
+
+test("all prompt-recognized Claude identities compose once for roles, planner, and categories", () => {
+  const planner = SOURCE_ROLE_CATALOG.find(row => row.sourceId === "planner")!;
+  const category = SOURCE_ROLE_CATALOG.find(row => row.kind === "category" && row.promptArtifact !== null)!;
+  for (const model of ["claude", "claude-opus-5", "opus4.7", "claude-sonnet-4-6", "sonnet5",
+    "claude-haiku-4-5", "haiku5.5", "claude-fable-5-2", "fable5.1", "claude-mythos-5.1", "mythos-6"]) {
+    for (const role of ["orchestrator", "reviewer", "builder"]) {
+      assert.deepEqual(promptModelVariants(role, model), ["claude"], `${role}/${model}`);
+    }
+    assert.deepEqual(promptModelVariants("planner", model), ["planner", "claude"], model);
+    assert.equal(roleModelCalibration(planner, model), [marker("deepwork/planner.md"), marker("deepwork/claude.md")].join("\n\n---\n\n"), model);
+    assert.equal(roleModelCalibration(category, model), ["[fixture:category:claude]", marker("deepwork/claude.md")].join("\n\n---\n\n"), model);
   }
 });
 
@@ -108,10 +126,11 @@ test("category composition keeps its family layer before additives without impor
     ["k3p1", "unknown", ["kimi-k3-1"]], ["k3.1-gpt-6", "unknown", ["kimi-k3-1"]], ["swe-2-fast", "unknown", ["swe-2"]],
     ["gpt-6.1-sol", "gpt", ["gpt"]], ["glm-5.2", "glm", []],
     ["auto-gpt/6.1/sol", "gpt", ["gpt"]], ["prefix-gpt-5.6-codex-fast", "gpt", ["gpt"]],
-    ["claude-opus-5-gpt-6-codex", "claude", []], ["gemini-4-pro-gpt-6-codex", "gemini", ["gemini-4"]],
+    ["claude-opus-5-gpt-6-codex", "claude", ["claude"]], ["gemini-4-pro-gpt-6-codex", "gemini", ["gemini-4"]],
     ["auto-k2p8-gpt-6", "unknown", ["kimi"]], ["auto-swe/2/high-gpt-6", "unknown", ["swe-2"]],
-    ["group/glm-5.3-1m", "glm", []], ["auto-fable-5", "claude", []],
-    ["claude-mythos-5.2", "claude", ["claude-fable-5-2"]]
+    ["group/glm-5.3-1m", "glm", []], ["auto-fable-5", "claude", ["claude"]],
+    ["claude-mythos-5.2", "claude", ["claude"]], ["grok-4-gpt-6", "unknown", ["grok"]],
+    ["deepseek-v4-pro", "unknown", ["deepseek"]]
   ] as const) {
     assert.equal(roleModelCalibration(category, model), [`[fixture:category:${family}]`, ...additives.map(variant => marker(`deepwork/${variant}.md`))].join("\n\n---\n\n"), model);
   }
@@ -122,7 +141,7 @@ test("shared name recognition bounds prompt attributes to the leftmost identifie
     ["auto-gpt-6.1-sol", ["gpt"]], ["auto-gpt/6.1/sol", ["gpt"]],
     ["PREFIX_CHATGPT_6_1_SOL", ["gpt"]], ["prefix-gpt-5.6-codex-fast", ["codex", "gpt"]],
     ["gpt-5.5-claude-opus-5-codex", ["gpt"]], ["gpt-5.5-gpt-6-codex", ["gpt"]],
-    ["claude-opus-5-gpt-6-codex", []], ["gemini-4-pro-gpt-6-codex", ["gemini", "gemini-4"]],
+    ["claude-opus-5-gpt-6-codex", ["claude"]], ["gemini-4-pro-gpt-6-codex", ["gemini", "gemini-4"]],
     ["auto_gemini 4/pro", ["gemini", "gemini-4"]], ["gpt-6-sol/gemini-4-pro", ["gpt"]],
     ["gemini-3-gemini-4-pro", ["gemini"]], ["gemini-gpt-6", ["gemini"]],
     ["auto-k2p8-gpt-6", ["kimi"]], ["auto-swe/2/high-gpt-6", ["swe-2"]],
@@ -131,28 +150,7 @@ test("shared name recognition bounds prompt attributes to the leftmost identifie
     ["swe-3.2foo/swe-20", []], ["swe-3.2.1.4", []], ["gpt-6/swe-20", ["gpt"]], ["xkimi-k3", []], ["notgpt-6", []], ["codexish", []]
   ] as const) {
     assert.deepEqual(promptModelVariants("builder", model), variants, model);
-    assert.deepEqual(promptModelVariants("planner", model), ["planner", ...variants.filter(variant => ["gpt", "kimi", "kimi-k3-1", "gemini-4", "swe-2"].includes(variant))], model);
-  }
-});
-
-test("Opus versions from 5 onward inherit the orchestrator base across wrappers", () => {
-  for (const model of ["claude-opus-5.0", "claude-opus-5.50", "claude-opus-5.5000", "claude-opus-50",
-    "auto-claude_opus_5_5-20261101", "custom/claude/opus/5.5/fast", "claude-opus-5@default",
-    "claude-opus-5-20261101", "claude-opus-5.5-1m", "claude-opus-5-fast-6", "claude-opus-5-gpt-6"]) {
-    assert.deepEqual(promptModelVariants("orchestrator", model), ["claude-opus-5"], model);
-    assert.deepEqual(promptModelVariants("reviewer", model), [], model);
-  }
-  for (const model of ["claude-opus-4.7", "claude-gpt-6-opus-5", "claude-claude-opus-5"]) {
-    assert.deepEqual(promptModelVariants("orchestrator", model), [], model);
-  }
-});
-
-test("partial numeric Opus versions cannot fall back to the Opus 5 calibration", () => {
-  const role = SOURCE_ROLE_CATALOG.find(row => row.sourceId === "orchestrator")!;
-  assert.equal(roleModelCalibration(role, "claude-opus-5.5foo"), "");
-  assert.deepEqual(promptModelVariants("orchestrator", "claude-opus-5.5foo"), []);
-  for (const model of ["claude-opus-5.5-20261101", "claude-opus-5.5-1m", "claude-opus-5.5-2m", "auto/claude_opus_5_5.fast"]) {
-    assert.equal(roleModelCalibration(role, model), marker("deepwork/claude-opus-5.md"), model);
+    assert.deepEqual(promptModelVariants("planner", model), ["planner", ...variants.filter(variant => ["gpt", "claude", "grok", "deepseek", "kimi", "kimi-k3-1", "gemini-4", "swe-2"].includes(variant))], model);
   }
 });
 
@@ -171,17 +169,18 @@ test("structured prompt routes isolate provider metadata and preserve complete n
     ["kimi-k4-provider", "kimi-k3", ["kimi"]], ["gateway", "kimi-k3.1/preview", ["kimi-k3-1"]],
     ["gateway", "kimi-k3/kimi-k3.1", ["kimi"]], ["gateway", "gpt-6/kimi-k3.1", ["gpt"]],
     ["gemini-4-provider", "unrelated", []], ["claude-mythos-6", "unrelated", []],
-    ["gateway", "claude-mythos-5.10.1", ["claude-fable-5-2"]],
+    ["gateway", "claude-mythos-5.10.1", ["claude"]],
+    ["gateway", "grok-4-gpt-6", ["grok"]], ["gateway", "deepseek-v4-pro", ["deepseek"]],
     ["swe-2-provider", "unrelated", []], ["gpt-6-sol", "gemini-4-pro", ["gemini", "gemini-4"]],
     ["gateway", "gpt-6-sol/gemini-4-pro", ["gpt"]], ["google", "google/gpt/6.1/sol", ["gpt"]],
     ["codex", "gpt-5.6", ["gpt"]], ["gateway", "auto-swe/2/high-gpt-6", ["swe-2"]],
     ["google", "sol6.1", ["gpt"]], ["anthropic", "6.1sol", ["gpt"]],
     ["6.1sol", "gemini-4-pro", ["gemini", "gemini-4"]], ["gateway", "6.1sol/gemini-4-pro", ["gpt"]],
-    ["codex", "opus4.7", []], ["google", "sol6.1-codex", ["codex", "gpt"]]
+    ["codex", "opus4.7", ["claude"]], ["google", "sol6.1-codex", ["codex", "gpt"]]
   ] as const) {
     const route = Object.freeze({ provider, model, reasoningEffort: "low" });
     const prompt = buildDeepworkPrompt(DEFAULT_DSMM_SETTINGS, { selectedPreset: "dsmm-builder", route });
-    for (const variant of ["codex", "gpt", "gemini", "gemini-4", "glm", "kimi", "kimi-k3-1", "swe-2", "claude-opus-5", "claude-fable-5-2"]) {
+    for (const variant of ["codex", "gpt", "claude", "grok", "deepseek", "gemini", "gemini-4", "glm", "kimi", "kimi-k3-1", "swe-2"]) {
       assert.equal(prompt.includes(marker(`deepwork/${variant}.md`)), (variants as readonly string[]).includes(variant), `${provider}/${model}: ${variant}`);
     }
     assert.deepEqual(route, { provider, model, reasoningEffort: "low" });
@@ -221,20 +220,12 @@ test("compact series select the existing base, planner and category layers once 
     assert.equal(roleModelCalibration(category, model), ["[fixture:category:gpt]", marker("deepwork/gpt.md")].join("\n\n---\n\n"), model);
   }
   for (const model of ["opus4.7", "opus-4-7", "sonnet4.6", "haiku-4-5", "sonnet5", "haiku5.5"]) {
-    assert.deepEqual(promptModelVariants("orchestrator", model), [], model);
-    assert.equal(roleModelCalibration(category, model), "[fixture:category:claude]", model);
+    assert.deepEqual(promptModelVariants("orchestrator", model), ["claude"], model);
+    assert.equal(roleModelCalibration(category, model), ["[fixture:category:claude]", marker("deepwork/claude.md")].join("\n\n---\n\n"), model);
   }
 });
 
-test("compact Opus calibration accepts later versions and rejects partial and oversized versions", () => {
-  for (const model of ["opus5", "5opus", "opus5.5-2m", "5.5opus", "claude-opus5.5-19990101", "opus5.0", "opus5.50", "opus50", "6.1.2opus"]) {
-    assert.deepEqual(promptModelVariants("orchestrator", model), ["claude-opus-5"], model);
-    assert.deepEqual(promptModelVariants("reviewer", model), [], model);
-  }
-  for (const model of ["opus5.5foo", "5.5foo-opus", "opus5.5.0.0",
-    "sonnet5", "haiku5.5", "gpt-5.5-opus4.7-codex", "sol6.1-opus5"]) {
-    assert.equal(promptModelVariants("orchestrator", model).includes("claude-opus-5"), false, model);
-  }
+test("compact numeric versions retain only their valid Gemini and GPT calibration", () => {
   for (const model of ["gemini-4.1foo", "gemini-4.1.2.3"]) {
     assert.deepEqual(promptModelVariants("builder", model), ["gemini"], model);
   }

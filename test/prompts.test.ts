@@ -57,17 +57,20 @@ test("ordinary presets select only neutral behavior for the actual model", () =>
     selectedPreset: "dsmm-builder", roleId: null, route: { provider: "gemini-4-provider", model }
   });
   const baseline = render("");
-  for (const model of ["unrelated", "deepseek-v4-pro", "opus4.7", "claude-fable-5.1.9", "claude-fable-5.2foo", "mythos-7.x", "opus6.x", "swe-1", "swe-latest", "swe-3.x", "swe-2.1foo"]) {
+  for (const model of ["unrelated", "swe-1", "swe-latest", "swe-3.x", "swe-2.1foo"]) {
     assert.equal(render(model), baseline, model);
   }
   const calibrations = new Set<string>();
   for (const models of [["gpt-6.1-sol", "gpt-6.2", "gpt-7-codex", "codex"], ["gemini-3.1-pro"], ["gemini4", "gemini-4.x", "gemini5.1", "gemini-10.x"],
     ["glm-5.2"], ["kimi-k2.7", "k3.0"], ["kimi-k3.1", "k3p1"], ["swe-2-fast", "swe-3", "swe-20"],
-    ["claude-fable-5-2", "mythos-5.2", "claude-fable-5-20", "claude-mythos-6"], ["opus5", "claude-opus-5.5", "opus6.1.2"]]) {
+    ["grok-4", "grok4", "grok-4-gpt-6"], ["deepseek-v4-pro", "deepseek-flash"],
+    ["claude", "opus4.7", "opus5", "claude-opus-5.5", "opus6.1.2", "claude-sonnet-4-6", "haiku5",
+      "claude-fable-5-2", "mythos-5.2", "claude-fable-5-20", "claude-mythos-6", "claude-fable-5.1.9",
+      "claude-fable-5.2foo", "mythos-7.x", "opus6.x"]]) {
     const prompt = render(models[0]);
     const body = /<model-behavior-calibration>\n([\s\S]+?)\n<\/model-behavior-calibration>/u.exec(prompt)?.[1];
     assert.ok(body, models[0]);
-    assert.doesNotMatch(body, /\b(?:planner|orchestrator|permission|tool|workflow|gpt|codex|gemini|glm|kimi|swe|fable|opus)\b/iu);
+    assert.doesNotMatch(body, /\b(?:planner|orchestrator|permission|tool|workflow|gpt|codex|claude|grok|deepseek|gemini|glm|kimi|swe|fable|opus)\b/iu);
     assert.equal(prompt.includes("<workflow-model-calibration>"), false);
     assert.ok(!calibrations.has(body), models[0]);
     calibrations.add(body);
@@ -77,7 +80,7 @@ test("ordinary presets select only neutral behavior for the actual model", () =>
 });
 
 test("real selected calibration layers expose no model or family identity", () => {
-  const forbiddenIdentity = /(?:^|[^a-z0-9])(?:gpt|codex|claude|opus|gemini|argon|glm|kimi|fable|swe)(?=$|[^a-z0-9])/iu;
+  const forbiddenIdentity = /(?:^|[^a-z0-9])(?:gpt|codex|claude|grok|deepseek|opus|gemini|argon|glm|kimi|fable|swe)(?=$|[^a-z0-9])/iu;
   for (const [roleId, model] of [
     ["dsmm-builder", "gpt-6.1-sol"],
     ["dsmm-builder", "gpt-5.5-codex"],
@@ -91,7 +94,10 @@ test("real selected calibration layers expose no model or family identity", () =
     ["dsmm-research", "k3p1"],
     ["dsmm-builder", "swe-2-fast"],
     ["dsmm-orchestrator", "claude-opus-5"],
-    ["dsmm-builder", "claude-fable-5-2"],
+    ["dsmm-builder", "claude-sonnet-4-6"],
+    ["dsmm-planner", "claude-fable-5-2"],
+    ["dsmm-builder", "grok-4-gpt-6"],
+    ["dsmm-research", "deepseek-v4-pro"],
     ["dsmm-planner", "custom-unmatched"]
   ] as const) {
     const role = SOURCE_ROLE_CATALOG.find(row => row.id === roleId)!;

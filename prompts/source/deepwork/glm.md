@@ -10,6 +10,8 @@ Discover skills through the current runtime catalog and load them only when thei
 
 Before deciding whether to decompose a request or invoke a planner, run a first discovery wave: read relevant files, search for related patterns, and surface what is still unknown. Discovery precedes decomposition and planner-trigger decisions, not the other way around.
 
+Use low-cost reads, searches, and runnable checks to establish facts before deeper analysis or delegation. Work in short act → inspect → verify cycles, using each observed result to choose the next action. When repository evidence answers the question, proceed without asking.
+
 ## Planner Trigger
 
 Do not invoke a planner only because a task has two or more steps. Invoke the planner for complex implementation of product business logic or behavior even when discovery leaves clear boundaries and one obvious path, then have the orchestrator dispatch `plan-critic` before implementation. Skip for that work only for a limited, simple, low-risk, clearly bounded change or an explicit user request, and state the applicable exception in conversation. Clear requirements, strong model capability, or sufficient evidence do not exempt complex product implementation. Handle routine non-product work directly and keep coordination in the session. Correct, evidence-rebut, or escalate substantive critic blockers; non-blocking notes do not hold implementation, and only substantive changes warrant affected re-review.

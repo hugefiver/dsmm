@@ -30,22 +30,25 @@ function generalModelCalibration(model: string): string {
   switch (recognized?.identifier) {
     case "gpt":
     case "codex":
-      return "Lead with the result and its supporting evidence. Reuse checks that still cover the claim; qualify only what remains uncertain. Do not write defensive code or design for imaginary failures. Never penalize the 90% normal path for a case the contract makes impossible. Trust internal guarantees; enforce required checks at real boundaries.";
+      return "Read named sources completely before acting, keep the scope exact, and lead with the result and its evidence. Reuse relevant checks; avoid speculative design, redundant defenses, meaningless hashes, repeated verification, and unrequired gates.";
     case "gemini":
       return recognized.gemini4OrLater
-        ? "Ground claims about files and runtime behavior in what you observed. Distinguish a proposed change from an applied one, and a successful build from evidence that the requested behavior works."
+        ? "When information is needed, give a short opener and make the first available calls in the same turn. Check date-sensitive claims with available search; retry only safe transient failures and change the approach after other failures."
         : "Deliver the full requested result without adjacent cleanup or speculative additions. Keep explanations separate from changes the user asked you to make.";
     case "glm":
-      return "Answer once the evidence settles the question. Put the conclusion first, followed by the facts that support it and any gap that changes the answer.";
+      return "Use low-cost reads, searches, or runs to establish facts, then work in short act-inspect-verify cycles. Ask only when evidence cannot resolve a user-owned choice.";
     case "kimi":
       return kimiVariant(recognized.version) === "kimi-k3-1"
-        ? "Carry the user's latest choice through to an observable result. Keep unrelated defects outside the change, and name any requested part that remains unfinished."
+        ? "Carry the user's latest choice through to an observable result while retaining compatible earlier requirements. Extend the owning implementation without parallel copies or dead code, and name any requested part that remains unfinished."
         : "Once the evidence settles the next in-scope action, take it rather than comparing equivalent approaches again. Reopen the decision only if a new fact matters.";
+    case "grok":
+      return "Define observable completion and deliver every requested part in order without stubs or scope substitution. Consolidate repeated logic; for visual work, capture the current state, list defects, and fix only those defects.";
+    case "deepseek":
+      return "Read supplied and named context before acting, investigate missing facts, and turn analysis into the next action. Event updates add input rather than ending active work; finish with an independent, reader-first result.";
     case "swe":
       return recognized.swe2OrLater ? "Use the failing case or interface contract to choose the next change. When that choice is settled, carry it out and report what happened rather than promising to act." : "";
     case "claude":
-      if (recognized.fable52OrLater) return "Complete the parts of the request that are still feasible. If one part is blocked, deliver the independent results and identify the specific blocker instead of ending with a checklist.";
-      if (recognized.opus5OrLater) return "Keep the result bounded by the request. Reuse evidence that still applies, and report the outcome without extra polish or repeated checks.";
+      return "The latest message overrides only conflicting earlier instructions. Complete actionable work instead of stopping at a plan or offer; keep scope exact, extend the existing implementation, and verify through real execution.";
   }
   return "";
 }
@@ -54,8 +57,9 @@ export function promptModelVariants(role: string | undefined, model: string): st
   const recognized = recognizeModelName(model, { promptAliases: true });
   const identifier = recognized?.identifier;
   const gpt = identifier === "gpt" || identifier === "codex";
-  const additive = recognized?.fable52OrLater ? ["claude-fable-5-2"] : gpt ? ["gpt"] : recognized?.identifier === "kimi" ? [kimiVariant(recognized.version)] : recognized?.gemini4OrLater ? ["gemini-4"] : recognized?.swe2OrLater ? ["swe-2"] : [];
-  const base = role === "planner" ? "planner" : role === "orchestrator" && recognized?.opus5OrLater ? "claude-opus-5"
+  const additive = identifier === "claude" ? ["claude"] : identifier === "grok" ? ["grok"] : identifier === "deepseek" ? ["deepseek"]
+    : gpt ? ["gpt"] : identifier === "kimi" ? [kimiVariant(recognized!.version)] : recognized?.gemini4OrLater ? ["gemini-4"] : recognized?.swe2OrLater ? ["swe-2"] : [];
+  const base = role === "planner" ? "planner"
     : recognized?.family === "codex" ? "codex" : gpt ? "gpt" : identifier === "gemini" ? "gemini" : identifier === "glm" ? "glm" : "default";
   return [...new Set([base, ...additive])].filter((variant) => variant !== "default");
 }
@@ -70,7 +74,7 @@ export function roleModelCalibration(role: SourceRoleContent | undefined, model:
       : identifier === "gemini" || identifier === "glm" || identifier === "claude" ? identifier : "unknown";
     // Categories carry only their own family layer + additive model calibration,
     // not the base-agent Gemini/GLM/planner workflow variants.
-    return [category.calibrations.get(family), ...layers.filter((_layer, index) => ["gpt", "kimi", "kimi-k3-1", "gemini-4", "swe-2", "claude-fable-5-2"].includes(variants[index]))].filter(Boolean).join("\n\n---\n\n");
+    return [category.calibrations.get(family), ...layers.filter((_layer, index) => ["gpt", "claude", "grok", "deepseek", "kimi", "kimi-k3-1", "gemini-4", "swe-2"].includes(variants[index]))].filter(Boolean).join("\n\n---\n\n");
   }
   return layers.join("\n\n---\n\n");
 }

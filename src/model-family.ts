@@ -1,6 +1,6 @@
 export type DsmmModelFamily = "gpt" | "codex" | "claude" | "gemini" | "glm" | "kimi" | "deepseek" | "unknown";
 
-type ModelIdentifier = Exclude<DsmmModelFamily, "unknown"> | "swe";
+type ModelIdentifier = Exclude<DsmmModelFamily, "unknown"> | "grok" | "swe";
 type ModelSeries = "opus" | "sonnet" | "haiku" | "sol" | "terra" | "astra" | "luna";
 
 interface ModelNameRecognition {
@@ -87,11 +87,11 @@ function identifierFor(marker: string): ModelIdentifier {
 /** Model fields are complete names here; route owners separate provider metadata. */
 export function recognizeModelName(model: string, options: { promptAliases?: boolean } = {}): ModelNameRecognition | undefined {
   const name = model.trim().toLowerCase();
-  const markers = name.matchAll(/(?<![a-z0-9])(?:(?:chatgpt|gpt|codex|claude|fable|mythos|gemini|glm|deepseek|kimi|opus|sonnet|haiku|sol|terra|astra|luna)(?=\d|[^a-z0-9]|$)|(?:k2[-_.\s/]*p[5-8]|swe)(?![a-z0-9])|k(?=\d)|\d+)/gu);
+  const markers = name.matchAll(/(?<![a-z0-9])(?:(?:chatgpt|gpt|codex|claude|grok|fable|mythos|gemini|glm|deepseek|kimi|opus|sonnet|haiku|sol|terra|astra|luna)(?=\d|[^a-z0-9]|$)|(?:k2[-_.\s/]*p[5-8]|swe)(?![a-z0-9])|k(?=\d)|\d+)/gu);
   let first: ModelNameRecognition | undefined;
   let consumedEnd = 0;
   for (const marker of markers) {
-    if (marker.index < consumedEnd || marker[0] === "mythos" && !options.promptAliases) continue;
+    if (marker.index < consumedEnd || (marker[0] === "mythos" || marker[0] === "grok") && !options.promptAliases) continue;
     // Outside prompt selection, only the historical SWE-2 marker participates in classification.
     if (marker[0] === "swe" && !options.promptAliases && !/^[-_.\s/]+2(?![a-z0-9])/u.test(name.slice(marker.index + marker[0].length))) continue;
     let identifier: ModelIdentifier;
@@ -155,7 +155,7 @@ export function recognizeModelName(model: string, options: { promptAliases?: boo
       consumedEnd = parsed.end;
       continue;
     }
-    const family = identifier === "swe" || /^k2[-_.\s/]*p8$/u.test(marker[0]) ? "unknown" : identifier;
+    const family = identifier === "grok" || identifier === "swe" || /^k2[-_.\s/]*p8$/u.test(marker[0]) ? "unknown" : identifier;
     const version = /^\.x/u.test(name.slice(parsed.end)) ? undefined : parsed.version;
     first = {
       identifier, family, series, version: parsed.version, versionParts: parsed.versionParts,

@@ -24,6 +24,25 @@ test("classifyModelFamily identifies configured model families", () => {
   assert.equal(classifyModelFamily({ providerID: "codex", modelID: "gpt-5.6" }), "gpt", "explicit model identity precedes provider hints");
 });
 
+test("Grok identifiers are prompt-only and never become a routing family", () => {
+  for (const model of ["grok-4", "grok4", "GROK_4_1", "xai/grok-4-fast", "openrouter/x-ai/grok-4",
+    "github-copilot/grok-4", "prefix-grok-4", "gateway/grok/4", "x-ai.grok-4", "grok-4-gpt-6"]) {
+    const recognized = recognizeModelName(model, { promptAliases: true });
+    assert.equal(recognized?.identifier, "grok", model);
+    assert.equal(recognized?.family, "unknown", model);
+  }
+  for (const model of ["grok-4", "grok4", "xai/grok-4-fast"]) {
+    assert.equal(recognizeModelName(model), undefined, model);
+    assert.equal(classifyModelFamily({ providerID: "xai", modelID: model }), "unknown", model);
+  }
+  for (const model of ["xgrok", "xgrok-4", "grokish", "grokish-4"]) {
+    assert.equal(recognizeModelName(model, { promptAliases: true }), undefined, model);
+    assert.equal(classifyModelFamily({ modelID: model }), "unknown", model);
+  }
+  assert.equal(recognizeModelName("gpt-6-grok-4", { promptAliases: true })?.identifier, "gpt");
+  assert.equal(classifyModelFamily({ modelID: "grok-4-gpt-6" }), "gpt");
+});
+
 test("classifyModelFamily applies approved provider hints and priority", () => {
   const cases = [
     [{ providerID: "openai", modelID: "claude-opus-5" }, "claude"],

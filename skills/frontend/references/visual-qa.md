@@ -94,7 +94,56 @@ Visual QA must strictly adhere to environment safety boundaries:
 
 ---
 
-## 6. HTML, CSS, SVG Reports & Printable Documents
+## 6. State and Flow Behavior Evidence
+
+Use these cases for changed reads, writes, saved state, and multi-step flows. Expected results come from the state table, requirement, or established product contract; current behavior alone is not an expectation.
+
+### Real user path
+
+Reach each state through the controls and navigation available to a user. A typed route, script-dispatched event, forced click, or direct API call used in place of the user action is diagnostic evidence for a different path, not proof of the real entry point. Name the build and data used.
+
+### Held and failed
+
+1. Start the user action and hold its response at an available network or fixture boundary.
+2. Confirm that interception actually fired and the response is still held before capturing the pending state. A service worker, another transport, or an unreached handler invalidates the capture.
+3. Observe the pending message, locked controls, input, selection, focus, scroll, and work area. Release the response for success or produce the failure, then wait for the resulting state or event rather than a fixed delay.
+4. Record request count and target, then read back or reload to inspect the persisted result. A success notice alone does not prove persistence. If the condition cannot be held or observed, mark it **UNVERIFIED** with the reason.
+
+An injected hold or failure verifies handling of that condition. A stubbed success does not verify a real backend success path; identify that remaining boundary explicitly.
+
+### Switch: stale response cannot replace the current target
+
+1. Start request A and hold it.
+2. Switch to target B through the real user control and let B complete.
+3. Release A.
+4. Verify that the screen still shows B's data and selection, with no dialog, error, or success notice belonging to A. Record both requests and their targets.
+
+### Twice: duplicate activation and retry
+
+While the first write is held, activate the same action again. Verify that no unintended second write occurs: either exactly one request leaves or the second attempt is refused with a visible reason. After a refusal or failure, activate retry and verify that a new request can leave. Compare request counts, targets, and the persisted result rather than inferring them from button appearance.
+
+### Re-entry
+
+After settlement, return through each supported user path: reload or restart, close and reopen, back and forward, a cold deep link, reconnect, and a second window or device when synchronization is supported. Check the explicit keep/discard contract: saved state remains, discarded state does not return, and expected controls remain available. Leaving during a write must produce the defined completed, incomplete, or unknown result on return.
+
+### Keep and clear observations
+
+Observe these values before the action, while its request is held, and after it settles:
+
+- **Keep according to the contract**: selection, typed input, focus, scroll position, and the open work area or region position.
+- **Clear at the defined transition**: the old spinner or loading text, previous error after successful retry, previous success notice when a new action starts, and the previous dialog or form. A late response must not reopen or restore an obsolete element.
+
+### Evidence labels and cleanup
+
+- **TRACED** means the behavior was inspected in source. It can locate a cause but cannot support a rendered-behavior PASS.
+- **UNVERIFIED** means the required condition could not be produced or observed. Name the missing capability, decision, backend, or surface.
+- A rendered-behavior PASS requires execution through the real user path with the relevant visible state, request, and persisted-result observations.
+
+Release every held request. Clean up only run-owned fixture data, tabs, contexts, servers, and temporary empty browser profiles created for the check; preserve pre-existing and user-owned resources.
+
+---
+
+## 7. HTML, CSS, SVG Reports & Printable Documents
 
 Visual QA applies to non-interactive documents and data visualizations:
 
@@ -104,12 +153,13 @@ Visual QA applies to non-interactive documents and data visualizations:
 
 ---
 
-## 7. Deliverable: Visual QA Report Format
+## 8. Deliverable: Visual QA Report Format
 
 When concluding visual verification, report:
 
 1. **Surfaces Tested**: Routes, components, and viewports tested (375 / 768 / 1280px).
 2. **Baseline Status**: Captured pre-change baseline / comparative before-after / baseline unavailable (disclosed).
-3. **States Verified**: Default, hover, focus, disabled, loading, empty, and error states.
-4. **Defects Remediated**: Objective defects identified and resolved during the run.
-5. **Unverified Boundaries**: Any surfaces not verified due to environment, authentication, or missing browser tooling.
+3. **States Verified**: Default, hover, focus, disabled, unknown, empty, loaded, saving, failed, and applicable held, switch, twice, and re-entry cases.
+4. **Request and Result Evidence**: Request counts and targets, persisted results, and keep/clear observations for applicable state transitions.
+5. **Defects Remediated**: Objective defects identified and resolved during the run.
+6. **Unverified Boundaries**: Any surfaces not verified due to environment, authentication, missing product decisions, or missing browser tooling. Distinguish **UNVERIFIED** from source-only **TRACED** findings.

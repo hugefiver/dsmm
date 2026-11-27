@@ -28,10 +28,20 @@ This file is a router, not a rulebook. The rules live in three rulesets under `r
 |---|---|
 | ANY UI implementation, styling, redesign, mockup, or visual decision | `references/design/README.md` FIRST. Governs the Brief → Build → Subtract → Verify workflow: restrained defaults for internal tools/dashboards/reports/charts; small adjustments inspect touched tokens/components without forcing `DESIGN.md`; subtracts decorative clutter while strictly preserving required content; checks already available React dev tooling without unauthorized installs; routes to taste/brand references. |
 | Writing or modifying frontend code, OR auditing performance / SEO / accessibility / quality | ALSO `references/perfection/README.md`. Lighthouse 100 in every category, measured on real Playwright Chromium (never the `lighthouse` CLI), achieved through architecture — never by dropping animations or hiding/deleting required content. |
+| Any state or flow change: loading, saving, requests, preconditions, saved/restored state, or a multi-step flow | ALSO `references/perfection/state-and-flow.md`. Write the state table before code; bind responses to their request and target, and define re-entry plus keep/clear behavior. |
 | Visual QA, before/after verification, screenshot audits, UI defect triage, or checking responsive breakpoints | `references/visual-qa.md`. Enforces fixed-state before/after comparison, defect vs. taste distinction, bounded progress, and distinguishing harness failures from product defects. |
 | Looking up a concrete style, color palette, font pairing, chart type, landing-page structure, or UX guideline — or generating a project design system from keywords | `references/ui-ux-db/README.md`. A searchable CSV database with a CLI; a lookup tool, not a posture. Load on demand; `design` stays the source of truth for taste and the `DESIGN.md` contract. |
 
 **For implementation work, design + perfection load together.** A page that hits Lighthouse 100 but looks like AI slop has failed; a page that looks beautiful but ships a 2 MB bundle has failed. Both win or neither does.
+
+## Brief — decide what the screen is for
+
+Before building or changing a screen, record the brief in `DESIGN.md` beside the screen or, when the project has none, in the change description:
+
+- **Goal and primary action**: what the user needs to accomplish and the single main action.
+- **Information priorities**: the first three things the screen must communicate, in reading order.
+- **Required content**: every required input, datum, label, action, and piece of copy. Subtraction must preserve all of it.
+- **State table** for any state or flow change: use `references/perfection/state-and-flow.md` to record every reachable state, what decides it, what the user sees, the next action, requests that run, and what must not show. Include request-target binding, re-entry, and keep/clear behavior where applicable.
 
 ## Ruleset 1 — design (`references/design/`)
 
@@ -121,6 +131,7 @@ For non-writing lookup, use the same resolved script and confirmed project conte
 | "Internal tool" / "dashboard" / "report layout" | `design/README.md` (brief + restrained default) + `design/minimalist-skill.md` + `references/visual-qa.md` |
 | "Visual QA this page" / "check before and after" | `references/visual-qa.md` |
 | "Polish these interactions" / "add motion and states" | `design/README.md` + `design/interaction-skill.md` + the selected style/brand reference + `perfection/README.md` |
+| "Add or fix loading, saving, or restored state" / "build a multi-step flow" | `design/README.md` + `perfection/state-and-flow.md` + `references/visual-qa.md` + `perfection/README.md` |
 | "Audit my site" / "make this page faster" | `perfection/README.md` (+ `perfection/react-perf-tooling.md` if React) |
 | "Mockup image of a fintech app" — no code | `design/imagegen-frontend-mobile.md` (+ a Layer B brand if named) |
 | "What palette/fonts fit a wellness brand?" | `ui-ux-db/README.md` → search CLI |

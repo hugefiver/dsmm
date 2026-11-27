@@ -148,6 +148,7 @@ test("actual tarball ships every frontend resource and native skill resourceBase
     const receipt = JSON.parse(packed.stdout)[0];
     const paths = new Set(receipt.files.map((file: { path: string }) => file.path));
     for (const row of frontendRecipe() as Array<{ target: string }>) assert.ok(paths.has(`skills/frontend/${row.target}`), row.target);
+    assert.ok(paths.has("skills/frontend/references/perfection/state-and-flow.md"));
     assert.ok(paths.has("skills/frontend/.frontend-materialized.json"));
     const extract = spawnSync("tar", ["-xzf", join(directory, receipt.filename), "-C", directory], { encoding: "utf8", timeout: 30000 });
     assert.equal(extract.status, 0, extract.stderr);
@@ -168,6 +169,7 @@ test("actual tarball ships every frontend resource and native skill resourceBase
       assert.ok(loaded.content.trim().length > 0);
       assert.deepEqual(loaded.resourceBase, { kind: "directory", path: join(staged, "skills", name) });
     }
+    assert.ok(existsSync(join(staged, "skills/frontend/references/perfection/state-and-flow.md")));
     assert.equal(checkFrontendAssets(staged).outcome, "ready");
     assert.equal(readdirSync(directory).filter((file) => file.endsWith(".tgz")).length, 1);
   } finally { cleanup(directory); }
